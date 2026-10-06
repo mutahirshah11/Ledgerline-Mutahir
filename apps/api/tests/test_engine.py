@@ -1,7 +1,9 @@
 """Engine entry point `reconcile_run` (contracts/engine.md; spec US5, FR-030 to FR-035,
 Clarification 4, FM-07, FM-08)."""
 
+import time
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -158,6 +160,40 @@ def test_engine_failure_after_replace_marks_run_failed(
     assert memory_repo.list_audit(extracted_run.id) == []
 
 
+def test_engine_pipeline_error_marks_run_failed_at_reconcile(
+    memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs
+) -> None:
+    """User decision 2026-10-07: an error inside `run_pipeline` (here a corrupt store sheet) logs
+    `reconcile/FAILED`, moves the run to `FAILED` at `reconcile`, re-raises, writes nothing else."""
+    reconcile_run(memory_repo, engine_inputs)
+    assert memory_repo.get_run(extracted_run.id).status is RunStatus.AWAITING_REVIEW
+    previous = _state(memory_repo, extracted_run.id)
+    events_before = memory_repo.list_run_events(extracted_run.id)
+    audit_before = memory_repo.list_audit(extracted_run.id)
+
+    with pytest.raises(ValueError) as exc:
+        reconcile_run(memory_repo, replace(engine_inputs, sheet_bytes=b"not a zip"))
+
+    after = _state(memory_repo, extracted_run.id)
+    assert {k: v for k, v in after.items() if k != "run"} == {
+        k: v for k, v in previous.items() if k != "run"
+    }
+    run = memory_repo.get_run(extracted_run.id)
+    assert (run.status, run.failed_stage, run.error_message) == (
+        RunStatus.FAILED,
+        Stage.RECONCILE,
+        repr(exc.value),
+    )
+    events = memory_repo.list_run_events(extracted_run.id)
+    assert events[: len(events_before)] == events_before
+    assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
+        (Stage.RECONCILE, RunEventStatus.STARTED),
+        (Stage.RECONCILE, RunEventStatus.FAILED),
+    ]
+    assert events[-1].detail == {"error": repr(exc.value)}
+    assert memory_repo.list_audit(extracted_run.id) == audit_before
+
+
 def test_engine_proof_fail_keeps_previous_reconciliation(
     memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs
 ) -> None:
@@ -198,7 +234,8 @@ def test_engine_proof_fail_on_finalised_run_keeps_its_proof(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A run finalised between the status check and the FAIL path: the transition to `FAILED`
-    raises `StateConflict` before the finalised run's proof could be overwritten."""
+    raises `StateConflict` before the finalised run's proof could be overwritten; the failure is
+    still logged (`proof/FAILED`, `reconcile/FAILED`)."""
     reconcile_run(memory_repo, engine_inputs)
     _resolve_open_flag_items(memory_repo, extracted_run.id, frozen_clock)
     again = _with_decisions(engine_inputs, pack_dir, ground_truth_dir, memory_repo)
@@ -213,12 +250,20 @@ def test_engine_proof_fail_on_finalised_run_keeps_its_proof(
         finalised_by="controller@example.com",
     )
     proof = memory_repo.get_proof(stale.id)
+    events_before = memory_repo.list_run_events(stale.id)
     monkeypatch.setattr(memory_repo, "get_run", lambda _: stale)
 
     with pytest.raises(StateConflict):
         reconcile_run(memory_repo, again, faults=frozenset({Fault.PROOF_DROP_ROW}))
 
     assert memory_repo.get_proof(stale.id) == proof
+    events = memory_repo.list_run_events(stale.id)
+    assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
+        (Stage.RECONCILE, RunEventStatus.STARTED),
+        (Stage.PROOF, RunEventStatus.STARTED),
+        (Stage.PROOF, RunEventStatus.FAILED),
+        (Stage.RECONCILE, RunEventStatus.FAILED),
+    ]
 
 
 def test_engine_status_awaiting_review_then_ready(
@@ -395,9 +440,8 @@ def test_engine_proof_failure_message_never_empty_clause(
 def test_engine_reconcile_under_3s(
     memory_repo: MemoryRepo, engine_inputs: EngineInputs, frozen_clock: datetime
 ) -> None:
-    """NFR-05 / SC-005: a full reconcile of the pack completes in under 3 seconds."""
-    import time
-
+    """NFR-05 / SC-005: a full reconcile of the pack completes in under 3 seconds. Only
+    `reconcile_run` is timed; fixtures (pack read, run setup) are built before the clock starts."""
     threshold_s = 3.0
 
     start = time.perf_counter()

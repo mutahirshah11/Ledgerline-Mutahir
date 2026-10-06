@@ -246,10 +246,11 @@ def reconcile_run(
     """Reconcile a run end to end (contracts/engine.md sequence 1 to 8).
 
     Proof `FAIL`: the run moves to `FAILED` at stage `proof`, then the proof is saved; the previous
-    reconciliation is untouched (Clarification 4, FM-07). Any error from step 4 on (replace, review
-    items, proof, status moves) logs `reconcile/FAILED`, moves the run to `FAILED` at stage
-    `reconcile` when the lifecycle allows, and re-raises; a failed replace keeps the previous
-    reconciliation (FM-08; user decision 2026-10-07).
+    reconciliation is untouched (Clarification 4, FM-07). Any error in the pipeline (step 2, e.g.
+    a corrupt sheet) or from step 4 on (replace, review items, proof, status moves) logs
+    `reconcile/FAILED`, moves the run to `FAILED` at stage `reconcile` when the lifecycle allows,
+    and re-raises; a pipeline error writes nothing else and a failed replace keeps the previous
+    reconciliation (FM-08; user decisions 2026-10-07).
     """
     run_id = inputs.run_id
     run = repo.get_run(run_id)
@@ -258,7 +259,11 @@ def reconcile_run(
 
     log = _Log(repo, run_id, now)
     log.event(Stage.RECONCILE, RunEventStatus.STARTED, {})
-    result = run_pipeline(inputs, now=now(), faults=faults)
+    try:
+        result = run_pipeline(inputs, now=now(), faults=faults)
+    except Exception as exc:  # nothing written yet (user decision 2026-10-07)
+        _fail_on_reconcile(repo, log, run_id, exc)
+        raise
     # contract order: proof/STARTED follows prove() (inside run_pipeline), so the proof stage's
     # duration_ms measures the writes, not the checks
     log.event(Stage.PROOF, RunEventStatus.STARTED, {})
@@ -282,23 +287,30 @@ def reconcile_run(
 
 def _fail_on_proof(repo: Repo, log: _Log, run: Run, proof: Proof) -> None:
     """Proof `FAIL` (FM-07): move to `FAILED` first, so a run finalised meanwhile raises
-    `StateConflict` before its proof could be overwritten; then save the proof and log."""
+    `StateConflict` before its proof could be overwritten; then save the proof and log. On that
+    conflict the failure is still logged (`proof/FAILED`, `reconcile/FAILED`), nothing saved."""
     message = proof_failure_message(proof)
-    repo.transition_run(
-        run.id,
-        RunStatus.FAILED,
-        expected={run.status},
-        failed_stage=Stage.PROOF,
-        error_message=message,
-    )
+    try:
+        repo.transition_run(
+            run.id,
+            RunStatus.FAILED,
+            expected={run.status},
+            failed_stage=Stage.PROOF,
+            error_message=message,
+        )
+    except StateConflict as exc:
+        log.event(Stage.PROOF, RunEventStatus.FAILED, {"error": message})
+        log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": repr(exc)})
+        raise
     repo.save_proof(proof)
     log.event(Stage.PROOF, RunEventStatus.FAILED, {"error": message})
     log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
 
 
 def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> None:
-    """A write in steps 4 to 7 failed: log `reconcile/FAILED` and move the run to `FAILED` at
-    stage `reconcile` if its current status allows (a run finalised meanwhile stays put)."""
+    """The pipeline (step 2) or a write in steps 4 to 7 failed: log `reconcile/FAILED` and move
+    the run to `FAILED` at stage `reconcile` if its current status allows (a run finalised
+    meanwhile stays put)."""
     message = repr(exc)
     log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
     current = repo.get_run(run_id)
