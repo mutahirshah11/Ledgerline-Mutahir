@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable
 from uuid import UUID, uuid5
 
-from app.domain.enums import PRINTED_ROW_SLOTS, FlagType, ReviewKind, Stage
+from app.domain.enums import PRINTED_ROW_SLOTS, FlagType, ReadVariant, ReviewKind, Stage
 
 _MONTH = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])")  # ASCII digits only
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -88,6 +88,12 @@ def review_item_key(
     if grn_no is None:
         raise ValueError("row_id or grn_no is required")
     return f"FLAG:{flag.value}:{_int_at_least('grn_no', grn_no, 1)}"
+
+
+def cache_file_name(sha: str, variant: ReadVariant, model: str, prompt_version: str) -> str:
+    """The committed cache file name of one read: `{sha}.{variant}.{model}.{prompt_version}.json`
+    (the T-EXTRACT unique key, F-03.R1; contracts/extract-service.md §5)."""
+    return f"{sha}.{variant.value}.{model}.{prompt_version}.json"
 
 
 def stable_id(run_id: UUID, *parts: str) -> UUID:

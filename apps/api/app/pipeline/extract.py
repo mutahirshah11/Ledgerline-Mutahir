@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -37,6 +37,7 @@ from app.domain.enums import (
     ReviewKind,
     ReviewReason,
 )
+from app.domain.ids import cache_file_name as cache_file_name  # re-export: contract §5
 from app.domain.ids import (
     page_review_key,
     parse_month,
@@ -126,11 +127,6 @@ def same_key(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
     return value.strip().casefold()
-
-
-# Deprecated private alias: scripts/eval_extraction.py still imports `_same_key`; remove once
-# that script is switched to `same_key`.
-_same_key = same_key
 
 
 def _trimmed(value: str | None) -> str | None:
@@ -520,7 +516,9 @@ def _read_with_retries(
 ) -> _ReadOutcome:
     """One read with bounded retries (contract §4, research R5): an attempt is a model call
     plus validation; retryable failures wait 2 s then 8 s (`sleep`), reporting each retry to
-    `on_retry` first. Never raises: the last error is returned in the outcome."""
+    `on_retry` first. `on_retry` runs on this read's worker thread; an exception it raises is
+    logged and ignored, never aborting the read. Never raises: the last error is returned in
+    the outcome."""
     outcome = _ReadOutcome()
 
     def attempt() -> tuple[PageRead, RawRead]:
@@ -542,7 +540,14 @@ def _read_with_retries(
             cause,
         )
         if on_retry is not None:
-            on_retry(info)
+            try:
+                on_retry(info)
+            except Exception:  # an observer bug must not cost the read
+                logger.exception(
+                    "extract page=%d read=%s on_retry observer failed; ignored",
+                    page_no,
+                    variant.value,
+                )
 
     retrying = Retrying(
         stop=stop_after_attempt(EXTRACT_ATTEMPTS),
@@ -580,12 +585,16 @@ def retry_cause(error: BaseException | None) -> str | None:
 
 
 def _final_error(error: BaseException, attempts: int, page_no: int) -> BaseException:
-    """Contract §4 final detail; errors outside the table (bugs) are returned unchanged."""
+    """Contract §4 final detail. Any other `openai.APIError` (e.g. a response that fails the
+    SDK's own validation) is upstream trouble too (FR-012); non-openai errors (bugs, e.g. a
+    replay cache miss) are returned unchanged."""
     cause = retry_cause(error)
     if cause is not None:
         detail = f"{cause} after {attempts} attempts"
     elif isinstance(error, openai.APIStatusError):
         detail = f"rejected: HTTP {error.status_code}"
+    elif isinstance(error, openai.APIError):
+        detail = f"rejected: {type(error).__name__}"
     else:
         return error
     return UpstreamFailed("openai", detail, stage="extract", page_no=page_no)
@@ -631,6 +640,8 @@ def _disagreements(page: MergedPage) -> int:
     """Data-model §5: READS_DISAGREE cells (any field) plus rows seen by one read only."""
     count = 0
     for row in page.rows:
+        # A row one read alone saw counts once, never per cell: its merged cells carry no
+        # review reason (FR-019), and it becomes one ROW_IN_ONE_READ item.
         if _single_read_variant(row) is not None:
             count += 1
             continue
@@ -638,6 +649,69 @@ def _disagreements(page: MergedPage) -> int:
             1 for c in row.cells.values() if c.review_reason is ReviewReason.READS_DISAGREE
         )
     return count
+
+
+def _obtain_reads(
+    repo: Repo,
+    client: ModelClient,
+    *,
+    sha: str,
+    image: bytes,
+    mime: str,
+    page_no: int,
+    settings: Settings,
+    on_retry: Callable[[RetryInfo], None] | None,
+    sleep: Callable[[float], None],
+) -> tuple[dict[ReadVariant, PageRead], int]:
+    """Contract §3 steps 2 to 5: both reads (cached, else read in parallel) and the model
+    calls made. Each successful read is stored as soon as it completes (FR-007), on this
+    thread, so the repo is never used from a worker. When any read fails, the first failure
+    in variant order (A before B) is raised after every success is stored."""
+    reads: dict[ReadVariant, PageRead] = {}
+    for v in ReadVariant:
+        cached = _cached_read(repo, sha, v, settings)
+        if cached is not None:
+            reads[v] = cached
+    missing = [v for v in ReadVariant if v not in reads]
+    if not missing:
+        return reads, 0
+    schema = load_read_schema(settings.PROMPT_VERSION)
+    prompts = {v: load_prompt(v, settings.PROMPT_VERSION) for v in missing}
+    calls_made = 0
+    errors: dict[ReadVariant, BaseException] = {}
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract-read") as pool:
+        futures: dict[Future[_ReadOutcome], ReadVariant] = {
+            pool.submit(
+                _read_with_retries,
+                client,
+                image=image,
+                mime=mime,
+                variant=v,
+                instructions=prompts[v],
+                schema=schema,
+                page_no=page_no,
+                on_retry=on_retry,
+                sleep=sleep,
+            ): v
+            for v in missing
+        }
+        for future in as_completed(futures):  # store each success at once (US3 sc. 5)
+            variant, outcome = futures[future], future.result()
+            calls_made += outcome.attempts
+            if outcome.error is None:
+                reads[variant] = _store(repo, sha, variant, settings, outcome)
+            else:
+                errors[variant] = _final_error(outcome.error, outcome.attempts, page_no)
+    if errors:
+        failure = next(errors[v] for v in ReadVariant if v in errors)  # deterministic: A first
+        logger.warning(
+            "extract page=%d sha=%s failed: %s",
+            page_no,
+            sha[:12],
+            failure.detail if isinstance(failure, UpstreamFailed) else type(failure).__name__,
+        )
+        raise failure
+    return reads, calls_made
 
 
 def extract_page(
@@ -654,7 +728,8 @@ def extract_page(
 ) -> PageExtractionResult:
     """Read one register page twice (cached per variant), merge, check and queue review items
     (contract §3). Never changes run status, run events or audit (FR-029); `on_retry` runs on
-    the read's worker thread. Never logs the API key or the image.
+    the read's worker thread, and an exception it raises is logged and ignored. Never logs the
+    API key or the image.
 
     Raises:
         ValueError: the image is not a JPEG or PNG (before any lookup or call).
@@ -662,56 +737,25 @@ def extract_page(
         UpstreamFailed: a read could not be obtained (service "openai", stage "extract").
         PageUnreadable: more than half the merged cells are illegible (FM-06); nothing queued.
     """
-    sha = hashlib.sha256(image).hexdigest()
+    sha = hashlib.sha256(image).hexdigest()  # 1
     mime = image_mime(image)
-    reads: dict[ReadVariant, PageRead | None] = {
-        v: _cached_read(repo, sha, v, settings) for v in ReadVariant
-    }
-    missing = [v for v, r in reads.items() if r is None]
-    calls_made = 0
-    if missing:
-        schema = load_read_schema(settings.PROMPT_VERSION)
-        prompts = {v: load_prompt(v, settings.PROMPT_VERSION) for v in missing}
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract-read") as pool:
-            futures: dict[ReadVariant, Future[_ReadOutcome]] = {
-                v: pool.submit(
-                    _read_with_retries,
-                    client,
-                    image=image,
-                    mime=mime,
-                    variant=v,
-                    instructions=prompts[v],
-                    schema=schema,
-                    page_no=page_no,
-                    on_retry=on_retry,
-                    sleep=sleep,
-                )
-                for v in missing
-            }
-            outcomes = {v: f.result() for v, f in futures.items()}
-        failure: BaseException | None = None
-        for variant, outcome in outcomes.items():  # store every success first (US3 sc. 5)
-            calls_made += outcome.attempts
-            if outcome.error is None:
-                reads[variant] = _store(repo, sha, variant, settings, outcome)
-            elif failure is None:
-                failure = _final_error(outcome.error, outcome.attempts, page_no)
-        if failure is not None:
-            logger.warning(
-                "extract page=%d sha=%s failed: %s",
-                page_no,
-                sha[:12],
-                failure.detail if isinstance(failure, UpstreamFailed) else type(failure).__name__,
-            )
-            raise failure
-
+    reads, calls_made = _obtain_reads(  # 2 to 5
+        repo,
+        client,
+        sha=sha,
+        image=image,
+        mime=mime,
+        page_no=page_no,
+        settings=settings,
+        on_retry=on_retry,
+        sleep=sleep,
+    )
     read_a, read_b = reads[ReadVariant.A], reads[ReadVariant.B]
-    assert read_a is not None and read_b is not None
-    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=sha)
-    check_readable(page)
-    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)
+    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=sha)  # 6
+    check_readable(page)  # 7
+    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)  # 8
     repo.upsert_review_items(run_id, items)
-    result = PageExtractionResult(
+    result = PageExtractionResult(  # 9
         page_no=page_no,
         cached=calls_made == 0,
         page=page,
@@ -733,12 +777,6 @@ def extract_page(
 
 
 # --- pack cache helpers (contract §5, research R10, FR-030, FR-031) ------------------------
-
-
-def cache_file_name(sha: str, variant: ReadVariant, model: str, prompt_version: str) -> str:
-    """The committed cache file name of one read: `{sha}.{variant}.{model}.{prompt_version}.json`
-    (the T-EXTRACT unique key, F-03.R1)."""
-    return f"{sha}.{variant.value}.{model}.{prompt_version}.json"
 
 
 def load_cached_extractions(repo: Repo, cache_dir: Path) -> int:

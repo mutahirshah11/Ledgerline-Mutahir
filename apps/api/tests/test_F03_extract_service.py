@@ -221,6 +221,19 @@ def test_F03_R1_cache_key_includes_prompt_version(
     assert (stored(repo, A), stored(repo, B)) == (v1_a, v1_b)  # v1 records untouched
 
 
+def test_F03_R1_cache_key_includes_model(repo: MemoryRepo) -> None:
+    run(repo, healthy())
+    old_a, old_b = stored(repo, A), stored(repo, B)
+
+    client = healthy()
+    other = settings(EXTRACT_MODEL="other-model")
+    result = run(repo, client, cfg=other)
+    assert client.calls == 2 and result.cached is False
+    assert stored(repo, A, other).model == "other-model"
+    assert stored(repo, B, other).model == "other-model"
+    assert (stored(repo, A), stored(repo, B)) == (old_a, old_b)  # old-model records untouched
+
+
 def test_F03_R1_invalid_cached_record_errors(repo: MemoryRepo) -> None:
     run(repo, healthy())
     bad = MemoryRepo()
@@ -497,6 +510,115 @@ def test_F03_R5_one_read_fails_other_cached(repo: MemoryRepo) -> None:
     result = run(repo, later)
     assert later.calls == 1 and [r.variant for r in later.requests] == [A]
     assert result.calls_made == 1
+
+
+WAIT_S = 5  # a guard against hanging, never a real delay on the passing path
+
+
+class SignallingRepo(MemoryRepo):
+    """Sets `stored[variant]` right after a read is stored, so a blocked read can watch it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stored = {v: threading.Event() for v in ReadVariant}
+
+    def put_extraction(self, extraction: Extraction) -> tuple[Extraction, bool]:
+        result = super().put_extraction(extraction)
+        self.stored[extraction.read_variant].set()
+        return result
+
+
+class HeldClient:
+    """Answers B at once; holds A until `release` is set (or `WAIT_S` passes), then answers."""
+
+    def __init__(self, a_answer: Answer, b_answers: list[Answer], release: threading.Event) -> None:
+        self.inner = ScriptedModelClient({A: [a_answer], B: b_answers})
+        self.release = release
+        self.released_in_time: bool | None = None
+
+    def read_page(self, *, variant: ReadVariant, **kwargs: Any) -> RawRead:
+        if variant is A:
+            self.released_in_time = self.release.wait(timeout=WAIT_S)
+        return self.inner.read_page(variant=variant, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "a_answer",
+    [raw(payload()), _status(openai.AuthenticationError, 401)],
+    ids=["a-succeeds", "a-fails"],
+)
+def test_F03_FR007_read_stored_before_other_read_finishes(
+    frozen_clock: datetime, a_answer: Answer
+) -> None:
+    signalling = SignallingRepo()
+    signalling.create_run(make_run(id=RUN_ID))
+    client = HeldClient(a_answer, [raw(payload())], release=signalling.stored[B])
+    if isinstance(a_answer, Exception):
+        assert _fails(signalling, client).detail == "rejected: HTTP 401"
+    else:
+        run(signalling, client)
+    # read A was still in flight when read B reached the repo (contract §3 step 4)
+    assert client.released_in_time is True
+    assert stored(signalling, B) is not None
+
+
+def test_F03_R5_both_fail_reports_read_a_error(repo: MemoryRepo) -> None:
+    """B finishes (fails) first; the reported error is still A's (deterministic)."""
+    b_done = threading.Event()
+
+    class LastBSignals(ScriptedModelClient):
+        def read_page(self, *, variant: ReadVariant, **kwargs: Any) -> RawRead:
+            if variant is A:
+                assert b_done.wait(timeout=WAIT_S)
+            try:
+                return super().read_page(variant=variant, **kwargs)
+            finally:
+                if variant is B and _by_variant(self)[B] == EXTRACT_ATTEMPTS:
+                    b_done.set()
+
+    client = LastBSignals({A: [_status(openai.AuthenticationError, 401)], B: [_timeout()] * 3})
+    error = _fails(repo, client)
+    assert error.detail == "rejected: HTTP 401"
+
+
+def _response_validation_error() -> Exception:
+    return openai.APIResponseValidationError(
+        response=httpx2.Response(200, request=_request()), body=None
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "name"),
+    [
+        (_response_validation_error(), "APIResponseValidationError"),
+        (openai.APIError("odd", _request(), body=None), "APIError"),
+    ],
+    ids=["response-validation", "bare-api-error"],
+)
+def test_F03_FR012_other_openai_error_is_upstream_failed(
+    repo: MemoryRepo, error: Exception, name: str
+) -> None:
+    client = ScriptedModelClient({A: [error], B: [raw(payload())]})
+    sleeps = Sleeps()
+    failure = _fails(repo, client, sleep=sleeps)
+    assert _by_variant(client)[A] == 1 and list(sleeps) == []  # not retried
+    assert (failure.service, failure.stage, failure.page_no) == ("openai", "extract", PAGE_NO)
+    assert failure.detail == f"rejected: {name}"
+    assert stored(repo, B) is not None
+
+
+def test_F03_R5_on_retry_error_does_not_abort_read(
+    repo: MemoryRepo, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken_observer(info: RetryInfo) -> None:
+        raise RuntimeError("observer broke")
+
+    client = ScriptedModelClient({A: [_timeout(), raw(payload())], B: [raw(payload())]})
+    sleeps = Sleeps()
+    result = run(repo, client, sleep=sleeps, on_retry=broken_observer)
+    assert _by_variant(client)[A] == 2 and list(sleeps) == [2]  # the retry still happened
+    assert result.calls_made == 3 and stored(repo, A) is not None
+    assert "on_retry" in caplog.text and "observer broke" in caplog.text
 
 
 def test_F03_R5_unexpected_error_propagates_unchanged(repo: MemoryRepo) -> None:

@@ -54,7 +54,7 @@ from app.core.config import get_settings
 from app.core.errors import InvalidReadOutput
 from app.domain.enums import REVIEWABLE_REGISTER_FIELDS, CellStatus, ReadVariant, ReviewReason
 from app.domain.models import Cell, GroundTruthPage, MergedPage, PageRead
-from app.pipeline.extract import _same_key, load_prompt, load_read_schema, merge_reads, parse_read
+from app.pipeline.extract import load_prompt, load_read_schema, merge_reads, parse_read, same_key
 from app.pipeline.model_client import (
     CachedReadAmbiguous,
     ModelClient,
@@ -227,7 +227,7 @@ def _clear_correct(gt: Cell, got: Cell | None) -> bool:
     return (
         got is not None
         and got.status is CellStatus.CLEAR
-        and _same_key(got.value) == _same_key(gt.value)
+        and same_key(got.value) == same_key(gt.value)
     )
 
 
@@ -235,8 +235,8 @@ def _corrected_correct(gt: Cell, got: Cell | None) -> bool:
     return (
         got is not None
         and got.status is CellStatus.CORRECTED
-        and _same_key(got.value) == _same_key(gt.value)
-        and _same_key(got.struck) == _same_key(gt.struck)
+        and same_key(got.value) == same_key(gt.value)
+        and same_key(got.struck) == same_key(gt.struck)
     )
 
 

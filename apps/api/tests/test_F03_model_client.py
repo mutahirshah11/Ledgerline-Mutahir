@@ -5,6 +5,8 @@ import hashlib
 import json
 import logging
 import re
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -25,6 +27,7 @@ from app.pipeline.model_client import (
     ReplayModelClient,
 )
 
+API_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "app" / "pipeline" / "prompts"
 SCHEMA_FILE = SCHEMA_PATH / "read_schema_v1.json"
 JPEG = b"\xff\xd8\xff\xe0" + b"jpeg-body" * 8
@@ -372,3 +375,13 @@ def test_F03_fault_client_rejects_non_extract_fault() -> None:
 
 def _request() -> Any:
     return httpx2.Request("POST", "https://api.openai.com/v1/responses")
+
+
+def test_F03_model_client_does_not_import_extract() -> None:
+    """No import cycle: the client module stands alone (extract imports it, not vice versa)."""
+    code = (
+        "import sys, app.pipeline.model_client; "
+        "sys.exit(int('app.pipeline.extract' in sys.modules))"
+    )
+    done = subprocess.run([sys.executable, "-c", code], cwd=API_ROOT, check=False)
+    assert done.returncode == 0

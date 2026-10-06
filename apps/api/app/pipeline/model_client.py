@@ -17,6 +17,7 @@ import openai
 from app.core.config import EXTRACT_TIMEOUT_S, get_settings
 from app.core.errors import InvalidReadOutput
 from app.domain.enums import Fault, ReadVariant
+from app.domain.ids import cache_file_name
 
 
 @dataclass(frozen=True)
@@ -193,8 +194,7 @@ class ReplayModelClient:
         sha = hashlib.sha256(image).hexdigest()
         model = glob.escape(self.model) if self.model else "*"
         prompt_version = glob.escape(self.prompt_version) if self.prompt_version else "*"
-        from app.pipeline.extract import cache_file_name  # local: extract imports this module
-
+        # Used as a glob pattern: "*" stands for any model / prompt version (literals escaped).
         pattern = cache_file_name(sha, variant, model, prompt_version)
         matches = sorted(self.cache_dir.glob(pattern))
         if not matches:
