@@ -67,10 +67,21 @@ def build_engine_inputs(
         )
         for p in PAGES
     ]
+    return pack_engine_inputs(pack_dir, run_id, pages, decisions)
+
+
+def pack_engine_inputs(
+    pack_dir: Path,
+    run_id: UUID,
+    register_pages: list[RegisterPageInput],
+    decisions: Iterable[ReviewItem] = (),
+) -> EngineInputs:
+    """Engine inputs for the pack with the given register pages: the ERP and sheet bytes, the
+    shipped mappings and the given decisions."""
     return EngineInputs(
         run_id=run_id,
         month=PACK_MONTH,
-        register_pages=pages,
+        register_pages=register_pages,
         erp_bytes=(pack_dir / ERP_FILE).read_bytes(),
         sheet_bytes=(pack_dir / SHEET_FILE).read_bytes(),
         mappings=load_mappings(),

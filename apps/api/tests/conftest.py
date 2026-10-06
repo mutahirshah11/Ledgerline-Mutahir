@@ -30,6 +30,12 @@ def ground_truth_dir() -> Path:
     return API_DIR / "tests" / "ground_truth"
 
 
+@pytest.fixture(scope="session")
+def cached_reads_dir() -> Path:
+    """The committed real reads of the pack pages (003 research R10)."""
+    return REPO_ROOT / "supabase" / "seed" / "extractions"
+
+
 def _live_openai_key() -> str | None:
     """OPENAI_API_KEY from the OS env, else apps/api/.env; empty counts as absent.
 
