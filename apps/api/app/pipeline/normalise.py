@@ -109,16 +109,17 @@ def _add_alias(table: dict[str, V], alias: str, value: V, where: str) -> None:
     table[key] = value
 
 
-def load_mappings(dir: Path = MAPPINGS_DIR) -> MappingTables:
+def load_mappings(mappings_dir: Path = MAPPINGS_DIR) -> MappingTables:
     """Read `supplier_map.csv` (alias,code) and `unit_map.csv` (alias,unit,base,factor).
 
     ValueError on a duplicate alias, an unknown header, a code outside S-101..S-107, a factor
     that is not a positive Decimal, a base unit not defined as a unit (contracts/normalise.md),
-    aliases of one unit with different base or factor, or a base unit with factor other than 1.
-    `codes` is always the fixed list S-101..S-107.
+    aliases of one unit with different base or factor, a base unit with factor other than 1, or
+    a base unit that is not its own base (no chains). `codes` is always the fixed list
+    S-101..S-107.
     """
     suppliers: dict[str, str] = {}
-    path = dir / "supplier_map.csv"
+    path = mappings_dir / "supplier_map.csv"
     for line_no, (alias, code) in _read_rows(path, _SUPPLIER_HEADER):
         where = f"{path.name} line {line_no}"
         if code not in SUPPLIER_CODES:
@@ -126,7 +127,7 @@ def load_mappings(dir: Path = MAPPINGS_DIR) -> MappingTables:
         _add_alias(suppliers, alias, code, where)
 
     units: dict[str, UnitDef] = {}
-    path = dir / "unit_map.csv"
+    path = mappings_dir / "unit_map.csv"
     for line_no, (alias, unit, base, factor_text) in _read_rows(path, _UNIT_HEADER):
         where = f"{path.name} line {line_no}"
         try:
@@ -143,9 +144,13 @@ def load_mappings(dir: Path = MAPPINGS_DIR) -> MappingTables:
             raise ValueError(f"{where}: aliases of {unit} disagree on base or factor")
         _add_alias(units, alias, unit_def, where)
 
-    undefined = sorted({u.base for u in units.values()} - {u.unit for u in units.values()})
+    by_unit = {u.unit: u for u in units.values()}
+    undefined = sorted({u.base for u in units.values()} - by_unit.keys())
     if undefined:
         raise ValueError(f"{path.name}: base unit(s) {undefined} not defined as a unit")
+    chained = sorted({u.base for u in units.values() if by_unit[u.base].base != u.base})
+    if chained:
+        raise ValueError(f"{path.name}: base unit(s) {chained} not its own base")
 
     return MappingTables(
         suppliers=MappingProxyType(suppliers),
@@ -192,6 +197,8 @@ def excel_serial_to_date(serial: int | Decimal) -> date:
     """
     if isinstance(serial, bool) or not isinstance(serial, int | Decimal):
         raise ValueError(f"serial must be int or Decimal, got {serial!r}")
+    if isinstance(serial, Decimal) and not serial.is_finite():
+        raise ValueError(f"serial must be finite, got {serial!r}")
     if serial != int(serial) or serial < 1:
         raise ValueError(f"serial must be an integer >= 1, got {serial!r}")
     try:
@@ -236,7 +243,10 @@ def read_sheet(data: bytes, month: str) -> list[RawRow]:
     ValueError on a missing worksheet or header (normally caught earlier by F-02).
     """
     name = sheet_name(month)
-    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception as e:  # BadZipFile, KeyError, InvalidFileException, ...: varies by damage
+        raise ValueError(f"store sheet is not a readable .xlsx: {e}") from None
     try:
         if name not in wb.sheetnames:
             raise ValueError(f"store sheet has no worksheet {name!r}")
@@ -248,12 +258,8 @@ def read_sheet(data: bytes, month: str) -> list[RawRow]:
     if missing:
         raise ValueError(f"worksheet {name!r} row 1 is missing header(s) {missing}")
     index = {h: header.index(h) for h in SHEET_HEADERS}
-
-    def _empty(v: object) -> bool:
-        return v is None or (isinstance(v, str) and not v.strip())
-
     last = max(
-        (n for n, r in enumerate(cells, start=1) if n >= 2 and not all(map(_empty, r))), default=1
+        (n for n, r in enumerate(cells, start=1) if n >= 2 and not all(map(_blank, r))), default=1
     )
     rows = []
     for excel_row in range(2, last + 1):
@@ -299,11 +305,13 @@ _SHEET_TO_CANONICAL = {
     "Qty Received": "qty",
     "UOM": "uom",
 }
-_GRN_DIGITS = re.compile(r"\d{3,6}")
+_GRN_DIGITS = re.compile(r"[0-9]{3,6}")  # ASCII only: Arabic-Indic digits are not a GRN
 _REGISTER_DATE = re.compile(r"(\d{1,2})/(\d{1,2})")
 _SHEET_TEXT_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
 _ISO_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _CENT = Decimal("0.01")
+_QTY_MAX_EXPONENT = 15
+"""A qty with 15 or more integer digits is out of range and read as unparseable."""
 _MAP_FIELDS = {"date": "date", "supplier_code": "supplier", "uom": "unit"}
 """Canonical field → `MAP:{row}:{field}` review field (data-model.md Section 6)."""
 
@@ -352,6 +360,13 @@ def _blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _int_if_whole_float(value: object) -> object:
+    """An openpyxl float holding a whole number (`4401.0`) as `int`; anything else unchanged."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def _date_or_none(year: int, month: int, day: int) -> date | None:
     try:
         return date(year, month, day)
@@ -385,7 +400,7 @@ class _RowNormaliser:
             name: self.cells[name].status if name in self.cells else CellStatus.CLEAR
             for name in sorted(CANONICAL_CELL_FIELDS)
         }
-        self.grn_no: int | None = None
+        self.grn_no = self._grn()  # before the other fields: flags and review items carry it
 
     def _apply_overrides(self) -> None:
         """F-04.R2, before any other step: a `RESOLVED` `CELL:{row}:{register_field}` or
@@ -413,6 +428,10 @@ class _RowNormaliser:
 
     def _value(self, name: str) -> object:
         return self.cells[name].value if self._readable(name) else None
+
+    def received_by(self) -> str | None:
+        """Register `Recd By` text when `CLEAR` (F-04.R9), for `meta.received_by`."""
+        return _text(self._value("received_by"))
 
     def _log(self, name: str, code: NormCode, before: str | None, after: str | None) -> None:
         run_id = self.out.run_id
@@ -463,11 +482,9 @@ class _RowNormaliser:
             )
         )
 
-    def grn(self) -> int | None:
+    def _grn(self) -> int | None:
         """F-04.R3: strip `GRN-` and spaces; 3 to 6 digits, else null plus a log entry."""
-        value = self._value("grn_no")
-        if isinstance(value, float) and value.is_integer():
-            value = int(value)
+        value = _int_if_whole_float(self._value("grn_no"))
         if _blank(value) or isinstance(value, bool):
             return None
         text = _text(value) or ""
@@ -503,6 +520,7 @@ class _RowNormaliser:
         """
         text = value.strip() if isinstance(value, str) else None
         if self.source is Source.REGISTER or "date" in self.overridden:
+            # A CELL (or MAP) date override takes the run month's year (data-model Section 6).
             year = self.out.run_year if "date" in self.overridden else self.year
             m = _REGISTER_DATE.fullmatch(text or "")
             parsed = _date_or_none(year, int(m[2]), int(m[1])) if m else None
@@ -515,8 +533,7 @@ class _RowNormaliser:
             return value.date(), NormCode.DATE_SERIAL_PARSED
         if isinstance(value, date):
             return value, NormCode.DATE_SERIAL_PARSED
-        if isinstance(value, float) and value.is_integer():
-            value = int(value)
+        value = _int_if_whole_float(value)
         if isinstance(value, int) and not isinstance(value, bool):
             try:
                 return excel_serial_to_date(value), NormCode.DATE_SERIAL_PARSED
@@ -533,7 +550,8 @@ class _RowNormaliser:
             return None
         text = _text(self.cells["supplier_code"].value) or ""
         mappings = self.out.mappings
-        exact_code = text.strip() if text.strip() in mappings.codes else None
+        stripped = text.strip()
+        exact_code = stripped if stripped in mappings.codes else None
         if self.source is Source.ERP and "supplier_code" not in self.overridden:
             code = exact_code
             log_code = NormCode.TEXT_TRIMMED
@@ -576,13 +594,15 @@ class _RowNormaliser:
         value = self._value("qty")
         if _blank(value):
             return None
+        text = _text(value) or ""
         try:
-            if isinstance(value, bool):
+            if isinstance(value, bool) or "_" in text:  # no Python `1_000` numerals
                 raise InvalidOperation
-            qty = Decimal(value) if isinstance(value, int) else Decimal(_text(value) or "")
+            qty = Decimal(value) if isinstance(value, int) else Decimal(text)
         except InvalidOperation:
             qty = None
-        if qty is None or not qty.is_finite():
+        # Out of range is unreadable too: qty_base must still quantize to 2 dp.
+        if qty is None or not qty.is_finite() or qty.adjusted() >= _QTY_MAX_EXPONENT:
             self.status["qty"] = CellStatus.UNCLEAR
             return None
         return qty
@@ -591,7 +611,11 @@ class _RowNormaliser:
         """F-04.R7: qty × factor, ROUND_HALF_UP to 2 dp; `UNIT_CONVERTED` when factor ≠ 1."""
         if qty is None or unit is None:
             return None
-        base = (qty * unit.factor).quantize(_CENT, rounding=ROUND_HALF_UP)
+        try:
+            base = (qty * unit.factor).quantize(_CENT, rounding=ROUND_HALF_UP)
+        except InvalidOperation:  # past the context precision: unreadable, never raise
+            self.status["qty"] = CellStatus.UNCLEAR
+            return None
         if unit.factor != 1:
             self._log("qty_base", NormCode.UNIT_CONVERTED, _text(self._value("qty")), str(base))
         return base
@@ -607,7 +631,6 @@ class _RowNormaliser:
         return after or None
 
     def build(self, raw: dict[str, str | None], meta: RowMeta) -> CanonicalRow:
-        self.grn_no = self.grn()  # first: flags and review items carry it
         row_date = self.row_date()
         supplier_code = self.supplier()
         item = self.text("item")
@@ -615,6 +638,8 @@ class _RowNormaliser:
         qty = self.qty()
         unit = self.unit()
         qty_base = self.qty_base(qty, unit)
+        if self.status["qty"] is CellStatus.UNCLEAR:  # qty_base found it out of range
+            qty = None
         return CanonicalRow(
             id=stable_id(self.out.run_id, self.row_id),
             run_id=self.out.run_id,
@@ -655,7 +680,7 @@ def _register_rows(out: _Out, page: RegisterPageInput, run_year: int) -> list[Ca
         meta = RowMeta(
             page_no=page.page_no,
             row_index=merged_row.row_index,
-            received_by=_text(norm._value("received_by")),
+            received_by=norm.received_by(),
         )
         rows.append(norm.build(raw, meta))
     return rows
@@ -680,18 +705,19 @@ def _stripped(value: object) -> str | None:
     return text or None
 
 
-def _erp_row(out: _Out, row: RawRow, run_year: int) -> CanonicalRow:
-    cells = {name: _Cell(row.values.get(col)) for col, name in _ERP_TO_CANONICAL.items()}
+def _file_row(out: _Out, source: Source, row: RawRow, run_year: int) -> CanonicalRow:
+    """One ERP or SHEET row: columns to canonical cells, raw text kept, source meta."""
+    if source is Source.ERP:
+        columns = _ERP_TO_CANONICAL
+        meta = RowMeta(
+            entered_by=_stripped(row.values.get("entered_by")), entered_at=_entered_at(row)
+        )
+    else:
+        columns = _SHEET_TO_CANONICAL
+        meta = RowMeta(remarks=_text(row.values.get("Remarks")))
+    cells = {name: _Cell(row.values.get(col)) for col, name in columns.items()}
     raw = {k: _text(v) for k, v in row.values.items()}
-    meta = RowMeta(entered_by=_stripped(row.values.get("entered_by")), entered_at=_entered_at(row))
-    return _RowNormaliser(out, Source.ERP, row.source_row_id, cells, run_year).build(raw, meta)
-
-
-def _sheet_row(out: _Out, row: RawRow, run_year: int) -> CanonicalRow:
-    cells = {name: _Cell(row.values.get(col)) for col, name in _SHEET_TO_CANONICAL.items()}
-    raw = {k: _text(v) for k, v in row.values.items()}
-    meta = RowMeta(remarks=_text(row.values.get("Remarks")))
-    return _RowNormaliser(out, Source.SHEET, row.source_row_id, cells, run_year).build(raw, meta)
+    return _RowNormaliser(out, source, row.source_row_id, cells, run_year).build(raw, meta)
 
 
 def normalise_all(
@@ -719,8 +745,10 @@ def normalise_all(
     rows: list[CanonicalRow] = []
     for page in sorted(register_pages, key=lambda p: p.page_no):
         rows.extend(_register_rows(out, page, run_year))
-    rows.extend(_erp_row(out, r, run_year) for r in sorted(erp, key=lambda r: r.line_no))
-    rows.extend(_sheet_row(out, r, run_year) for r in sorted(sheet, key=lambda r: r.line_no))
+    for source, file_rows in ((Source.ERP, erp), (Source.SHEET, sheet)):
+        rows.extend(
+            _file_row(out, source, r, run_year) for r in sorted(file_rows, key=lambda r: r.line_no)
+        )
     return NormaliseResult(
         rows=rows, norm_log=out.norm_log, flags=out.flags, review_items=out.review_items
     )
