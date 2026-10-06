@@ -277,7 +277,7 @@ def reconcile_run(
         repo.upsert_review_items(run_id, result.review_items)
         repo.save_proof(result.proof)
         log.event(Stage.PROOF, RunEventStatus.OK, {"status": result.proof.status.value})
-        to, open_count = _advance_status(repo, run)
+        to, open_count = _advance_status(repo, run, result.review_items)
     except Exception as exc:
         _fail_on_reconcile(repo, log, run_id, exc)
         raise
@@ -324,13 +324,18 @@ def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> N
         )
 
 
-def _advance_status(repo: Repo, run: Run) -> tuple[RunStatus, int]:
-    """Step 7: `EXTRACTED` → `RECONCILED`, then `AWAITING_REVIEW` if any review item is open,
-    else `READY`. Returns the new status and the open item count."""
+def _advance_status(repo: Repo, run: Run, current: Sequence[ReviewItem]) -> tuple[RunStatus, int]:
+    """Step 7: `EXTRACTED` → `RECONCILED`, then `AWAITING_REVIEW` if any current review item is
+    open, else `READY`. Only stored OPEN items whose `item_key` this reconcile produced count;
+    older items stay stored, untouched (user decision 2026-10-07). Returns the new status and
+    the open item count."""
     status = run.status
     if status is RunStatus.EXTRACTED:
         status = repo.transition_run(run.id, RunStatus.RECONCILED, expected={status}).status
-    open_count = len(repo.list_review_items(run.id, ReviewStatus.OPEN))
+    keys = {item.item_key for item in current}
+    open_count = sum(
+        1 for item in repo.list_review_items(run.id, ReviewStatus.OPEN) if item.item_key in keys
+    )
     to = RunStatus.AWAITING_REVIEW if open_count else RunStatus.READY
     repo.transition_run(run.id, to, expected={status})
     return to, open_count

@@ -290,6 +290,46 @@ def test_engine_status_awaiting_review_then_ready(
     assert memory_repo.get_run(extracted_run.id).status is RunStatus.READY
 
 
+def test_engine_status_counts_only_current_open_items(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    engine_inputs: EngineInputs,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+) -> None:
+    """User decision 2026-10-07: an OPEN item the current reconcile no longer produces stays
+    stored but does not hold the run in `AWAITING_REVIEW` nor count in `open_review_items`."""
+    run_id = extracted_run.id
+    unknown_supplier = resolved_cell(run_id, "REG-p2-r05", RegisterField.SUPPLIER, "Nobody Ltd")
+    first = build_engine_inputs(pack_dir, ground_truth_dir, run_id, [unknown_supplier])
+    reconcile_run(memory_repo, first)
+    stale_key = "MAP:REG-p2-r05:supplier"
+    (stale,) = [i for i in memory_repo.list_review_items(run_id) if i.item_key == stale_key]
+    assert stale.status is ReviewStatus.OPEN
+
+    for item in memory_repo.list_review_items(run_id, ReviewStatus.OPEN):
+        if item.item_key != stale_key:
+            memory_repo.resolve_review_item(
+                item.id,
+                status=ReviewStatus.RESOLVED,
+                resolved_value=None,
+                resolved_by="reviewer@example.com",
+                resolved_at=frozen_clock,
+                note="checked with stores",
+            )
+    dropped = {stale_key, unknown_supplier.item_key}  # the supplier decision is withdrawn
+    decisions = [i for i in memory_repo.list_review_items(run_id) if i.item_key not in dropped]
+    again = build_engine_inputs(pack_dir, ground_truth_dir, run_id, decisions)
+    result = reconcile_run(memory_repo, again)
+
+    assert stale_key not in {i.item_key for i in result.review_items}
+    assert memory_repo.get_run(run_id).status is RunStatus.READY
+    assert memory_repo.get_review_item(stale.id) == stale
+    entry = max(memory_repo.list_audit(run_id), key=lambda e: e.id)  # this reconcile's entry
+    assert entry.after is not None and entry.after["open_review_items"] == 0
+
+
 @pytest.mark.parametrize("status", list(_RECONCILE_PATHS))
 def test_engine_rejects_other_statuses(
     memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs, status: RunStatus
