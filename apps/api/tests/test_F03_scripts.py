@@ -1,10 +1,13 @@
-"""F-03 scripts: extraction eval (T028/T030, research R11, FR-032, FR-033) and seed cache.
+"""F-03 scripts: extraction eval (T028/T030, research R11, FR-032, FR-033) and seed cache
+(T028/T031, contracts/extract-service.md §5-§6, research R10, FR-030, FR-031).
 
-All tests are offline and synthetic: tiny ground-truth pages and reads built in code, no pack
-images, no model calls.
+All tests are offline. Eval tests are synthetic: tiny ground-truth pages and reads built in
+code, no pack images. Seed-cache tests capture the pack images with a `ScriptedModelClient`
+answering the ground truth and write only under `tmp_path`. No model calls.
 """
 
 import json
+from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 from hashlib import sha256
@@ -14,11 +17,14 @@ import openai
 import pytest
 
 import scripts.eval_extraction as eval_script
+import scripts.seed_cache as seed_cache
 from app.core.config import Settings
 from app.core.errors import InvalidReadOutput
+from app.core.memory_repo import MemoryRepo
 from app.domain.enums import CellStatus, ReadVariant, RegisterField
-from app.domain.models import Cell, GroundTruthPage, PageRead, RowRead
-from app.pipeline.model_client import CachedReadAmbiguous
+from app.domain.models import Cell, Extraction, GroundTruthPage, PageRead, RowRead
+from app.pipeline.extract import cache_file_name, load_cached_extractions
+from app.pipeline.model_client import CachedReadAmbiguous, RawRead
 from scripts.eval_extraction import (
     CacheEmpty,
     ReadPair,
@@ -31,6 +37,9 @@ from scripts.eval_extraction import (
     main,
     parse_pages,
 )
+from tests.fakes.model_clients import ScriptedModelClient
+from tests.support.extracted import ground_truth_read, page_image
+from tests.support.pack import PAGES
 
 SHA = "a" * 64
 
@@ -381,3 +390,224 @@ def test_F03_eval_ground_truth_scores_itself_perfectly() -> None:
     assert (report.corrected.correct, report.corrected.total) == (1, 1)
     assert report.guessed == [] and report.mismatches == [] and report.disagreements == []
     assert exit_code(report) == 0
+
+
+# =========================================================================================
+# Seed cache (scripts/seed_cache.py) — T028 seed tests, T031
+# =========================================================================================
+
+SEED_MODEL = "test-model"
+SEED_PROMPT = "v1"
+
+
+def _seed_settings() -> Settings:
+    return Settings(_env_file=None, EXTRACT_MODEL=SEED_MODEL, PROMPT_VERSION=SEED_PROMPT)
+
+
+def _seed_client(ground_truth_dir: Path) -> ScriptedModelClient:
+    """Answers pages 1 then 2 for each variant with the ground truth (pages read in order)."""
+    answers = [
+        RawRead(
+            payload=ground_truth_read(ground_truth_dir, p).model_dump(mode="json"),
+            input_tokens=1000 + p,
+            output_tokens=500 + p,
+            latency_ms=10,
+        )
+        for p in PAGES
+    ]
+    return ScriptedModelClient({v: list(answers) for v in ReadVariant})
+
+
+def _seed_names(pack_dir: Path) -> set[str]:
+    return {
+        cache_file_name(sha256(page_image(pack_dir, p)).hexdigest(), v, SEED_MODEL, SEED_PROMPT)
+        for p in PAGES
+        for v in ReadVariant
+    }
+
+
+def _seed_capture(tmp_path: Path, pack_dir: Path, ground_truth_dir: Path) -> list[Path]:
+    return seed_cache.capture(
+        client=_seed_client(ground_truth_dir),
+        settings=_seed_settings(),
+        cache_dir=tmp_path,
+        pack_dir=pack_dir,
+    )
+
+
+def test_F03_seed_cache_file_name_format(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path, frozen_clock: datetime
+) -> None:
+    """Capture writes 4 files `{sha}.{variant}.{model}.{prompt_version}.json`, each a full
+    validated `Extraction` whose key matches its name (research R10)."""
+    sha = "ab" * 32
+    assert cache_file_name(sha, ReadVariant.B, "m-1", "v2") == f"{sha}.B.m-1.v2.json"
+
+    written = _seed_capture(tmp_path, pack_dir, ground_truth_dir)
+
+    assert {p.name for p in written} == _seed_names(pack_dir)
+    assert {p.name for p in tmp_path.iterdir()} == _seed_names(pack_dir)
+    for path in written:
+        record = Extraction.model_validate_json(path.read_text(encoding="utf-8"))
+        assert path.name == cache_file_name(
+            record.page_sha256, record.read_variant, record.model, record.prompt_version
+        )
+        assert record.input_tokens > 0 and record.output_tokens > 0
+        assert record.created_at == frozen_clock
+
+
+def test_F03_seed_cache_capture_stores_the_validated_reads(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path, frozen_clock: datetime
+) -> None:
+    """Each file's `result` is the read the model returned (validated), page by page."""
+    _seed_capture(tmp_path, pack_dir, ground_truth_dir)
+    for p in PAGES:
+        sha = sha256(page_image(pack_dir, p)).hexdigest()
+        for v in ReadVariant:
+            path = tmp_path / cache_file_name(sha, v, SEED_MODEL, SEED_PROMPT)
+            record = Extraction.model_validate_json(path.read_text(encoding="utf-8"))
+            assert record.result == ground_truth_read(ground_truth_dir, p)
+
+
+def test_F03_seed_cache_refuses_overwrite(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path, frozen_clock: datetime
+) -> None:
+    """An existing file for any of the 4 keys: capture refuses before any model call and
+    leaves the directory unchanged (Clarification 4: the cache is never rewritten)."""
+    existing = tmp_path / sorted(_seed_names(pack_dir))[0]
+    existing.write_text("keep me", encoding="utf-8")
+    client = _seed_client(ground_truth_dir)
+
+    with pytest.raises(FileExistsError, match=existing.name):
+        seed_cache.capture(
+            client=client, settings=_seed_settings(), cache_dir=tmp_path, pack_dir=pack_dir
+        )
+
+    assert client.calls == 0
+    assert existing.read_text(encoding="utf-8") == "keep me"
+    assert [p.name for p in tmp_path.iterdir()] == [existing.name]
+
+
+def test_F03_seed_cache_capture_without_key_exits_nonzero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No OPENAI_API_KEY (hermetic settings): `--capture` exits 2 with one clear line, writes
+    nothing and never builds a client."""
+    code = seed_cache.main(["--capture"], cache_dir=tmp_path)
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "OPENAI_API_KEY" in err
+    assert "Traceback" not in err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_F03_seed_cache_capture_cli_uses_injected_client(
+    tmp_path: Path,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--capture` with a client factory (tests) writes the 4 files and exits 0."""
+    code = seed_cache.main(
+        ["--capture"],
+        cache_dir=tmp_path,
+        pack_dir=pack_dir,
+        settings=_seed_settings(),
+        client_factory=lambda _settings: _seed_client(ground_truth_dir),
+    )
+    assert code == 0
+    assert {p.name for p in tmp_path.iterdir()} == _seed_names(pack_dir)
+    assert "wrote 4" in capsys.readouterr().out
+
+
+def test_F03_seed_cache_capture_cli_refuses_overwrite_exit_2(
+    tmp_path: Path,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _seed_capture(tmp_path, pack_dir, ground_truth_dir)
+    client = _seed_client(ground_truth_dir)
+    code = seed_cache.main(
+        ["--capture"],
+        cache_dir=tmp_path,
+        pack_dir=pack_dir,
+        settings=_seed_settings(),
+        client_factory=lambda _settings: client,
+    )
+    assert code == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert client.calls == 0
+
+
+def test_F03_load_cached_extractions_idempotent(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path, frozen_clock: datetime
+) -> None:
+    """Loading the 4 captured files stores 4; a second load stores nothing new (FR-031)."""
+    _seed_capture(tmp_path, pack_dir, ground_truth_dir)
+    repo = MemoryRepo()
+
+    assert load_cached_extractions(repo, tmp_path) == 4
+    assert load_cached_extractions(repo, tmp_path) == 0
+    for p in PAGES:
+        sha = sha256(page_image(pack_dir, p)).hexdigest()
+        for v in ReadVariant:
+            assert repo.get_extraction(sha, v, SEED_MODEL, SEED_PROMPT) is not None
+
+
+def test_F03_seed_cache_load_cli(
+    tmp_path: Path,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--load` loads into the configured repo (MemoryRepo until Phase 3) and reports the
+    count; loading again into the same repo stores 0."""
+    _seed_capture(tmp_path, pack_dir, ground_truth_dir)
+    repo = MemoryRepo()
+
+    assert seed_cache.main(["--load"], cache_dir=tmp_path, repo_factory=lambda: repo) == 0
+    assert "loaded 4" in capsys.readouterr().out
+    assert seed_cache.main(["--load"], cache_dir=tmp_path, repo_factory=lambda: repo) == 0
+    assert "loaded 0" in capsys.readouterr().out
+
+
+def test_F03_seed_cache_load_cli_empty_cache(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Only `.gitkeep` (nothing captured yet): `--load` stores 0, says so, exits 0."""
+    (tmp_path / ".gitkeep").write_text("")
+    assert seed_cache.main(["--load"], cache_dir=tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "loaded 0" in out
+    assert "--capture" in out
+
+
+def test_F03_seed_cache_requires_one_mode(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        seed_cache.main([])
+    assert exc.value.code == 2
+
+
+def test_F03_seed_cache_capture_error_masks_key(
+    tmp_path: Path, pack_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failed read: exit 2, one line, anything shaped like an API key masked, nothing written."""
+    client = ScriptedModelClient({v: [ValueError("bad key sk-proj-ABC_123")] for v in ReadVariant})
+    code = seed_cache.main(
+        ["--capture"],
+        cache_dir=tmp_path,
+        pack_dir=pack_dir,
+        settings=_seed_settings(),
+        client_factory=lambda _settings: client,
+    )
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "sk-proj-ABC_123" not in err
+    assert "sk-***" in err
+    assert len(err.strip().splitlines()) == 1
+    assert list(tmp_path.iterdir()) == []
