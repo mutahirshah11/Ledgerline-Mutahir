@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from app.core.storage import MemoryBlobStore
     from app.domain.models import Run
     from app.pipeline.engine import EngineInputs
+    from app.pipeline.model_client import ReplayModelClient
+    from tests.support.pack_pages import PackPages
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = API_DIR.parents[1]
@@ -166,3 +168,57 @@ def engine_inputs(extracted_run: "Run", pack_dir: Path, ground_truth_dir: Path) 
     from tests.support.pack import build_engine_inputs
 
     return build_engine_inputs(pack_dir, ground_truth_dir, extracted_run.id)
+
+
+# --- Pack pages through the extract service (003 T026, research R10, R13) ----------------
+
+PACK_PAGE_SOURCES = [
+    pytest.param("cache", id="cache"),
+    pytest.param("live", id="live", marks=pytest.mark.live),
+]
+"""`cache`: committed real reads (skips until captured); `live`: the model (skips without key)."""
+
+
+@pytest.fixture(scope="session")
+def pack_images(pack_dir: Path) -> dict[int, bytes]:
+    """The two register page images of the pack, by page number."""
+    return {p: (pack_dir / f"t4_register_page{p}.jpg").read_bytes() for p in (1, 2)}
+
+
+@pytest.fixture
+def replay_client(cached_reads_dir: Path) -> "ReplayModelClient":
+    """Replays the committed reads for the committed EXTRACT_MODEL and PROMPT_VERSION."""
+    from tests.support.extracted import replay_client as build
+
+    return build(cached_reads_dir)
+
+
+@pytest.fixture(scope="module", params=PACK_PAGE_SOURCES)
+def pack_pages(
+    request: pytest.FixtureRequest, pack_dir: Path, cached_reads_dir: Path
+) -> "PackPages":
+    """`extract_page` results for pack pages 1 and 2 (`pack_pages[1]`, `pack_pages[2]`) plus
+    the reads behind them, extracted once per module and source.
+
+    `cache` loads `supabase/seed/extractions/` into a MemoryRepo (`load_cached_extractions`)
+    and replays it; it skips while no read exists for the committed model and prompt version.
+    `live` reads afresh with `OpenAIModelClient` built from `live_settings` (this fixture runs
+    before the autouse `hermetic_settings`) into a MemoryRepo, writing nothing to disk.
+    """
+    from app.core.memory_repo import MemoryRepo
+    from app.pipeline.model_client import OpenAIModelClient
+    from tests.support.extracted import NO_COMMITTED_READS, committed_read_files
+    from tests.support.pack_pages import cached_pack, extract_pack
+
+    if request.param == "cache":
+        if not committed_read_files(cached_reads_dir):
+            pytest.skip(NO_COMMITTED_READS)
+        return cached_pack(cached_reads_dir, pack_dir)
+    settings: Settings = request.getfixturevalue("live_settings")
+    assert settings.OPENAI_API_KEY is not None
+    client = OpenAIModelClient(
+        api_key=settings.OPENAI_API_KEY.get_secret_value(), model=settings.EXTRACT_MODEL
+    )
+    return extract_pack(
+        "live", repo=MemoryRepo(), client=client, settings=settings, pack_dir=pack_dir
+    )
