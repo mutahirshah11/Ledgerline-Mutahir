@@ -5,16 +5,38 @@ import csv
 import io
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple, TypeVar
+from uuid import UUID
 
 import openpyxl
 
-from app.domain.ids import erp_row_id, sheet_row_id
+from app.core.clock import KARACHI
+from app.domain.enums import (
+    CellStatus,
+    FlagType,
+    NormCode,
+    RegisterField,
+    ReviewKind,
+    ReviewReason,
+    RowKind,
+    Source,
+)
+from app.domain.ids import erp_row_id, register_row_id, review_item_key, sheet_row_id, stable_id
+from app.domain.models import (
+    CANONICAL_CELL_FIELDS,
+    CanonicalRow,
+    ControlFlag,
+    NormLogEntry,
+    RegisterPageInput,
+    ReviewItem,
+    RowMeta,
+    UnknownMappingContext,
+)
 
 MAPPINGS_DIR = Path(__file__).resolve().parents[1] / "mappings"
 
@@ -223,3 +245,413 @@ def read_sheet(data: bytes, month: str) -> list[RawRow]:
         }
         rows.append(RawRow(sheet_row_id(excel_row), values, excel_row))
     return rows
+
+
+# --- Field normalisation (F-04.R3 to R9; data-model.md Section 3) ---------------------------
+
+REGISTER_TO_CANONICAL: Mapping[RegisterField, str] = MappingProxyType(
+    {
+        RegisterField.DATE: "date",
+        RegisterField.GRN_NO: "grn_no",
+        RegisterField.SUPPLIER: "supplier_code",
+        RegisterField.ITEM: "item",
+        RegisterField.LOT_NO: "lot_no",
+        RegisterField.QTY: "qty",
+        RegisterField.UNIT: "uom",
+        RegisterField.RECD_BY: "received_by",
+    }
+)
+"""Register field → canonical field (data-model.md Section 1)."""
+
+_ERP_TO_CANONICAL = {
+    "grn_no": "grn_no",
+    "grn_date": "date",
+    "supplier_code": "supplier_code",
+    "item_desc": "item",
+    "lot_no": "lot_no",
+    "qty": "qty",
+    "uom": "uom",
+}
+_SHEET_TO_CANONICAL = {
+    "Date": "date",
+    "GRN": "grn_no",
+    "Supplier": "supplier_code",
+    "Material": "item",
+    "Lot": "lot_no",
+    "Qty Received": "qty",
+    "UOM": "uom",
+}
+_GRN_DIGITS = re.compile(r"\d{3,6}")
+_REGISTER_DATE = re.compile(r"(\d{1,2})/(\d{1,2})")
+_SHEET_TEXT_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
+_ISO_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_CENT = Decimal("0.01")
+
+
+@dataclass(frozen=True)
+class NormaliseResult:
+    """F-04 output (data-model.md Section 2): rows in N11 order, outcome and group unset."""
+
+    rows: list[CanonicalRow]
+    norm_log: list[NormLogEntry]
+    flags: list[ControlFlag]  # UNKNOWN_SUPPLIER / UNKNOWN_UNIT only
+    review_items: list[ReviewItem]  # UNKNOWN_MAPPING, status OPEN
+
+
+@dataclass
+class _Cell:
+    """One canonical field's input: the value as read and its cell status."""
+
+    value: object
+    status: CellStatus = CellStatus.CLEAR
+
+
+@dataclass
+class _Out:
+    """Run-wide accumulators, filled in row order."""
+
+    run_id: UUID
+    mappings: MappingTables
+    norm_log: list[NormLogEntry] = field(default_factory=list)
+    flags: list[ControlFlag] = field(default_factory=list)
+    review_items: list[ReviewItem] = field(default_factory=list)
+
+
+def _text(value: object) -> str | None:
+    """Raw text of a value as read; openpyxl floats via `str` (shortest round-trip, research R1)."""
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return str(value)
+
+
+def _blank(value: object) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _date_or_none(year: int, month: int, day: int) -> date | None:
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _header_year(month_written: str | None) -> int | None:
+    """Year of a register month header written `Mon YYYY` ("Sep 2026"); None if unreadable."""
+    parts = (month_written or "").split()
+    abbrs = [m.casefold() for m in _MONTH_ABBR]
+    if len(parts) == 2 and parts[0].casefold() in abbrs and re.fullmatch(r"\d{4}", parts[1]):
+        return int(parts[1])
+    return None
+
+
+class _RowNormaliser:
+    """Normalises one source row into a `CanonicalRow`, logging every changed value (F-04)."""
+
+    def __init__(
+        self, out: _Out, source: Source, row_id: str, cells: dict[str, _Cell], year: int
+    ) -> None:
+        self.out = out
+        self.source = source
+        self.row_id = row_id
+        self.cells = cells
+        self.year = year  # year for register `DD/MM` dates
+        self.status = {
+            name: cells[name].status if name in cells else CellStatus.CLEAR
+            for name in sorted(CANONICAL_CELL_FIELDS)
+        }
+        self.grn_no: int | None = None
+
+    def _readable(self, name: str) -> bool:
+        """F-04.R9: only a `CLEAR` cell gives a canonical value."""
+        cell = self.cells.get(name)
+        return cell is not None and cell.status is CellStatus.CLEAR
+
+    def _value(self, name: str) -> object:
+        return self.cells[name].value if self._readable(name) else None
+
+    def _log(self, name: str, code: NormCode, before: str | None, after: str | None) -> None:
+        run_id = self.out.run_id
+        self.out.norm_log.append(
+            NormLogEntry(
+                id=stable_id(run_id, "NORM", self.row_id, name),
+                run_id=run_id,
+                source_row_id=self.row_id,
+                field=name,
+                code=code,
+                before=before,
+                after=after,
+            )
+        )
+
+    def _unknown(
+        self, name: str, map_field: str, reason: ReviewReason, flag: FlagType | None
+    ) -> None:
+        """Clarification 3: `UNCLEAR`, a flag for supplier/unit, an `UNKNOWN_MAPPING` item."""
+        raw_text = _text(self.cells[name].value) or ""
+        run_id = self.out.run_id
+        self.status[name] = CellStatus.UNCLEAR
+        if flag is not None:
+            self.out.flags.append(
+                ControlFlag(
+                    id=stable_id(run_id, "FLAG", flag.value, self.row_id),
+                    run_id=run_id,
+                    flag=flag,
+                    grn_no=self.grn_no,
+                    source_row_id=self.row_id,
+                    detail={"raw": raw_text},
+                )
+            )
+        key = review_item_key(ReviewKind.UNKNOWN_MAPPING, row_id=self.row_id, field=map_field)
+        self.out.review_items.append(
+            ReviewItem(
+                id=stable_id(run_id, key),
+                run_id=run_id,
+                kind=ReviewKind.UNKNOWN_MAPPING,
+                item_key=key,
+                grn_no=self.grn_no,
+                source_row_id=self.row_id,
+                field=map_field,
+                reason=reason,
+                read_a=None,
+                read_b=None,
+                context=UnknownMappingContext(source=self.source, raw=raw_text),
+            )
+        )
+
+    def grn(self) -> int | None:
+        """F-04.R3: strip `GRN-` and spaces; 3 to 6 digits, else null plus a log entry."""
+        value = self._value("grn_no")
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if _blank(value) or isinstance(value, bool):
+            return None
+        text = _text(value) or ""
+        body = text.strip()
+        digits = "".join(body.removeprefix("GRN-").split())
+        if not _GRN_DIGITS.fullmatch(digits):
+            self._log("grn_no", NormCode.GRN_PREFIX_STRIPPED, text, None)
+            return None
+        grn_no = int(digits)
+        if body.startswith("GRN-"):
+            self._log("grn_no", NormCode.GRN_PREFIX_STRIPPED, text, str(grn_no))
+        elif digits != text:
+            self._log("grn_no", NormCode.TEXT_TRIMMED, text, str(grn_no))
+        return grn_no
+
+    def row_date(self) -> date | None:
+        """F-04.R4; unparseable → null, `UNCLEAR`, review item `UNPARSEABLE_DATE`."""
+        if not self._readable("date"):
+            return None
+        value = self.cells["date"].value
+        parsed, code = self._parse_date(value)
+        if parsed is None:
+            self._unknown("date", "date", ReviewReason.UNPARSEABLE_DATE, None)
+            return None
+        before, after = _text(value), parsed.isoformat()
+        if before != after:
+            self._log("date", code, before, after)
+        return parsed
+
+    def _parse_date(self, value: object) -> tuple[date | None, NormCode]:
+        """Register `DD/MM` + header year; ERP ISO; sheet `datetime` (C2), serial or `M/D/YYYY`."""
+        text = value.strip() if isinstance(value, str) else None
+        if self.source is Source.REGISTER:
+            m = _REGISTER_DATE.fullmatch(text or "")
+            parsed = _date_or_none(self.year, int(m[2]), int(m[1])) if m else None
+            return parsed, NormCode.DATE_YEAR_FROM_HEADER
+        if self.source is Source.ERP:
+            m = _ISO_DATE.fullmatch(text or "")
+            parsed = _date_or_none(int(m[1]), int(m[2]), int(m[3])) if m else None
+            return parsed, NormCode.TEXT_TRIMMED
+        if isinstance(value, datetime):
+            return value.date(), NormCode.DATE_SERIAL_PARSED
+        if isinstance(value, date):
+            return value, NormCode.DATE_SERIAL_PARSED
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            try:
+                return excel_serial_to_date(value), NormCode.DATE_SERIAL_PARSED
+            except ValueError:
+                return None, NormCode.DATE_SERIAL_PARSED
+        m = _SHEET_TEXT_DATE.fullmatch(text or "")
+        parsed = _date_or_none(int(m[3]), int(m[1]), int(m[2])) if m else None
+        return parsed, NormCode.DATE_TEXT_PARSED
+
+    def supplier(self) -> str | None:
+        """F-04.R5: ERP code as is (must be in `codes`); names by exact alias lookup."""
+        if not self._readable("supplier_code"):
+            return None
+        text = _text(self.cells["supplier_code"].value) or ""
+        mappings = self.out.mappings
+        if self.source is Source.ERP:
+            code = text.strip() if text.strip() in mappings.codes else None
+            log_code = NormCode.TEXT_TRIMMED
+        else:
+            code = mappings.suppliers.get(_alias_key(text))
+            log_code = NormCode.SUPPLIER_MAPPED
+        if code is None:
+            self._unknown(
+                "supplier_code",
+                "supplier",
+                ReviewReason.UNKNOWN_SUPPLIER,
+                FlagType.UNKNOWN_SUPPLIER,
+            )
+            return None
+        if code != text:
+            self._log("supplier_code", log_code, text, code)
+        return code
+
+    def unit(self) -> UnitDef | None:
+        """F-04.R6: exact alias lookup in `unit_map.csv`."""
+        if not self._readable("uom"):
+            return None
+        text = _text(self.cells["uom"].value) or ""
+        unit = self.out.mappings.units.get(_alias_key(text))
+        if unit is None:
+            self._unknown("uom", "unit", ReviewReason.UNKNOWN_UNIT, FlagType.UNKNOWN_UNIT)
+            return None
+        if unit.unit != text:
+            self._log("uom", NormCode.UNIT_MAPPED, text, unit.unit)
+        return unit
+
+    def qty(self) -> Decimal | None:
+        """F-04.R7: `Decimal`, never from a float (research R1). Parsing is not a change."""
+        value = self._value("qty")
+        if _blank(value):
+            return None
+        try:
+            if isinstance(value, bool):
+                raise InvalidOperation
+            qty = Decimal(value) if isinstance(value, int) else Decimal(_text(value) or "")
+        except InvalidOperation:
+            raise ValueError(f"{self.row_id}: qty {value!r} is not a number") from None
+        if not qty.is_finite():
+            raise ValueError(f"{self.row_id}: qty {value!r} is not a number")
+        return qty
+
+    def qty_base(self, qty: Decimal | None, unit: UnitDef | None) -> Decimal | None:
+        """F-04.R7: qty × factor, ROUND_HALF_UP to 2 dp; `UNIT_CONVERTED` when factor ≠ 1."""
+        if qty is None or unit is None:
+            return None
+        base = (qty * unit.factor).quantize(_CENT, rounding=ROUND_HALF_UP)
+        if unit.factor != 1:
+            self._log("qty_base", NormCode.UNIT_CONVERTED, _text(self._value("qty")), str(base))
+        return base
+
+    def text(self, name: str, *, upper: bool = False) -> str | None:
+        """F-04.R8: lots trimmed and upper-cased; items trimmed, display only."""
+        raw = _text(self._value(name))
+        if raw is None:
+            return None
+        after = raw.strip().upper() if upper else raw.strip()
+        if after != raw:
+            self._log(name, NormCode.TEXT_TRIMMED, raw, after or None)
+        return after or None
+
+    def build(self, raw: dict[str, str | None], meta: RowMeta) -> CanonicalRow:
+        self.grn_no = self.grn()  # first: flags and review items carry it
+        row_date = self.row_date()
+        supplier_code = self.supplier()
+        item = self.text("item")
+        lot_no = self.text("lot_no", upper=True)
+        qty = self.qty()
+        unit = self.unit()
+        qty_base = self.qty_base(qty, unit)
+        return CanonicalRow(
+            id=stable_id(self.out.run_id, "ROW", self.row_id),
+            run_id=self.out.run_id,
+            source=self.source,
+            source_row_id=self.row_id,
+            row_kind=RowKind.RECEIPT,
+            grn_no=self.grn_no,
+            date=row_date,
+            supplier_code=supplier_code,
+            item=item,
+            lot_no=lot_no,
+            qty=qty,
+            uom=unit.unit if unit else None,
+            qty_base=qty_base,
+            base_uom=unit.base if unit else None,
+            cell_status=dict(self.status),
+            raw=raw,
+            meta=meta,
+            duplicate_of=None,
+            group_id=None,
+            outcome=None,
+        )
+
+
+def _register_rows(out: _Out, page: RegisterPageInput, run_year: int) -> list[CanonicalRow]:
+    """F-04.R1, R9: `REG-p{p}-r{rr}`; merged value only when `CLEAR`, status into `cell_status`;
+    year from `month_written`, else from the run month (research R4)."""
+    year = _header_year(page.month_written) or run_year
+    rows = []
+    for merged_row in page.rows:
+        row_id = register_row_id(page.page_no, merged_row.row_index)
+        cells = {
+            REGISTER_TO_CANONICAL[f]: _Cell(c.merged.value, c.merged.status)
+            for f, c in merged_row.cells.items()
+        }
+        raw = {f.value: c.merged.value for f, c in merged_row.cells.items()}
+        norm = _RowNormaliser(out, Source.REGISTER, row_id, cells, year)
+        meta = RowMeta(
+            page_no=page.page_no,
+            row_index=merged_row.row_index,
+            received_by=_text(norm._value("received_by")),
+        )
+        rows.append(norm.build(raw, meta))
+    return rows
+
+
+def _entered_at(row: RawRow) -> datetime | None:
+    """ERP `entered_at` (`YYYY-MM-DD HH:MM`), aware in Asia/Karachi (research R2)."""
+    text = _text(row.values.get("entered_at"))
+    if text is None or not text.strip():
+        return None
+    try:
+        naive = datetime.strptime(text.strip(), "%Y-%m-%d %H:%M")  # noqa: DTZ007
+    except ValueError:
+        raise ValueError(f"{row.source_row_id}: entered_at {text!r} is not a time") from None
+    return naive.replace(tzinfo=KARACHI)
+
+
+def _erp_row(out: _Out, row: RawRow, run_year: int) -> CanonicalRow:
+    cells = {name: _Cell(row.values.get(col)) for col, name in _ERP_TO_CANONICAL.items()}
+    raw = {k: _text(v) for k, v in row.values.items()}
+    meta = RowMeta(entered_by=_text(row.values.get("entered_by")), entered_at=_entered_at(row))
+    return _RowNormaliser(out, Source.ERP, row.source_row_id, cells, run_year).build(raw, meta)
+
+
+def _sheet_row(out: _Out, row: RawRow, run_year: int) -> CanonicalRow:
+    cells = {name: _Cell(row.values.get(col)) for col, name in _SHEET_TO_CANONICAL.items()}
+    raw = {k: _text(v) for k, v in row.values.items()}
+    meta = RowMeta(remarks=_text(row.values.get("Remarks")))
+    return _RowNormaliser(out, Source.SHEET, row.source_row_id, cells, run_year).build(raw, meta)
+
+
+def normalise_all(
+    run_id: UUID,
+    month: str,
+    register_pages: list[RegisterPageInput],
+    erp: list[RawRow],
+    sheet: list[RawRow],
+    mappings: MappingTables,
+    decisions: list[ReviewItem],
+) -> NormaliseResult:
+    """F-04 over the three sources (contracts/normalise.md N1 to N14).
+
+    Rows come out REGISTER (page, row), ERP (line), SHEET (row) (N11), all `RECEIPT` (N12).
+    """
+    run_year = int(month[:4])
+    out = _Out(run_id=run_id, mappings=mappings)
+    rows: list[CanonicalRow] = []
+    for page in sorted(register_pages, key=lambda p: p.page_no):
+        rows.extend(_register_rows(out, page, run_year))
+    rows.extend(_erp_row(out, r, run_year) for r in sorted(erp, key=lambda r: r.line_no))
+    rows.extend(_sheet_row(out, r, run_year) for r in sorted(sheet, key=lambda r: r.line_no))
+    return NormaliseResult(
+        rows=rows, norm_log=out.norm_log, flags=out.flags, review_items=out.review_items
+    )
