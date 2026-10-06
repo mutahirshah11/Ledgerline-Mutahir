@@ -208,3 +208,14 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 
 ## Code Standards
 See `.specify/memory/constitution.md` for code quality, testing, performance, security, and architecture principles.
+
+## Ledgerline
+
+- What to build: `docs/blueprint.md` (local, git-ignored; the change log in its Section 0 overrides the body).
+- How to build it: `.specify/memory/constitution.md` (principles, phase gates).
+- Per-phase specs, plans and tasks: `specs/<nnn-name>/` (e.g. `specs/001-foundation/`).
+- Cite blueprint IDs everywhere: specs name the IDs they cover; tests are named
+  `test_F{nn}_AC{n}_*` (or `test_GE{nn}_*`); commit messages cite the phase and task/IDs
+  (e.g. "P0 US2: domain enums (Section 9)").
+- Backend: `apps/api` (uv, FastAPI). Frontend: `apps/web` (pnpm, Next.js). Schema: `supabase/migrations/`.
+- `make setup | test | lint | dev | seed` from Git Bash. Never call the system clock directly; use `app.core.clock`.
