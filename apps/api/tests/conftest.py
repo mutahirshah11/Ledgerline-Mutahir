@@ -1,5 +1,6 @@
 """Shared fixtures. Pack files are resolved by path, not symlinked (research R15)."""
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -16,3 +17,19 @@ def pack_dir() -> Path:
 @pytest.fixture(scope="session")
 def ground_truth_dir() -> Path:
     return API_DIR / "tests" / "ground_truth"
+
+
+@pytest.fixture
+def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
+    """Freeze app.core.clock at the scenario instant (2026-10-15 08:30 Asia/Karachi)."""
+    from app.core import clock
+    from app.core.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        LEDGERLINE_NOW=datetime(2026, 10, 15, 8, 30, tzinfo=clock.KARACHI),
+        LEDGERLINE_CLOCK_MODE="frozen",
+        LEDGERLINE_NOW_ANCHOR=None,
+    )
+    monkeypatch.setattr(clock, "get_settings", lambda: settings)
+    return clock.now()
