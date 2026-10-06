@@ -27,7 +27,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.models import Group, Run
-from app.pipeline.engine import EngineInputs, reconcile_run
+from app.pipeline.engine import EngineInputs, proof_failure_message, reconcile_run, run_pipeline
 from tests.support.pack import build_engine_inputs, resolved_cell
 
 _RECONCILE_PATHS: dict[RunStatus, tuple[RunStatus, ...]] = {
@@ -233,3 +233,24 @@ def test_engine_idempotent(
     reconcile_run(memory_repo, engine_inputs)
 
     assert _state(memory_repo, extracted_run.id) == first
+
+
+def test_engine_proof_failure_message_names_checks_and_c3_problems(
+    engine_inputs: EngineInputs, frozen_clock: datetime
+) -> None:
+    """FM-07: `error_message` carries each failing check with its numbers, and C3's problems."""
+    proof = run_pipeline(
+        engine_inputs, now=frozen_clock, faults=frozenset({Fault.PROOF_DROP_ROW})
+    ).proof
+    problem = "page 2 read A: 13 rows + 2 blank != 16"
+    c3 = proof.checks.C3.model_copy(update={"pass_": False, "problems": [problem]})
+    failing = proof.model_copy(update={"checks": proof.checks.model_copy(update={"C3": c3})})
+
+    message = proof_failure_message(failing)
+
+    (dropped,) = proof.checks.C2.unplaced
+    assert message.startswith("C1 failed: ")
+    assert f"; C2 failed: unplaced [{dropped}]; " in message
+    assert (
+        "; C3 failed: counted REGISTER 28, ERP 28, SHEET 30, problems [" + problem + "]" in message
+    )

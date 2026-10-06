@@ -191,7 +191,9 @@ def proof_failure_message(proof: Proof) -> str:
         parts.append("C2 failed: " + ", ".join(found))
     if not c.C3.pass_:
         counted = ", ".join(f"{s.value} {n}" for s, n in c.C3.per_source.items())
-        parts.append(f"C3 failed: counted {counted}")
+        problems: list[str] = getattr(c.C3, "problems", None) or []  # field being added (US4)
+        listed = f", problems [{', '.join(problems)}]" if problems else ""
+        parts.append(f"C3 failed: counted {counted}{listed}")
     if not c.C4.pass_:
         off = [
             f"{key} in {b.in_}, placed {b.placed}"
