@@ -278,7 +278,7 @@ def reconcile(run_id: UUID, rows: list[CanonicalRow]) -> ReconcileResult:
         diffs = _diffs(firsts)
         conflicts = _conflicts(members.rows)
         outcome = _outcome(members, diffs, bool(conflicts))
-        group_id = stable_id(run_id, members.key)
+        group_id = stable_id(run_id, "GROUP", members.key)
         row_ids: dict[Source, list[str]] = {}
         for row in members.rows:
             row_ids.setdefault(row.source, []).append(row.source_row_id)

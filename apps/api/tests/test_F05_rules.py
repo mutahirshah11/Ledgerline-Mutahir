@@ -90,6 +90,16 @@ def test_F05_R4_unmatched_no_key_review_item() -> None:
     assert item.context.model_dump() == {"group_key": "LOT:L2609-001|S-101", "other_rows": []}
 
 
+def test_F05_R11_group_ids_distinct_from_review_item_ids() -> None:
+    rows = [*_trio(4401), _row("XLS-r10", None, lot_no=None)]  # fallback group ROW:XLS-r10
+    result = reconcile(RUN, rows)
+
+    assert _group(result, "ROW:XLS-r10")
+    assert {i.item_key for i in result.review_items} == {"ROW:XLS-r10"}
+    group_ids = {g.id for g in result.groups}
+    assert group_ids.isdisjoint({i.id for i in result.review_items})
+
+
 def test_F05_R5_conflicting_rows_in_source() -> None:
     rows = [*_trio(4401), _row("ERP-0002", 4401, qty=Decimal("12"), qty_base=Decimal("12.00"))]
     result = reconcile(RUN, rows)
