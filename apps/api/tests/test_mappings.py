@@ -121,6 +121,7 @@ def test_files_with_bom_load(tmp_path: Path) -> None:
         (SUPPLIERS_OK, UNITS_OK + "yds,YD,M,0.91\n", "aliases of YD disagree"),
         (SUPPLIERS_OK, UNITS_OK + "yds,YD,CTN,0.9144\nctn,CTN,CTN,1\n", "aliases of YD disagree"),
         (SUPPLIERS_OK, "alias,unit,base,factor\nm,M,M,2\n", "base unit M needs factor 1"),
+        (SUPPLIERS_OK, UNITS_OK + "ft,FT,YD,0.3048\n", "not its own base"),
     ],
 )
 def test_bad_mapping_files_raise(tmp_path: Path, suppliers: str, units: str, match: str) -> None:

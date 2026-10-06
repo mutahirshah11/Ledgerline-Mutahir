@@ -1,5 +1,6 @@
 """F-06 acceptance criteria (blueprint Section 18; spec US3). Pack processed once per module."""
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,9 @@ def _rows_with(result: ControlsResult, flag: FlagType) -> list[str | None]:
 
 def test_F06_AC1_gap_4429(controls: ControlsResult) -> None:
     gaps = [f for f in controls.flags if f.flag is FlagType.SEQUENCE_GAP]
-    assert [(g.grn_no, g.source_row_id) for g in gaps] == [(4429, None)]
+    assert [(g.grn_no, g.source_row_id, g.detail) for g in gaps] == [
+        (4429, None, {"low": "4429", "high": "4429"})
+    ]
     items = [i for i in controls.review_items if i.item_key.startswith("FLAG:SEQUENCE_GAP:")]
     assert [(i.kind, i.item_key, i.grn_no) for i in items] == [
         (ReviewKind.FLAG_ACK, "FLAG:SEQUENCE_GAP:4429", 4429)
@@ -55,7 +58,7 @@ def test_F06_AC2_backdated_unusual_user(controls: ControlsResult) -> None:
 
 
 def test_F06_AC3_sunday_dates(controls: ControlsResult) -> None:
-    assert sorted(_rows_with(controls, FlagType.SUNDAY_DATE), key=str) == ["ERP-0015", "XLS-r31"]
+    assert _rows_with(controls, FlagType.SUNDAY_DATE) == ["ERP-0015", "XLS-r31"]
 
 
 def test_F06_AC4_out_of_order(controls: ControlsResult) -> None:
@@ -65,7 +68,7 @@ def test_F06_AC4_out_of_order(controls: ControlsResult) -> None:
 def test_F06_AC5_flags_do_not_change_outcomes(
     inputs: EngineInputs, reconciled: ReconcileResult, controls: ControlsResult
 ) -> None:
-    before = reconcile(PACK_RUN_ID, normalise_pack(inputs).rows)
+    before = copy.deepcopy(reconciled)  # a dataclass: deepcopy, not model_copy
     rows_before = [r.model_dump() for r in before.rows]
     groups_before = [g.model_dump() for g in before.groups]
 

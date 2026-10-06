@@ -1,6 +1,7 @@
 """F-04 rules R1 to R9 and the normalisation log (contracts/normalise.md N1 to N14)."""
 
 from collections import Counter
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -20,7 +21,8 @@ from app.domain.enums import (
 from app.domain.ids import stable_id
 from app.domain.models import CANONICAL_CELL_FIELDS, UnknownMappingContext
 from app.pipeline.engine import EngineInputs
-from app.pipeline.normalise import NormaliseResult, RawRow, read_erp, read_sheet
+from app.pipeline.normalise import MappingTables, NormaliseResult, RawRow, read_erp, read_sheet
+from app.pipeline.reconcile import reconcile
 from tests.support.normalised import (
     PACK_RUN_ID,
     map_decision,
@@ -169,6 +171,7 @@ def test_F04_R3_grn_prefix_and_length(
     erp = with_values(erp, "ERP-0004", grn_no="GRN-1234567")
     erp = with_values(erp, "ERP-0005", grn_no=" 4405 ")
     erp = with_values(erp, "ERP-0006", grn_no="GRN-44O6")
+    erp = with_values(erp, "ERP-0007", grn_no="٤٤٠١")  # Arabic-Indic 4401
     changed = normalise_pack(inputs, erp=erp)
 
     assert row_by_id(changed, "ERP-0002").grn_no == 4402
@@ -179,11 +182,29 @@ def test_F04_R3_grn_prefix_and_length(
         ("ERP-0003", "GRN-44"),
         ("ERP-0004", "GRN-1234567"),
         ("ERP-0006", "GRN-44O6"),
+        ("ERP-0007", "٤٤٠١"),  # only ASCII digits are a GRN
     ):
         assert row_by_id(changed, row_id).grn_no is None
         assert _log(changed, row_id, "grn_no") == [(NormCode.GRN_PREFIX_STRIPPED, raw, None)]
     assert row_by_id(changed, "ERP-0005").grn_no == 4405
     assert _log(changed, "ERP-0005", "grn_no") == [(NormCode.TEXT_TRIMMED, " 4405 ", "4405")]
+
+
+def test_F04_R3_grn_zero_is_malformed(
+    inputs: EngineInputs, erp: list[RawRow], sheet: list[RawRow]
+) -> None:
+    """F-04.R3: a GRN of zero is malformed (null, logged) like any other bad GRN; reconcile
+    must not crash on it (grn_group_key requires grn_no >= 1)."""
+    erp = with_values(erp, "ERP-0001", grn_no="000")
+    sheet = with_values(sheet, "XLS-r2", GRN="GRN-0000")
+    changed = normalise_pack(inputs, erp=erp, sheet=sheet)
+
+    for row_id, raw in (("ERP-0001", "000"), ("XLS-r2", "GRN-0000")):
+        assert row_by_id(changed, row_id).grn_no is None
+        assert _log(changed, row_id, "grn_no") == [(NormCode.GRN_PREFIX_STRIPPED, raw, None)]
+
+    reconciled = reconcile(PACK_RUN_ID, changed.rows)  # must not raise (grn_no < 1)
+    assert {r.source_row_id for r in reconciled.rows} >= {"ERP-0001", "XLS-r2"}
 
 
 def test_F04_R4_register_year_from_header(inputs: EngineInputs, result: NormaliseResult) -> None:
@@ -397,13 +418,19 @@ def test_F04_unparseable_qty_unclear(
     """User decision 2026-10-07: an unparseable qty in any source never raises; qty and qty_base
     null, `cell_status.qty = UNCLEAR`, raw kept (F-05 rule 1 → NEEDS_REVIEW; C4 qty_unknown)."""
     erp = with_values(erp, "ERP-0001", qty="12O")
+    erp = with_values(erp, "ERP-0003", qty="1E30")  # out of range: quantize would raise
+    erp = with_values(erp, "ERP-0004", qty="1_000")  # Python underscore numeral
     sheet = with_values(sheet, "XLS-r2", **{"Qty Received": "two thousand"})
+    sheet = with_values(sheet, "XLS-r3", **{"Qty Received": 1e30})
     decision = resolved_cell(PACK_RUN_ID, "REG-p2-r14", "qty", "2,50")
     changed = normalise_pack(inputs, erp=erp, sheet=sheet, decisions=[decision])
 
     for row_id, raw_key, raw in (
         ("ERP-0001", "qty", "12O"),
+        ("ERP-0003", "qty", "1E30"),
+        ("ERP-0004", "qty", "1_000"),
         ("XLS-r2", "Qty Received", "two thousand"),
+        ("XLS-r3", "Qty Received", "1e+30"),
         ("REG-p2-r14", "qty", None),
     ):
         row = row_by_id(changed, row_id)
@@ -413,6 +440,31 @@ def test_F04_unparseable_qty_unclear(
         assert row.uom is not None, row_id  # the unit still maps
     infinite = normalise_pack(inputs, erp=with_values(erp, "ERP-0002", qty="Infinity"))
     assert row_by_id(infinite, "ERP-0002").cell_status["qty"] is CellStatus.UNCLEAR
+    # Negative quantities stay valid: they are how returns become NON_RECEIPT (F-05.R2).
+    negative = normalise_pack(inputs, erp=with_values(erp, "ERP-0002", qty="-5"))
+    assert row_by_id(negative, "ERP-0002").qty == Decimal("-5")
+    assert row_by_id(negative, "ERP-0002").cell_status["qty"] is CellStatus.CLEAR
+
+
+def test_F04_qty_base_past_precision_unclear(inputs: EngineInputs, erp: list[RawRow]) -> None:
+    """A qty in range whose qty x factor cannot be quantized to 2 dp is unreadable, not a crash."""
+    huge = MappingTables(
+        suppliers=inputs.mappings.suppliers,
+        codes=inputs.mappings.codes,
+        units={k: replace(u, factor=Decimal("1E20")) for k, u in inputs.mappings.units.items()},
+    )
+    changed = normalise_pack(
+        replace(inputs, mappings=huge), erp=with_values(erp, "ERP-0001", qty="12345678901234")
+    )
+    row = row_by_id(changed, "ERP-0001")
+    assert (row.qty, row.qty_base) == (None, None)
+    assert row.cell_status["qty"] is CellStatus.UNCLEAR
+
+
+def test_F04_read_sheet_not_xlsx_raises_value_error() -> None:
+    """`read_sheet` promises ValueError; corrupt bytes must not leak BadZipFile and the like."""
+    with pytest.raises(ValueError, match="not a readable .xlsx"):
+        read_sheet(b"not a zip", "2026-09")
 
 
 def test_F04_bad_entered_at_null(inputs: EngineInputs, erp: list[RawRow]) -> None:

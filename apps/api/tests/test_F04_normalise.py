@@ -77,6 +77,12 @@ def test_F04_AC5_serial_46292() -> None:
     assert excel_serial_to_date(46266) == date(2026, 9, 1)
 
 
+@pytest.mark.parametrize("serial", [Decimal("Infinity"), Decimal("-Infinity"), Decimal("NaN")])
+def test_F04_AC5_non_finite_serial_raises_value_error(serial: Decimal) -> None:
+    with pytest.raises(ValueError, match="serial"):
+        excel_serial_to_date(serial)
+
+
 def test_F04_AC6_no_float(result: NormaliseResult) -> None:
     assert len(result.rows) == 86
     for row in result.rows:

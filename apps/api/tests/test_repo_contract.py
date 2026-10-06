@@ -734,6 +734,16 @@ def test_save_proof_overwrites(repo: Repo) -> None:
     assert latest.computed_at == at(2)
 
 
+def test_save_proof_rejects_finalised_run(repo: Repo) -> None:
+    run = _new_run(repo)
+    kept = repo.save_proof(make_proof(run.id, computed_at=at(1)))
+    final = _finalise(repo, run, "k-final")
+    with pytest.raises(StateConflict) as exc:
+        repo.save_proof(make_proof(run.id, computed_at=at(2)))
+    assert exc.value.current == final
+    assert repo.get_proof(run.id) == kept
+
+
 # --- review ------------------------------------------------------------------------------
 
 

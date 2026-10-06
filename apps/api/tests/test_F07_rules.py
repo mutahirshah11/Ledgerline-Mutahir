@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 import openpyxl
+import pytest
 
 import app.pipeline.proof as proof
 from app.domain.enums import (
@@ -25,6 +26,7 @@ from app.domain.enums import (
 from app.domain.models import (
     CanonicalRow,
     Cell,
+    ControlFlag,
     Group,
     MergedCell,
     MergedRow,
@@ -197,6 +199,38 @@ def test_F07_C4_non_numeric_qty_is_unknown() -> None:
     assert "SHEET|M" not in c4.by_source_unit
 
 
+@pytest.mark.parametrize("qty", ["1_000", "1000000000000000", "NaN", "Infinity"])
+def test_F07_C4_qty_normalise_rejects_is_unknown(qty: str) -> None:
+    """Proof rejects exactly what normalise rejects (underscore numerals, non-finite,
+    adjusted() >= 15), so C4 lists the row instead of failing."""
+    inputs = _inputs(erp=[_erp_line(qty, "PCS"), _erp_line("5", "PCS")])
+    rows = [_placed("ERP-0001", None, "uom", "PCS"), _placed("ERP-0002", "5", "uom", "PCS")]
+
+    c4 = proof.check_c4(inputs, rows)
+
+    assert c4.pass_
+    assert c4.qty_unknown == ["ERP-0001"]
+    assert c4.by_source_unit["ERP|PCS"].in_ == Decimal("5")
+
+
+def test_F07_C4_largest_accepted_qty_is_summed() -> None:
+    inputs = _inputs(erp=[_erp_line("999999999999999", "PCS")])
+    rows = [_placed("ERP-0001", "999999999999999", "uom", "PCS")]
+
+    c4 = proof.check_c4(inputs, rows)
+
+    assert c4.pass_
+    assert c4.qty_unknown == []
+
+
+@pytest.mark.parametrize("sep", ["\u2028", "\x0c", "\x1c", "\x85"])
+def test_F07_C3_erp_line_count_splits_on_newline_only(sep: str) -> None:
+    line = _erp_line("1", "PCS").replace("ITEM", f"IT{sep}EM")
+    data = f"{ERP_HEADER}\r\n{line}\r\n".encode("utf-8-sig")
+    assert proof.count_erp_lines(data) == 1
+    assert proof.count_erp_lines(data + b"\n") == 1
+
+
 def test_F07_C4_resolved_override_without_value_ignored() -> None:
     """A `RESOLVED` CELL item with no `resolved_value` does not replace the merged qty (F-04.R2)."""
     page = _full_page([_merged_row(1, "10", "kg")])
@@ -286,6 +320,19 @@ def test_F07_C3_reads_disagree_fails() -> None:
     c3 = proof.check_c3(inputs, {Source.REGISTER: 2, Source.ERP: 0, Source.SHEET: 0}, groups)
 
     assert not c3.pass_
+    assert c3.problems == ["REG-p1-r02: in one read only, no ROW_IN_ONE_READ item"]
+
+
+def test_F07_C3_reads_disagree_no_one_read_row_fails() -> None:
+    """Reads disagree on row count, but both rows appear in both reads (no one-read row) (R9)."""
+    rows = [_merged_row(1, "1", "kg"), _merged_row(2, "1", "kg")]
+    page = _page(rows, count_a=2, count_b=1, blank_a=14, blank_b=15)
+    inputs = _inputs([page])
+
+    c3 = proof.check_c3(inputs, {Source.REGISTER: 2, Source.ERP: 0, Source.SHEET: 0}, [])
+
+    assert not c3.pass_
+    assert c3.problems == ["page 1: reads disagree on row count, no one-read row found"]
 
 
 def test_F07_C3_row_in_one_read_covered_passes() -> None:
@@ -304,38 +351,83 @@ def test_F07_C3_row_in_one_read_covered_passes() -> None:
 # --- C5 -------------------------------------------------------------------------------------
 
 
-def test_F07_C5_unflagged_gap_fails() -> None:
+def _receipts_and_groups(*grns: int) -> tuple[list[CanonicalRow], list[Group]]:
     rows = [
-        make_row(RUN, "ERP-0001", grn_no=1, row_kind=RowKind.RECEIPT, outcome=Outcome.MISSING),
-        make_row(RUN, "ERP-0002", grn_no=3, row_kind=RowKind.RECEIPT, outcome=Outcome.MISSING),
+        make_row(RUN, f"ERP-{n:04}", grn_no=n, row_kind=RowKind.RECEIPT, outcome=Outcome.MISSING)
+        for n in grns
     ]
     groups = [
         make_group(RUN, f"GRN:{n}", grn_no=n, outcome=Outcome.MISSING, missing_from=[Source.SHEET])
-        for n in (1, 3)
+        for n in grns
     ]
-    gap_flag = make_flag(RUN, flag=FlagType.SEQUENCE_GAP, grn_no=2, detail={"low": "1"})
+    return rows, groups
+
+
+def _gap(low: int, high: int) -> ControlFlag:
+    detail = {"low": str(low), "high": str(high)}
+    return make_flag(RUN, flag=FlagType.SEQUENCE_GAP, grn_no=low, detail=detail)
+
+
+def test_F07_C5_unflagged_gap_fails() -> None:
+    rows, groups = _receipts_and_groups(1, 3)
 
     c5 = proof.check_c5(rows, groups, [])
     assert not c5.pass_
     assert (c5.grns, c5.gaps) == (2, [2])
 
-    assert proof.check_c5(rows, groups, [gap_flag]).pass_
+    assert proof.check_c5(rows, groups, [_gap(2, 2)]).pass_
+
+
+def test_F07_C5_range_flag_covers_every_missing_grn() -> None:
+    rows, groups = _receipts_and_groups(1, 5)
+
+    c5 = proof.check_c5(rows, groups, [_gap(2, 4)])
+    assert c5.pass_
+    assert c5.gaps == [2, 3, 4]
+
+    assert not proof.check_c5(rows, groups, [_gap(2, 3)]).pass_  # 4 is not covered
+    assert proof.check_c5(rows, groups, [_gap(2, 2), _gap(3, 4)]).pass_
+
+
+def test_F07_C5_non_receipt_grn_is_not_a_gap() -> None:
+    """C5 uses the SEQUENCE_GAP rule's GRN set: all rows, any kind (user decision 2026-10-07)."""
+    rows, groups = _receipts_and_groups(1, 3)
+    rows.append(make_row(RUN, "XLS-r2", grn_no=2, row_kind=RowKind.NON_RECEIPT))
+
+    c5 = proof.check_c5(rows, groups, [])
+    assert c5.pass_
+    assert c5.gaps == []
 
 
 # --- Independence (F-07.R3) -----------------------------------------------------------------
 
 
 def test_F07_independence() -> None:
+    """proof.py never imports from `app.pipeline.normalise` (or its symbols) nor uses the main
+    parsers by name (F-07.R3)."""
     source = Path(proof.__file__).read_text(encoding="utf-8")
-    names = {
+    tree = ast.parse(source)
+
+    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    import_names = {
         alias.name
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.ImportFrom | ast.Import)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
         for alias in node.names
     }
-    used = {n.id for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Name)}
-    used |= {n.attr for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Attribute)}
+    imported_symbols = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    used |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+
+    assert "app.pipeline.normalise" not in modules
+    assert "app.pipeline.normalise" not in import_names
 
     forbidden = {"read_erp", "read_sheet", "normalise_all"}
-    assert not forbidden & names
+    assert not forbidden & imported_symbols
+    assert not forbidden & import_names
     assert not forbidden & used

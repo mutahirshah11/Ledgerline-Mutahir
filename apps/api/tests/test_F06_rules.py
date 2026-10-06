@@ -1,16 +1,20 @@
 """F-06 rules on hand-built canonical rows (contracts/controls.md, data-model Section 7)."""
 
 import datetime as dt
+import time
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
+
+from app.core.clock import KARACHI
 from app.domain.enums import FlagType, ReviewKind, ReviewReason, RowKind
 from app.domain.ids import stable_id
 from app.domain.models import CanonicalRow, ControlFlag, FlagAckContext, RowMeta
 from app.pipeline.controls import ControlsResult, run_controls
 from app.pipeline.reconcile import reconcile
-from tests.factories import KARACHI, make_row
+from tests.factories import make_row
 
 RUN = UUID("00000000-0000-4000-8000-0000000000f6")
 MONTH = "2026-09"
@@ -55,14 +59,44 @@ def _flagged_rows(result: ControlsResult, flag: FlagType) -> list[str | None]:
     return [f.source_row_id for f in _flags(result, flag)]
 
 
-def test_F06_sequence_gap_every_missing_integer() -> None:
+def test_F06_sequence_gap_one_flag_per_range() -> None:
     rows = [_row("REG-p1-r01", 4401), _row("ERP-0001", 4404), _row("XLS-r2", None)]
     result = run_controls(RUN, MONTH, rows)
 
     gaps = _flags(result, FlagType.SEQUENCE_GAP)
-    assert [(g.grn_no, g.source_row_id) for g in gaps] == [(4402, None), (4403, None)]
+    assert [(g.grn_no, g.source_row_id, g.detail) for g in gaps] == [
+        (4402, None, {"low": "4402", "high": "4403"})
+    ]
+    assert gaps[0].id == stable_id(RUN, FlagType.SEQUENCE_GAP.value, "4402")
     keys = [i.item_key for i in result.review_items if i.reason is ReviewReason.SEQUENCE_GAP]
-    assert keys == ["FLAG:SEQUENCE_GAP:4402", "FLAG:SEQUENCE_GAP:4403"]
+    assert keys == ["FLAG:SEQUENCE_GAP:4402"]
+
+
+def test_F06_sequence_gap_two_separate_ranges() -> None:
+    rows = [_row("REG-p1-r01", 4401), _row("ERP-0001", 4404), _row("XLS-r2", 4407)]
+    result = run_controls(RUN, MONTH, rows)
+
+    gaps = _flags(result, FlagType.SEQUENCE_GAP)
+    assert [(g.grn_no, g.detail) for g in gaps] == [
+        (4402, {"low": "4402", "high": "4403"}),
+        (4405, {"low": "4405", "high": "4406"}),
+    ]
+    keys = [i.item_key for i in result.review_items if i.reason is ReviewReason.SEQUENCE_GAP]
+    assert keys == ["FLAG:SEQUENCE_GAP:4402", "FLAG:SEQUENCE_GAP:4405"]
+
+
+def test_F06_sequence_gap_typo_grn_is_one_range_and_fast() -> None:
+    rows = [_row(f"ERP-{n:04}", 4400 + n) for n in range(1, 6)]
+    rows.append(_row("XLS-r2", 999999))  # a typo: one wide range, not ~1M flags
+    start = time.perf_counter()
+    result = run_controls(RUN, MONTH, rows)
+    elapsed = time.perf_counter() - start
+
+    gaps = _flags(result, FlagType.SEQUENCE_GAP)
+    assert [(g.grn_no, g.detail) for g in gaps] == [(4406, {"low": "4406", "high": "999998"})]
+    keys = [i.item_key for i in result.review_items if i.reason is ReviewReason.SEQUENCE_GAP]
+    assert keys == ["FLAG:SEQUENCE_GAP:4406"]
+    assert elapsed < 0.5  # pairwise over distinct GRNs, no per-number loop
 
 
 def test_F06_date_out_of_period_flag_ack() -> None:
@@ -152,13 +186,12 @@ def test_F06_out_of_order_skips_null_and_equal() -> None:
 
     flags = _flags(result, FlagType.OUT_OF_ORDER)
     assert [f.source_row_id for f in flags] == ["XLS-r6", "ERP-0010"]
-    assert "XLS-r2" not in [f.source_row_id for f in flags]  # per-source tracker, not shared
     assert flags[0].detail == {
         "date": "2026-09-04",
         "previous_row": "XLS-r4",
         "previous_date": "2026-09-05",
     }
-    assert not any(i.reason.value == FlagType.OUT_OF_ORDER.value for i in result.review_items)
+    assert result.review_items == []
 
 
 def test_F06_sunday_date_any_row() -> None:
@@ -190,7 +223,6 @@ def test_F06_unusual_user_tie_rule() -> None:
 
     flags = _flags(result, FlagType.UNUSUAL_USER)
     assert [f.source_row_id for f in flags] == ["ERP-0001", "ERP-0003", "ERP-0005"]
-    assert "ERP-0006" not in [f.source_row_id for f in flags]
     assert flags[0].detail == {"entered_by": "zara", "usual": "amir"}
     assert result.review_items == []
 
@@ -229,8 +261,7 @@ def test_F06_detail_shapes() -> None:
             "previous_row": "XLS-r2",
             "previous_date": "2026-09-28",
         },
-        (FlagType.SEQUENCE_GAP, 4402, None): {"low": "4401", "high": "4406"},
-        (FlagType.SEQUENCE_GAP, 4403, None): {"low": "4401", "high": "4406"},
+        (FlagType.SEQUENCE_GAP, 4402, None): {"low": "4402", "high": "4403"},
         (FlagType.SUNDAY_DATE, 4401, "REG-p1-r01"): {"date": "2026-09-13"},
         (FlagType.SUNDAY_DATE, None, "XLS-r3"): {"date": "2026-09-27"},
         (FlagType.UNUSUAL_USER, 4401, "ERP-0002"): {"entered_by": "admin2", "usual": "store.clerk"},
@@ -238,13 +269,9 @@ def test_F06_detail_shapes() -> None:
     for f in result.flags:
         assert f.run_id == RUN
         assert f.id == stable_id(RUN, f.flag.value, f.source_row_id or str(f.grn_no))
+    by_key = {(f.flag.value, f.grn_no, f.source_row_id): f for f in result.flags}
     for item in result.review_items:
-        flag = next(
-            f
-            for f in result.flags
-            if f.flag.value == item.reason.value
-            and (f.source_row_id or str(f.grn_no)) == item.item_key.split(":", 2)[2]
-        )
+        flag = by_key[(item.reason.value, item.grn_no, item.source_row_id)]
         assert item.context == FlagAckContext(flag=flag.flag, detail=flag.detail)
 
 
@@ -258,8 +285,6 @@ def test_F06_output_sorted_and_deterministic() -> None:
 
     assert [(f.flag, f.grn_no, f.source_row_id) for f in result.flags] == [
         (FlagType.SEQUENCE_GAP, 4402, None),
-        (FlagType.SEQUENCE_GAP, 4403, None),
-        (FlagType.SEQUENCE_GAP, 4404, None),
         (FlagType.SUNDAY_DATE, 4401, "ERP-0001"),
         (FlagType.SUNDAY_DATE, 4405, "REG-p1-r01"),
         (FlagType.SUNDAY_DATE, None, "XLS-r3"),
@@ -282,3 +307,11 @@ def test_F06_not_a_problem_h202() -> None:
     result = run_controls(RUN, MONTH, reconciled.rows)
     assert result.flags == []
     assert result.review_items == []
+
+
+@pytest.mark.parametrize(
+    "month", ["2026-9", "2026-13", "2026-00", "26-09", "2026/09", "2026-09-01"]
+)
+def test_F06_malformed_month_raises(month: str) -> None:
+    with pytest.raises(ValueError, match="month"):
+        run_controls(RUN, month, [_row("REG-p1-r01", 4401)])

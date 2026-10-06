@@ -2,7 +2,6 @@
 
 import calendar
 import datetime as dt
-import re
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -11,11 +10,9 @@ from uuid import UUID
 from app.core.clock import KARACHI
 from app.core.config import BACKDATE_DAYS
 from app.domain.enums import FlagType, ReviewKind, ReviewReason, Source
-from app.domain.ids import review_item_key, stable_id
+from app.domain.ids import parse_month, review_item_key, stable_id
 from app.domain.models import CanonicalRow, ControlFlag, FlagAckContext, ReviewItem
-
-_SOURCE_ORDER: tuple[Source, ...] = (Source.REGISTER, Source.ERP, Source.SHEET)
-_DIGITS = re.compile(r"\d+")
+from app.pipeline.order import file_order, flag_order
 
 ACK_FLAGS: frozenset[FlagType] = frozenset(
     {FlagType.SEQUENCE_GAP, FlagType.BACKDATED_ENTRY, FlagType.DATE_OUT_OF_PERIOD}
@@ -35,32 +32,25 @@ class ControlsResult:
 _Raw = tuple[FlagType, int | None, str | None, dict[str, str]]
 
 
-def _file_order(row: CanonicalRow) -> tuple[int, tuple[int, ...]]:
-    """REGISTER (page, row), ERP line, SHEET row (C3; same as normalise output order)."""
-    numbers = tuple(int(n) for n in _DIGITS.findall(row.source_row_id))
-    return _SOURCE_ORDER.index(row.source), numbers
-
-
 # --- Rules (one per flag) -----------------------------------------------------------------
 
 
 def _sequence_gaps(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
-    """Every integer between the lowest and highest GRN of any row that no row has."""
-    grns = {r.grn_no for r in rows if r.grn_no is not None}
-    if not grns:
-        return
-    low, high = min(grns), max(grns)
-    detail = {"low": str(low), "high": str(high)}
-    for grn in range(low + 1, high):
-        if grn not in grns:
-            yield FlagType.SEQUENCE_GAP, grn, None, dict(detail)
+    """One flag per contiguous range of missing GRNs between the lowest and highest GRN of any
+    row, keyed by the range's first GRN (user decision 2026-10-07). Pairwise over the sorted
+    distinct GRNs, so a typo like 999999 costs one flag, not one per number."""
+    grns = sorted({r.grn_no for r in rows if r.grn_no is not None})
+    for before, after in zip(grns, grns[1:], strict=False):
+        if after - before > 1:
+            low, high = before + 1, after - 1
+            yield FlagType.SEQUENCE_GAP, low, None, {"low": str(low), "high": str(high)}
 
 
-def _backdated(rows: Sequence[CanonicalRow], month: str, backdate_days: int) -> Iterator[_Raw]:
+def _backdated(
+    rows: Sequence[CanonicalRow], month_end: dt.date, backdate_days: int
+) -> Iterator[_Raw]:
     """ERP entry dated (Asia/Karachi) after the month's last day, or > `backdate_days` after
     the GRN date."""
-    year, mon = int(month[:4]), int(month[5:7])
-    month_end = dt.date(year, mon, calendar.monthrange(year, mon)[1])
     for row in rows:
         entered = row.meta.entered_at
         if row.source is not Source.ERP or row.date is None or entered is None:
@@ -78,18 +68,23 @@ def _backdated(rows: Sequence[CanonicalRow], month: str, backdate_days: int) -> 
 
 def _unusual_users(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
     """ERP `entered_by` other than the most common one (tie: alphabetically first is usual)."""
-    erp = [r for r in rows if r.source is Source.ERP and r.meta.entered_by is not None]
-    counts = Counter(r.meta.entered_by for r in erp)
+    erp = [
+        (r, r.meta.entered_by)
+        for r in rows
+        if r.source is Source.ERP and r.meta.entered_by is not None
+    ]
+    counts = Counter(user for _, user in erp)
     if not counts:
         return
     usual = min(counts, key=lambda user: (-counts[user], user))
-    for row in erp:
-        if row.meta.entered_by != usual:
-            detail = {"entered_by": str(row.meta.entered_by), "usual": str(usual)}
+    for row, user in erp:
+        if user != usual:
+            detail = {"entered_by": user, "usual": usual}
             yield FlagType.UNUSUAL_USER, row.grn_no, row.source_row_id, detail
 
 
 def _sundays(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
+    """Any row (any source or kind) dated on a Sunday."""
     for row in rows:
         if row.date is not None and row.date.weekday() == calendar.SUNDAY:
             yield (
@@ -117,9 +112,12 @@ def _out_of_order(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
         previous[row.source] = row
 
 
-def _out_of_period(rows: Sequence[CanonicalRow], month: str) -> Iterator[_Raw]:
+def _out_of_period(
+    rows: Sequence[CanonicalRow], period: tuple[int, int], month: str
+) -> Iterator[_Raw]:
+    """Any row dated outside the run month `period` (year, month)."""
     for row in rows:
-        if row.date is not None and row.date.strftime("%Y-%m") != month:
+        if row.date is not None and (row.date.year, row.date.month) != period:
             detail = {"date": row.date.isoformat(), "month": month}
             yield FlagType.DATE_OUT_OF_PERIOD, row.grn_no, row.source_row_id, detail
 
@@ -128,6 +126,7 @@ def _out_of_period(rows: Sequence[CanonicalRow], month: str) -> Iterator[_Raw]:
 
 
 def _ack_item(run_id: UUID, flag: ControlFlag) -> ReviewItem:
+    """The `FLAG_ACK` review item for one acknowledgeable flag, keyed and id'd stably."""
     key = review_item_key(
         ReviewKind.FLAG_ACK, flag=flag.flag, row_id=flag.source_row_id, grn_no=flag.grn_no
     )
@@ -157,27 +156,31 @@ def run_controls(
     Rows are only read (C1). Flags are sorted by (flag, GRN nulls last, row id); items by key;
     ids from `stable_id` (C2, research R8).
     """
-    ordered = sorted(rows, key=_file_order)
+    year, mon = parse_month(month)
+    month_end = dt.date(year, mon, calendar.monthrange(year, mon)[1])
+    ordered = sorted(rows, key=file_order)
     raw: list[_Raw] = [
         *_sequence_gaps(ordered),
-        *_backdated(ordered, month, backdate_days),
+        *_backdated(ordered, month_end, backdate_days),
         *_unusual_users(ordered),
         *_sundays(ordered),
         *_out_of_order(ordered),
-        *_out_of_period(ordered, month),
+        *_out_of_period(ordered, (year, mon), month),
     ]
-    raw.sort(key=lambda f: (f[0].value, f[1] is None, f[1] or 0, f[2] or ""))
-    flags = [
-        ControlFlag(
-            id=stable_id(run_id, flag.value, row_id or str(grn)),
-            run_id=run_id,
-            flag=flag,
-            grn_no=grn,
-            source_row_id=row_id,
-            detail=detail,
-        )
-        for flag, grn, row_id, detail in raw
-    ]
+    flags = sorted(
+        (
+            ControlFlag(
+                id=stable_id(run_id, flag.value, row_id or str(grn)),
+                run_id=run_id,
+                flag=flag,
+                grn_no=grn,
+                source_row_id=row_id,
+                detail=detail,
+            )
+            for flag, grn, row_id, detail in raw
+        ),
+        key=flag_order,
+    )
     items = sorted(
         (_ack_item(run_id, f) for f in flags if f.flag in ACK_FLAGS), key=lambda i: i.item_key
     )

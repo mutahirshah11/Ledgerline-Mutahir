@@ -8,7 +8,7 @@ and the `RECONCILED` audit entry. Times come only from the `now` callable (E2).
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -29,19 +29,21 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.ids import stable_id
+from app.domain.lifecycle import can_transition
 from app.domain.models import (
     AuditEntry,
     CanonicalRow,
-    ControlFlag,
     Group,
     Proof,
     ReconciliationPayload,
     RegisterPageInput,
     ReviewItem,
+    Run,
     RunEvent,
 )
 from app.pipeline.controls import run_controls
 from app.pipeline.normalise import MappingTables, normalise_all, read_erp, read_sheet
+from app.pipeline.order import flag_order
 from app.pipeline.proof import prove
 from app.pipeline.reconcile import reconcile
 
@@ -96,11 +98,6 @@ def _counts(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> OutcomeCou
     )
 
 
-def _flag_order(flag: ControlFlag) -> tuple[str, bool, int, str]:
-    """The F-06 flag order (flag, GRN nulls last, row id), applied to F-04 + F-06 flags."""
-    return (flag.flag.value, flag.grn_no is None, flag.grn_no or 0, flag.source_row_id or "")
-
-
 def _drop_last_placed_row(
     rows: list[CanonicalRow], groups: list[Group]
 ) -> tuple[list[CanonicalRow], list[Group]]:
@@ -146,7 +143,7 @@ def run_pipeline(
     rows, groups = reconciled.rows, reconciled.groups
     if Fault.PROOF_DROP_ROW in faults:
         rows, groups = _drop_last_placed_row(rows, groups)
-    flags = sorted([*normalised.flags, *controls.flags], key=_flag_order)
+    flags = sorted([*normalised.flags, *controls.flags], key=flag_order)
     produced = Counter(r.source for r in normalised.rows)
     rows_in = {s: produced[s] for s in Source}
     proof = prove(inputs.run_id, inputs, rows_in, rows, groups, flags, now)
@@ -172,6 +169,11 @@ RECONCILABLE: frozenset[RunStatus] = frozenset(
 """Statuses `reconcile_run` starts from (blueprint C25); any other is a `StateConflict`."""
 
 
+def _detail(found: list[str]) -> str:
+    """The comma-joined detail of one failing check, `no detail` when nothing is listed."""
+    return ", ".join(found) or "no detail"
+
+
 def proof_failure_message(proof: Proof) -> str:
     """The failing checks and their numbers for `Run.error_message` (FM-07), e.g.
     `C1 failed: ERP in 28, placed 27; C2 failed: unplaced [ERP-0027]`."""
@@ -183,16 +185,15 @@ def proof_failure_message(proof: Proof) -> str:
             for s, n in c.C1.per_source.items()
             if n.in_ != n.placed
         ]
-        parts.append("C1 failed: " + ", ".join(off))
+        parts.append("C1 failed: " + _detail(off))
     if not c.C2.pass_:
         found = [f"unplaced [{', '.join(c.C2.unplaced)}]"] if c.C2.unplaced else []
         if c.C2.placed_twice:
             found.append(f"placed twice [{', '.join(c.C2.placed_twice)}]")
-        parts.append("C2 failed: " + ", ".join(found))
+        parts.append("C2 failed: " + _detail(found))
     if not c.C3.pass_:
         counted = ", ".join(f"{s.value} {n}" for s, n in c.C3.per_source.items())
-        problems: list[str] = getattr(c.C3, "problems", None) or []  # field being added (US4)
-        listed = f", problems [{', '.join(problems)}]" if problems else ""
+        listed = f", problems [{', '.join(c.C3.problems)}]" if c.C3.problems else ""
         parts.append(f"C3 failed: counted {counted}{listed}")
     if not c.C4.pass_:
         off = [
@@ -200,7 +201,7 @@ def proof_failure_message(proof: Proof) -> str:
             for key, b in c.C4.by_source_unit.items()
             if b.in_ != b.placed
         ]
-        parts.append("C4 failed: " + ", ".join(off))
+        parts.append("C4 failed: " + _detail(off))
     if not c.C5.pass_:
         parts.append(f"C5 failed: {c.C5.grns} GRNs, gaps {c.C5.gaps}")
     return "; ".join(parts)
@@ -212,6 +213,7 @@ class _Log:
     def __init__(self, repo: Repo, run_id: UUID, now: Callable[[], datetime]) -> None:
         self.repo, self.run_id, self.now = repo, run_id, now
         self.started: dict[Stage, datetime] = {}
+        self.seq = len(repo.list_run_events(run_id))  # read once; numbered locally after
 
     def event(self, stage: Stage, status: RunEventStatus, detail: dict[str, Any]) -> None:
         at = self.now()
@@ -219,8 +221,8 @@ class _Log:
             self.started[stage] = at
             duration = None
         else:
-            duration = int((at - self.started[stage]).total_seconds() * 1000)
-        seq = len(self.repo.list_run_events(self.run_id))
+            duration = (at - self.started[stage]) // timedelta(milliseconds=1)
+        seq, self.seq = self.seq, self.seq + 1
         self.repo.add_run_event(
             RunEvent(
                 id=stable_id(self.run_id, "run_event", str(seq), stage.value, status.value),
@@ -243,9 +245,12 @@ def reconcile_run(
 ) -> PipelineResult:
     """Reconcile a run end to end (contracts/engine.md sequence 1 to 8).
 
-    Proof `FAIL`: the proof is saved and the run moves to `FAILED` at stage `proof`; the previous
-    reconciliation is untouched (Clarification 4, FM-07). A failing `replace_reconciliation`
-    re-raises with no other write and no status change (FM-08).
+    Proof `FAIL`: the run moves to `FAILED` at stage `proof`, then the proof is saved; the previous
+    reconciliation is untouched (Clarification 4, FM-07). Any error in the pipeline (step 2, e.g.
+    a corrupt sheet) or from step 4 on (replace, review items, proof, status moves) logs
+    `reconcile/FAILED`, moves the run to `FAILED` at stage `reconcile` when the lifecycle allows,
+    and re-raises; a pipeline error writes nothing else and a failed replace keeps the previous
+    reconciliation (FM-08; user decisions 2026-10-07).
     """
     run_id = inputs.run_id
     run = repo.get_run(run_id)
@@ -254,58 +259,116 @@ def reconcile_run(
 
     log = _Log(repo, run_id, now)
     log.event(Stage.RECONCILE, RunEventStatus.STARTED, {})
-    result = run_pipeline(inputs, now=now(), faults=faults)
+    try:
+        result = run_pipeline(inputs, now=now(), faults=faults)
+    except Exception as exc:  # nothing written yet (user decision 2026-10-07)
+        _fail_on_reconcile(repo, log, run_id, exc)
+        raise
+    # contract order: proof/STARTED follows prove() (inside run_pipeline), so the proof stage's
+    # duration_ms measures the writes, not the checks
     log.event(Stage.PROOF, RunEventStatus.STARTED, {})
 
     if result.proof.status is ProofStatus.FAIL:
-        message = proof_failure_message(result.proof)
+        _fail_on_proof(repo, log, run, result.proof)
+        return result
+
+    try:
+        repo.replace_reconciliation(run_id, result.payload)
+        repo.upsert_review_items(run_id, result.review_items)
         repo.save_proof(result.proof)
+        log.event(Stage.PROOF, RunEventStatus.OK, {"status": result.proof.status.value})
+        to, open_count = _advance_status(repo, run, result.review_items)
+    except Exception as exc:
+        _fail_on_reconcile(repo, log, run_id, exc)
+        raise
+    _audit_reconciled(repo, log, run, to, open_count, result, now())
+    return result
+
+
+def _fail_on_proof(repo: Repo, log: _Log, run: Run, proof: Proof) -> None:
+    """Proof `FAIL` (FM-07): move to `FAILED` first, so a run finalised meanwhile raises
+    `StateConflict` before its proof could be overwritten; then save the proof and log. On that
+    conflict the failure is still logged (`proof/FAILED`, `reconcile/FAILED`), nothing saved."""
+    message = proof_failure_message(proof)
+    try:
         repo.transition_run(
-            run_id,
+            run.id,
             RunStatus.FAILED,
             expected={run.status},
             failed_stage=Stage.PROOF,
             error_message=message,
         )
+    except StateConflict as exc:
         log.event(Stage.PROOF, RunEventStatus.FAILED, {"error": message})
-        log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
-        return result
-
-    try:
-        repo.replace_reconciliation(run_id, result.payload)
-    except Exception as exc:
         log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": repr(exc)})
         raise
-    repo.upsert_review_items(run_id, result.review_items)
-    repo.save_proof(result.proof)
-    log.event(Stage.PROOF, RunEventStatus.OK, {"status": result.proof.status.value})
+    repo.save_proof(proof)
+    log.event(Stage.PROOF, RunEventStatus.FAILED, {"error": message})
+    log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
 
+
+def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> None:
+    """The pipeline (step 2) or a write in steps 4 to 7 failed: log `reconcile/FAILED` and move
+    the run to `FAILED` at stage `reconcile` if its current status allows (a run finalised
+    meanwhile stays put)."""
+    message = repr(exc)
+    log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
+    current = repo.get_run(run_id)
+    if can_transition(current.status, RunStatus.FAILED):
+        repo.transition_run(
+            run_id,
+            RunStatus.FAILED,
+            expected={current.status},
+            failed_stage=Stage.RECONCILE,
+            error_message=message,
+        )
+
+
+def _advance_status(repo: Repo, run: Run, current: Sequence[ReviewItem]) -> tuple[RunStatus, int]:
+    """Step 7: `EXTRACTED` → `RECONCILED`, then `AWAITING_REVIEW` if any current review item is
+    open, else `READY`. Only stored OPEN items whose `item_key` this reconcile produced count;
+    older items stay stored, untouched (user decision 2026-10-07). Returns the new status and
+    the open item count."""
     status = run.status
     if status is RunStatus.EXTRACTED:
-        status = repo.transition_run(run_id, RunStatus.RECONCILED, expected={status}).status
-    open_items = repo.list_review_items(run_id, ReviewStatus.OPEN)
-    to = RunStatus.AWAITING_REVIEW if open_items else RunStatus.READY
-    repo.transition_run(run_id, to, expected={status})
+        status = repo.transition_run(run.id, RunStatus.RECONCILED, expected={status}).status
+    keys = {item.item_key for item in current}
+    open_count = sum(
+        1 for item in repo.list_review_items(run.id, ReviewStatus.OPEN) if item.item_key in keys
+    )
+    to = RunStatus.AWAITING_REVIEW if open_count else RunStatus.READY
+    repo.transition_run(run.id, to, expected={status})
+    return to, open_count
 
+
+def _audit_reconciled(
+    repo: Repo,
+    log: _Log,
+    run: Run,
+    to: RunStatus,
+    open_count: int,
+    result: PipelineResult,
+    at: datetime,
+) -> None:
+    """Step 8: event `reconcile/OK` with counts and the `RECONCILED` audit entry."""
     counts = result.counts.as_json()
     log.event(Stage.RECONCILE, RunEventStatus.OK, counts)
     repo.append_audit(
         AuditEntry(
             id=0,  # assigned by the repo
-            at=now(),
+            at=at,
             actor="system",
             action=AuditAction.RECONCILED,
             entity="run",
-            entity_id=str(run_id),
-            run_id=run_id,
+            entity_id=str(run.id),
+            run_id=run.id,
             before={"status": run.status.value},
             after={
                 "status": to.value,
                 "proof_status": result.proof.status.value,
-                "open_review_items": len(open_items),
+                "open_review_items": open_count,
                 **counts,
             },
             channel=AuditChannel.SYSTEM,
         )
     )
-    return result
