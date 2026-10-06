@@ -33,7 +33,6 @@ from app.domain.lifecycle import can_transition
 from app.domain.models import (
     AuditEntry,
     CanonicalRow,
-    ControlFlag,
     Group,
     Proof,
     ReconciliationPayload,
@@ -44,6 +43,7 @@ from app.domain.models import (
 )
 from app.pipeline.controls import run_controls
 from app.pipeline.normalise import MappingTables, normalise_all, read_erp, read_sheet
+from app.pipeline.order import flag_order
 from app.pipeline.proof import prove
 from app.pipeline.reconcile import reconcile
 
@@ -98,11 +98,6 @@ def _counts(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> OutcomeCou
     )
 
 
-def _flag_order(flag: ControlFlag) -> tuple[str, bool, int, str]:
-    """The F-06 flag order (flag, GRN nulls last, row id), applied to F-04 + F-06 flags."""
-    return (flag.flag.value, flag.grn_no is None, flag.grn_no or 0, flag.source_row_id or "")
-
-
 def _drop_last_placed_row(
     rows: list[CanonicalRow], groups: list[Group]
 ) -> tuple[list[CanonicalRow], list[Group]]:
@@ -148,7 +143,7 @@ def run_pipeline(
     rows, groups = reconciled.rows, reconciled.groups
     if Fault.PROOF_DROP_ROW in faults:
         rows, groups = _drop_last_placed_row(rows, groups)
-    flags = sorted([*normalised.flags, *controls.flags], key=_flag_order)
+    flags = sorted([*normalised.flags, *controls.flags], key=flag_order)
     produced = Counter(r.source for r in normalised.rows)
     rows_in = {s: produced[s] for s in Source}
     proof = prove(inputs.run_id, inputs, rows_in, rows, groups, flags, now)

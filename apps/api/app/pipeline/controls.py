@@ -2,7 +2,6 @@
 
 import calendar
 import datetime as dt
-import re
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -13,9 +12,7 @@ from app.core.config import BACKDATE_DAYS
 from app.domain.enums import FlagType, ReviewKind, ReviewReason, Source
 from app.domain.ids import review_item_key, stable_id
 from app.domain.models import CanonicalRow, ControlFlag, FlagAckContext, ReviewItem
-
-_SOURCE_ORDER: tuple[Source, ...] = (Source.REGISTER, Source.ERP, Source.SHEET)
-_DIGITS = re.compile(r"\d+")
+from app.pipeline.order import file_order, flag_order
 
 ACK_FLAGS: frozenset[FlagType] = frozenset(
     {FlagType.SEQUENCE_GAP, FlagType.BACKDATED_ENTRY, FlagType.DATE_OUT_OF_PERIOD}
@@ -33,12 +30,6 @@ class ControlsResult:
 
 # A flag before ids are assigned: (flag, grn_no, source_row_id, detail).
 _Raw = tuple[FlagType, int | None, str | None, dict[str, str]]
-
-
-def _file_order(row: CanonicalRow) -> tuple[int, tuple[int, ...]]:
-    """REGISTER (page, row), ERP line, SHEET row (C3; same as normalise output order)."""
-    numbers = tuple(int(n) for n in _DIGITS.findall(row.source_row_id))
-    return _SOURCE_ORDER.index(row.source), numbers
 
 
 # --- Rules (one per flag) -----------------------------------------------------------------
@@ -157,7 +148,7 @@ def run_controls(
     Rows are only read (C1). Flags are sorted by (flag, GRN nulls last, row id); items by key;
     ids from `stable_id` (C2, research R8).
     """
-    ordered = sorted(rows, key=_file_order)
+    ordered = sorted(rows, key=file_order)
     raw: list[_Raw] = [
         *_sequence_gaps(ordered),
         *_backdated(ordered, month, backdate_days),
@@ -166,18 +157,20 @@ def run_controls(
         *_out_of_order(ordered),
         *_out_of_period(ordered, month),
     ]
-    raw.sort(key=lambda f: (f[0].value, f[1] is None, f[1] or 0, f[2] or ""))
-    flags = [
-        ControlFlag(
-            id=stable_id(run_id, flag.value, row_id or str(grn)),
-            run_id=run_id,
-            flag=flag,
-            grn_no=grn,
-            source_row_id=row_id,
-            detail=detail,
-        )
-        for flag, grn, row_id, detail in raw
-    ]
+    flags = sorted(
+        (
+            ControlFlag(
+                id=stable_id(run_id, flag.value, row_id or str(grn)),
+                run_id=run_id,
+                flag=flag,
+                grn_no=grn,
+                source_row_id=row_id,
+                detail=detail,
+            )
+            for flag, grn, row_id, detail in raw
+        ),
+        key=flag_order,
+    )
     items = sorted(
         (_ack_item(run_id, f) for f in flags if f.flag in ACK_FLAGS), key=lambda i: i.item_key
     )

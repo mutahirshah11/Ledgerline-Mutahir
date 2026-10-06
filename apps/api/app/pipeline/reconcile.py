@@ -22,11 +22,9 @@ from app.domain.ids import (
     stable_id,
 )
 from app.domain.models import CanonicalRow, Diff, Group, ReviewItem, UnmatchedRowContext
-
-SOURCE_ORDER: tuple[Source, ...] = (Source.REGISTER, Source.ERP, Source.SHEET)
+from app.pipeline.order import SOURCE_ORDER, file_order
 
 _RETURN_REMARK = re.compile(r"\b(return|returned|rtv)\b", re.IGNORECASE)
-_DIGITS = re.compile(r"\d+")
 
 KEY_FIELDS: tuple[str, ...] = ("date", "grn_no", "supplier_code", "lot_no", "qty", "uom")
 """Compared or key fields whose non-`CLEAR` cell sends a group to review (F-05.R7 rule 1)."""
@@ -39,13 +37,6 @@ class ReconcileResult:
     rows: list[CanonicalRow]  # row_kind, duplicate_of, group_id, outcome set
     groups: list[Group]
     review_items: list[ReviewItem]  # UNMATCHED_ROW
-
-
-def _file_order(row: CanonicalRow) -> tuple[int, tuple[int, ...]]:
-    """Source order, then the numbers in the row id (page, row / line / Excel row), so
-    `XLS-r9` sorts before `XLS-r10` (F-05.R11; contracts/normalise.md N11)."""
-    numbers = tuple(int(n) for n in _DIGITS.findall(row.source_row_id))
-    return SOURCE_ORDER.index(row.source), numbers
 
 
 def _values(row: CanonicalRow) -> tuple[object, ...]:
@@ -120,7 +111,7 @@ def _group_rows(receipts: Sequence[CanonicalRow]) -> tuple[list[_Members], list[
         groups.setdefault(key, _Members(key, None, [], fallback=True)).rows.append(row)
         unmatched.append(row)
     for members in groups.values():
-        members.rows.sort(key=_file_order)
+        members.rows.sort(key=file_order)
     return list(groups.values()), unmatched
 
 
@@ -296,7 +287,7 @@ def reconcile(run_id: UUID, rows: list[CanonicalRow]) -> ReconcileResult:
     GRN (nulls last) then key, rows by source then row id, review items in file order of their
     row, ids from `stable_id` (F-05.R11).
     """
-    ordered = sorted(rows, key=_file_order)
+    ordered = sorted(rows, key=file_order)
     duplicate_of = _duplicates(ordered)
     non_receipts = {
         r.source_row_id
