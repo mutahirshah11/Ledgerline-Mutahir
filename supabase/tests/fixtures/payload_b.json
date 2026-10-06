@@ -1,0 +1,379 @@
+{
+  "rows": [
+    {
+      "id": "e62dda78-15d5-540a-a263-d04b8ac7668d",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "REGISTER",
+      "source_row_id": "REG-p2-r14",
+      "row_kind": "RECEIPT",
+      "grn_no": 4425,
+      "date": "2026-09-12",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-002",
+      "qty": "40",
+      "uom": "KG",
+      "qty_base": "40",
+      "base_uom": "KG",
+      "cell_status": {
+        "date": "CLEAR",
+        "grn_no": "CLEAR",
+        "qty": "CORRECTED"
+      },
+      "raw": {
+        "qty": "40 KG",
+        "grn_no": "GRN-4425"
+      },
+      "meta": {
+        "page_no": 2,
+        "row_index": 14,
+        "received_by": "store.clerk",
+        "entered_by": null,
+        "entered_at": null,
+        "remarks": null
+      },
+      "duplicate_of": null,
+      "group_id": "8095d68b-13ba-5db5-a9d0-857eebfc750b",
+      "outcome": "MATCHED"
+    },
+    {
+      "id": "ee9c3c6b-eb38-598c-bbb1-c35e073c80f2",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "ERP",
+      "source_row_id": "ERP-0027",
+      "row_kind": "RECEIPT",
+      "grn_no": 4425,
+      "date": "2026-09-12",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-002",
+      "qty": "40.00",
+      "uom": "KG",
+      "qty_base": "40.00",
+      "base_uom": "KG",
+      "cell_status": {
+        "date": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "40.00 KG",
+        "grn_no": "GRN-4425"
+      },
+      "meta": {
+        "page_no": null,
+        "row_index": null,
+        "received_by": null,
+        "entered_by": "store.clerk",
+        "entered_at": "2026-09-12T17:05:00+05:00",
+        "remarks": null
+      },
+      "duplicate_of": null,
+      "group_id": "8095d68b-13ba-5db5-a9d0-857eebfc750b",
+      "outcome": "MATCHED"
+    },
+    {
+      "id": "df5ab87e-2b61-5c0f-8379-5f7ab55e0b45",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "SHEET",
+      "source_row_id": "XLS-r30",
+      "row_kind": "RECEIPT",
+      "grn_no": 4425,
+      "date": "2026-09-12",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-002",
+      "qty": "40",
+      "uom": "KG",
+      "qty_base": "40",
+      "base_uom": "KG",
+      "cell_status": {
+        "date": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "40 KG",
+        "grn_no": "GRN-4425"
+      },
+      "meta": {
+        "page_no": null,
+        "row_index": null,
+        "received_by": null,
+        "entered_by": null,
+        "entered_at": null,
+        "remarks": "checked"
+      },
+      "duplicate_of": null,
+      "group_id": "8095d68b-13ba-5db5-a9d0-857eebfc750b",
+      "outcome": "MATCHED"
+    },
+    {
+      "id": "85a1ca1b-bba6-5930-b9ed-719de3053a7f",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "REGISTER",
+      "source_row_id": "REG-p2-r15",
+      "row_kind": "RECEIPT",
+      "grn_no": 4426,
+      "date": "2026-09-13",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-002",
+      "qty": "1200",
+      "uom": "YD",
+      "qty_base": "1097.28",
+      "base_uom": "M",
+      "cell_status": {
+        "date": "CLEAR",
+        "grn_no": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "1200 YD",
+        "grn_no": "GRN-4426"
+      },
+      "meta": {
+        "page_no": 2,
+        "row_index": 15,
+        "received_by": "store.clerk",
+        "entered_by": null,
+        "entered_at": null,
+        "remarks": null
+      },
+      "duplicate_of": null,
+      "group_id": "cb06ecdc-a887-5bfb-8611-63bfa34f6f3e",
+      "outcome": "MATCHED_AFTER_CONVERSION"
+    },
+    {
+      "id": "40ca91ab-4488-5c2b-bfb3-95a95a1576a5",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "ERP",
+      "source_row_id": "ERP-0028",
+      "row_kind": "RECEIPT",
+      "grn_no": 4426,
+      "date": "2026-09-13",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-002",
+      "qty": "1097.28",
+      "uom": "M",
+      "qty_base": "1097.28",
+      "base_uom": "M",
+      "cell_status": {
+        "date": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "1097.28 M",
+        "grn_no": "GRN-4426"
+      },
+      "meta": {
+        "page_no": null,
+        "row_index": null,
+        "received_by": null,
+        "entered_by": "store.clerk",
+        "entered_at": "2026-09-13T17:05:00+05:00",
+        "remarks": null
+      },
+      "duplicate_of": null,
+      "group_id": "cb06ecdc-a887-5bfb-8611-63bfa34f6f3e",
+      "outcome": "MATCHED_AFTER_CONVERSION"
+    },
+    {
+      "id": "874406ca-25d4-5c0b-9152-4229b8f90b6f",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "SHEET",
+      "source_row_id": "XLS-r31",
+      "row_kind": "RECEIPT",
+      "grn_no": 4426,
+      "date": "2026-09-13",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-002",
+      "qty": "1097.28",
+      "uom": "M",
+      "qty_base": "1097.28",
+      "base_uom": "M",
+      "cell_status": {
+        "date": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "1097.28 M",
+        "grn_no": "GRN-4426"
+      },
+      "meta": {
+        "page_no": null,
+        "row_index": null,
+        "received_by": null,
+        "entered_by": null,
+        "entered_at": null,
+        "remarks": "checked"
+      },
+      "duplicate_of": null,
+      "group_id": "cb06ecdc-a887-5bfb-8611-63bfa34f6f3e",
+      "outcome": "MATCHED_AFTER_CONVERSION"
+    },
+    {
+      "id": "e9d2db04-b4ed-5c8f-a8df-3582b4a9d233",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "ERP",
+      "source_row_id": "ERP-0031",
+      "row_kind": "RECEIPT",
+      "grn_no": 4428,
+      "date": "2026-09-15",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-007",
+      "qty": "7",
+      "uom": "KG",
+      "qty_base": "7",
+      "base_uom": "KG",
+      "cell_status": {
+        "date": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "7 KG",
+        "grn_no": "GRN-4428"
+      },
+      "meta": {
+        "page_no": null,
+        "row_index": null,
+        "received_by": null,
+        "entered_by": "store.clerk",
+        "entered_at": "2026-09-15T17:05:00+05:00",
+        "remarks": null
+      },
+      "duplicate_of": null,
+      "group_id": "cf95c1c9-eed4-5cf4-ac07-53245440e051",
+      "outcome": "MISSING"
+    },
+    {
+      "id": "224d9de5-7d1a-59b3-935f-fd7dda04fc11",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source": "SHEET",
+      "source_row_id": "XLS-r32",
+      "row_kind": "RECEIPT",
+      "grn_no": 4428,
+      "date": "2026-09-15",
+      "supplier_code": "S-102",
+      "item": "Cotton twill 60in",
+      "lot_no": "L2609-007",
+      "qty": "7",
+      "uom": "KG",
+      "qty_base": "7",
+      "base_uom": "KG",
+      "cell_status": {
+        "date": "CLEAR",
+        "qty": "CLEAR"
+      },
+      "raw": {
+        "qty": "7 KG",
+        "grn_no": "GRN-4428"
+      },
+      "meta": {
+        "page_no": null,
+        "row_index": null,
+        "received_by": null,
+        "entered_by": null,
+        "entered_at": null,
+        "remarks": "checked"
+      },
+      "duplicate_of": null,
+      "group_id": "cf95c1c9-eed4-5cf4-ac07-53245440e051",
+      "outcome": "MISSING"
+    }
+  ],
+  "groups": [
+    {
+      "id": "8095d68b-13ba-5db5-a9d0-857eebfc750b",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "group_key": "GRN:4425",
+      "grn_no": 4425,
+      "row_ids": {
+        "REGISTER": [
+          "REG-p2-r14"
+        ],
+        "ERP": [
+          "ERP-0027"
+        ],
+        "SHEET": [
+          "XLS-r30"
+        ]
+      },
+      "outcome": "MATCHED",
+      "missing_from": [],
+      "diffs": []
+    },
+    {
+      "id": "cb06ecdc-a887-5bfb-8611-63bfa34f6f3e",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "group_key": "GRN:4426",
+      "grn_no": 4426,
+      "row_ids": {
+        "REGISTER": [
+          "REG-p2-r15"
+        ],
+        "ERP": [
+          "ERP-0028"
+        ],
+        "SHEET": [
+          "XLS-r31"
+        ]
+      },
+      "outcome": "MATCHED_AFTER_CONVERSION",
+      "missing_from": [],
+      "diffs": []
+    },
+    {
+      "id": "cf95c1c9-eed4-5cf4-ac07-53245440e051",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "group_key": "GRN:4428",
+      "grn_no": 4428,
+      "row_ids": {
+        "ERP": [
+          "ERP-0031"
+        ],
+        "SHEET": [
+          "XLS-r32"
+        ]
+      },
+      "outcome": "MISSING",
+      "missing_from": [
+        "REGISTER"
+      ],
+      "diffs": []
+    }
+  ],
+  "flags": [
+    {
+      "id": "2e102df3-e4d1-589f-9592-b4a219895bc5",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "flag": "SUNDAY_DATE",
+      "grn_no": 4428,
+      "source_row_id": "ERP-0031",
+      "detail": {
+        "date": "2026-09-15"
+      }
+    }
+  ],
+  "norm_log": [
+    {
+      "id": "f9e5e533-f513-5154-81a5-3a3e90543271",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source_row_id": "REG-p2-r15",
+      "field": "qty",
+      "code": "UNIT_CONVERTED",
+      "before": "1200 YD",
+      "after": "1097.28 M"
+    },
+    {
+      "id": "e687c04b-ac22-5a12-9e7e-c65ab0a24db1",
+      "run_id": "0b465b9a-ee4f-53c4-9f4f-d3063824fa1b",
+      "source_row_id": "ERP-0027",
+      "field": "grn_no",
+      "code": "GRN_PREFIX_STRIPPED",
+      "before": "GRN-4425",
+      "after": "4425"
+    }
+  ]
+}

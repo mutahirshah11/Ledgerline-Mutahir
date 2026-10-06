@@ -1,0 +1,2 @@
+# make_payload.py follows the API project's ruff settings (it imports app.domain).
+extend = "../../apps/api/pyproject.toml"
