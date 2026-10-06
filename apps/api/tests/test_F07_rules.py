@@ -286,6 +286,19 @@ def test_F07_C3_reads_disagree_fails() -> None:
     c3 = proof.check_c3(inputs, {Source.REGISTER: 2, Source.ERP: 0, Source.SHEET: 0}, groups)
 
     assert not c3.pass_
+    assert c3.problems == ["REG-p1-r02: in one read only, no ROW_IN_ONE_READ item"]
+
+
+def test_F07_C3_reads_disagree_no_one_read_row_fails() -> None:
+    """Reads disagree on row count, but both rows appear in both reads (no one-read row) (R9)."""
+    rows = [_merged_row(1, "1", "kg"), _merged_row(2, "1", "kg")]
+    page = _page(rows, count_a=2, count_b=1, blank_a=14, blank_b=15)
+    inputs = _inputs([page])
+
+    c3 = proof.check_c3(inputs, {Source.REGISTER: 2, Source.ERP: 0, Source.SHEET: 0}, [])
+
+    assert not c3.pass_
+    assert c3.problems == ["page 1: reads disagree on row count, no one-read row found"]
 
 
 def test_F07_C3_row_in_one_read_covered_passes() -> None:
@@ -326,16 +339,31 @@ def test_F07_C5_unflagged_gap_fails() -> None:
 
 
 def test_F07_independence() -> None:
+    """proof.py never imports from `app.pipeline.normalise` (or its symbols) nor uses the main
+    parsers by name (F-07.R3)."""
     source = Path(proof.__file__).read_text(encoding="utf-8")
-    names = {
+    tree = ast.parse(source)
+
+    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    import_names = {
         alias.name
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.ImportFrom | ast.Import)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
         for alias in node.names
     }
-    used = {n.id for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Name)}
-    used |= {n.attr for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Attribute)}
+    imported_symbols = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    used |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+
+    assert "app.pipeline.normalise" not in modules
+    assert "app.pipeline.normalise" not in import_names
 
     forbidden = {"read_erp", "read_sheet", "normalise_all"}
-    assert not forbidden & names
+    assert not forbidden & imported_symbols
+    assert not forbidden & import_names
     assert not forbidden & used

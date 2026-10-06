@@ -93,7 +93,8 @@ def _decimal(value: object) -> Decimal | None:
 
 
 def _sheet_cells(data: bytes, month: str) -> list[tuple[object, ...]]:
-    """All rows of worksheet `Mon-YYYY` (`2026-09` → `Sep-2026`), by this module's own pass."""
+    """All rows of worksheet `Mon-YYYY` (`2026-09` → `Sep-2026`), by this module's own pass.
+    F-02 validation guarantees the worksheet exists before this runs."""
     year, mon = month.split("-")
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     try:
@@ -117,9 +118,13 @@ def count_erp_lines(data: bytes) -> int:
     return max(len(lines) - 1, 0)
 
 
+def _count_sheet_rows(cells: Sequence[tuple[object, ...]]) -> int:
+    return len(_data_rows(cells))
+
+
 def count_sheet_rows(data: bytes, month: str) -> int:
     """SHEET rows = rows 2..last row with any non-empty cell, by a separate openpyxl pass (R9)."""
-    return len(_data_rows(_sheet_cells(data, month)))
+    return _count_sheet_rows(_sheet_cells(data, month))
 
 
 def _one_read_rows(page: RegisterPageInput) -> list[MergedRow]:
@@ -146,10 +151,14 @@ def register_counts(pages: Sequence[RegisterPageInput]) -> tuple[int, list[str]]
             ("B", page.row_count_b, page.blank_slots_b),
         ):
             if rows + blank != PRINTED_ROW_SLOTS:
-                problems.append(f"page {p} read {read}: {rows} rows + {blank} blank != 16")
+                problems.append(
+                    f"page {p} read {read}: {rows} rows + {blank} blank != {PRINTED_ROW_SLOTS}"
+                )
         blank = min(page.blank_slots_a, page.blank_slots_b)
         if len(page.rows) + blank != PRINTED_ROW_SLOTS:
-            problems.append(f"page {p}: {len(page.rows)} merged rows + {blank} blank != 16")
+            problems.append(
+                f"page {p}: {len(page.rows)} merged rows + {blank} blank != {PRINTED_ROW_SLOTS}"
+            )
         if page.row_count_a != page.row_count_b and not _one_read_rows(page):
             problems.append(f"page {p}: reads disagree on row count, no one-read row found")
     return total, problems
@@ -201,21 +210,31 @@ def _one_read_covered(inputs: "EngineInputs", groups: Sequence[Group]) -> list[s
                 item.status is ReviewStatus.OPEN
                 and outcome_of.get(row_id) is not Outcome.NEEDS_REVIEW
             ):
+                # outcome_of.get(row_id) is None when the row is outside any group; a one-read
+                # row with no outcome intentionally fails C3 here rather than passing silently.
                 problems.append(f"{row_id}: ROW_IN_ONE_READ open but group not NEEDS_REVIEW")
     return problems
 
 
 def check_c3(
-    inputs: "EngineInputs", rows_in: Mapping[Source, int], groups: Sequence[Group]
+    inputs: "EngineInputs",
+    rows_in: Mapping[Source, int],
+    groups: Sequence[Group],
+    *,
+    sheet_cells: Sequence[tuple[object, ...]] | None = None,
 ) -> CheckC3:
     """Independent row counts equal F-04's rows in, per source; register slots add up (R9).
-    `problems`: slot and one-read reasons, page order then one-read rows (deterministic)."""
+    `problems`: slot and one-read reasons, page order then one-read rows (deterministic).
+    `sheet_cells`: the sheet's rows, read once by the caller (`prove`); read here if omitted."""
     register, problems = register_counts(inputs.register_pages)
     problems += _one_read_covered(inputs, groups)
+    cells = (
+        sheet_cells if sheet_cells is not None else _sheet_cells(inputs.sheet_bytes, inputs.month)
+    )
     per_source = {
         Source.REGISTER: register,
         Source.ERP: count_erp_lines(inputs.erp_bytes),
-        Source.SHEET: count_sheet_rows(inputs.sheet_bytes, inputs.month),
+        Source.SHEET: _count_sheet_rows(cells),
     }
     agree = all(per_source[s] == rows_in.get(s, 0) for s in Source)
     return CheckC3(pass_=agree and not problems, per_source=per_source, problems=problems)
@@ -245,8 +264,8 @@ def _erp_quantities(data: bytes) -> list[_Qty]:
     return out
 
 
-def _sheet_quantities(data: bytes, month: str) -> list[_Qty]:
-    cells = _sheet_cells(data, month)
+def _sheet_quantities(cells: Sequence[tuple[object, ...]]) -> list[_Qty]:
+    """F-02 validation guarantees the headers exist, so `qi`/`ui` are always found."""
     header = [_text(h) for h in (cells[0] if cells else ())]
     qi, ui = header.index(_SHEET_QTY), header.index(_SHEET_UNIT)
 
@@ -256,10 +275,7 @@ def _sheet_quantities(data: bytes, month: str) -> list[_Qty]:
     out = []
     for n, values in _data_rows(cells):
         row_id = sheet_row_id(n)
-        qty = at(values, qi)
-        if isinstance(qty, int) and not isinstance(qty, bool):
-            qty = Decimal(qty)
-        out.append((_key(Source.SHEET, at(values, ui)), row_id, _decimal(qty)))
+        out.append((_key(Source.SHEET, at(values, ui)), row_id, _decimal(at(values, qi))))
     return out
 
 
@@ -309,13 +325,22 @@ def _sum(quantities: Iterable[_Qty]) -> tuple[dict[str, Decimal], set[str]]:
     return totals, unknown
 
 
-def check_c4(inputs: "EngineInputs", rows: Sequence[CanonicalRow]) -> CheckC4:
-    """Σ qty per `SOURCE|UNIT as recorded`: raw side == placed rows; nulls listed, never summed."""
+def check_c4(
+    inputs: "EngineInputs",
+    rows: Sequence[CanonicalRow],
+    *,
+    sheet_cells: Sequence[tuple[object, ...]] | None = None,
+) -> CheckC4:
+    """Σ qty per `SOURCE|UNIT as recorded`: raw side == placed rows; nulls listed, never summed.
+    `sheet_cells`: the sheet's rows, read once by the caller (`prove`); read here if omitted."""
+    cells = (
+        sheet_cells if sheet_cells is not None else _sheet_cells(inputs.sheet_bytes, inputs.month)
+    )
     raw_in, unknown_in = _sum(
         [
             *_register_quantities(inputs.register_pages, inputs.decisions),
             *_erp_quantities(inputs.erp_bytes),
-            *_sheet_quantities(inputs.sheet_bytes, inputs.month),
+            *_sheet_quantities(cells),
         ]
     )
     placed, unknown_placed = _sum(
@@ -364,12 +389,14 @@ def prove(
     flags: Sequence[ControlFlag],
     now: datetime,
 ) -> Proof:
-    """The five checks; `PASS` only if all pass; `computed_at = now` (the scenario clock)."""
+    """The five checks; `PASS` only if all pass; `computed_at = now` (the scenario clock).
+    The sheet workbook is read once here and shared by C3 and C4."""
+    sheet_cells = _sheet_cells(inputs.sheet_bytes, inputs.month)
     checks = ProofChecks(
         C1=check_c1(rows_in, rows),
         C2=check_c2(rows, groups),
-        C3=check_c3(inputs, rows_in, groups),
-        C4=check_c4(inputs, rows),
+        C3=check_c3(inputs, rows_in, groups, sheet_cells=sheet_cells),
+        C4=check_c4(inputs, rows, sheet_cells=sheet_cells),
         C5=check_c5(rows, groups, flags),
     )
     status = ProofStatus.PASS if checks.all_pass() else ProofStatus.FAIL
