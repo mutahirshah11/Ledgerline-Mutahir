@@ -1,4 +1,4 @@
-"""F-06 acceptance criteria (blueprint Section 18; spec US3). The pack is processed once per module."""
+"""F-06 acceptance criteria (blueprint Section 18; spec US3). Pack processed once per module."""
 
 from pathlib import Path
 
