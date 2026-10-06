@@ -39,15 +39,14 @@ _Raw = tuple[FlagType, int | None, str | None, dict[str, str]]
 
 
 def _sequence_gaps(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
-    """Every integer between the lowest and highest GRN of any row that no row has."""
-    grns = {r.grn_no for r in rows if r.grn_no is not None}
-    if not grns:
-        return
-    low, high = min(grns), max(grns)
-    detail = {"low": str(low), "high": str(high)}
-    for grn in range(low + 1, high):
-        if grn not in grns:
-            yield FlagType.SEQUENCE_GAP, grn, None, dict(detail)
+    """One flag per contiguous range of missing GRNs between the lowest and highest GRN of any
+    row, keyed by the range's first GRN (user decision 2026-10-07). Pairwise over the sorted
+    distinct GRNs, so a typo like 999999 costs one flag, not one per number."""
+    grns = sorted({r.grn_no for r in rows if r.grn_no is not None})
+    for before, after in zip(grns, grns[1:], strict=False):
+        if after - before > 1:
+            low, high = before + 1, after - 1
+            yield FlagType.SEQUENCE_GAP, low, None, {"low": str(low), "high": str(high)}
 
 
 def _backdated(

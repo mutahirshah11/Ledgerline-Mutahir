@@ -1,6 +1,7 @@
 """F-06 rules on hand-built canonical rows (contracts/controls.md, data-model Section 7)."""
 
 import datetime as dt
+import time
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -58,14 +59,44 @@ def _flagged_rows(result: ControlsResult, flag: FlagType) -> list[str | None]:
     return [f.source_row_id for f in _flags(result, flag)]
 
 
-def test_F06_sequence_gap_every_missing_integer() -> None:
+def test_F06_sequence_gap_one_flag_per_range() -> None:
     rows = [_row("REG-p1-r01", 4401), _row("ERP-0001", 4404), _row("XLS-r2", None)]
     result = run_controls(RUN, MONTH, rows)
 
     gaps = _flags(result, FlagType.SEQUENCE_GAP)
-    assert [(g.grn_no, g.source_row_id) for g in gaps] == [(4402, None), (4403, None)]
+    assert [(g.grn_no, g.source_row_id, g.detail) for g in gaps] == [
+        (4402, None, {"low": "4402", "high": "4403"})
+    ]
+    assert gaps[0].id == stable_id(RUN, FlagType.SEQUENCE_GAP.value, "4402")
     keys = [i.item_key for i in result.review_items if i.reason is ReviewReason.SEQUENCE_GAP]
-    assert keys == ["FLAG:SEQUENCE_GAP:4402", "FLAG:SEQUENCE_GAP:4403"]
+    assert keys == ["FLAG:SEQUENCE_GAP:4402"]
+
+
+def test_F06_sequence_gap_two_separate_ranges() -> None:
+    rows = [_row("REG-p1-r01", 4401), _row("ERP-0001", 4404), _row("XLS-r2", 4407)]
+    result = run_controls(RUN, MONTH, rows)
+
+    gaps = _flags(result, FlagType.SEQUENCE_GAP)
+    assert [(g.grn_no, g.detail) for g in gaps] == [
+        (4402, {"low": "4402", "high": "4403"}),
+        (4405, {"low": "4405", "high": "4406"}),
+    ]
+    keys = [i.item_key for i in result.review_items if i.reason is ReviewReason.SEQUENCE_GAP]
+    assert keys == ["FLAG:SEQUENCE_GAP:4402", "FLAG:SEQUENCE_GAP:4405"]
+
+
+def test_F06_sequence_gap_typo_grn_is_one_range_and_fast() -> None:
+    rows = [_row(f"ERP-{n:04}", 4400 + n) for n in range(1, 6)]
+    rows.append(_row("XLS-r2", 999999))  # a typo: one wide range, not ~1M flags
+    start = time.perf_counter()
+    result = run_controls(RUN, MONTH, rows)
+    elapsed = time.perf_counter() - start
+
+    gaps = _flags(result, FlagType.SEQUENCE_GAP)
+    assert [(g.grn_no, g.detail) for g in gaps] == [(4406, {"low": "4406", "high": "999998"})]
+    keys = [i.item_key for i in result.review_items if i.reason is ReviewReason.SEQUENCE_GAP]
+    assert keys == ["FLAG:SEQUENCE_GAP:4406"]
+    assert elapsed < 0.5  # pairwise over distinct GRNs, no per-number loop
 
 
 def test_F06_date_out_of_period_flag_ack() -> None:
@@ -230,8 +261,7 @@ def test_F06_detail_shapes() -> None:
             "previous_row": "XLS-r2",
             "previous_date": "2026-09-28",
         },
-        (FlagType.SEQUENCE_GAP, 4402, None): {"low": "4401", "high": "4406"},
-        (FlagType.SEQUENCE_GAP, 4403, None): {"low": "4401", "high": "4406"},
+        (FlagType.SEQUENCE_GAP, 4402, None): {"low": "4402", "high": "4403"},
         (FlagType.SUNDAY_DATE, 4401, "REG-p1-r01"): {"date": "2026-09-13"},
         (FlagType.SUNDAY_DATE, None, "XLS-r3"): {"date": "2026-09-27"},
         (FlagType.UNUSUAL_USER, 4401, "ERP-0002"): {"entered_by": "admin2", "usual": "store.clerk"},
@@ -255,8 +285,6 @@ def test_F06_output_sorted_and_deterministic() -> None:
 
     assert [(f.flag, f.grn_no, f.source_row_id) for f in result.flags] == [
         (FlagType.SEQUENCE_GAP, 4402, None),
-        (FlagType.SEQUENCE_GAP, 4403, None),
-        (FlagType.SEQUENCE_GAP, 4404, None),
         (FlagType.SUNDAY_DATE, 4401, "ERP-0001"),
         (FlagType.SUNDAY_DATE, 4405, "REG-p1-r01"),
         (FlagType.SUNDAY_DATE, None, "XLS-r3"),

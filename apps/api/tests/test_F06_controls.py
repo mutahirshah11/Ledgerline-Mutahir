@@ -34,7 +34,9 @@ def _rows_with(result: ControlsResult, flag: FlagType) -> list[str | None]:
 
 def test_F06_AC1_gap_4429(controls: ControlsResult) -> None:
     gaps = [f for f in controls.flags if f.flag is FlagType.SEQUENCE_GAP]
-    assert [(g.grn_no, g.source_row_id) for g in gaps] == [(4429, None)]
+    assert [(g.grn_no, g.source_row_id, g.detail) for g in gaps] == [
+        (4429, None, {"low": "4429", "high": "4429"})
+    ]
     items = [i for i in controls.review_items if i.item_key.startswith("FLAG:SEQUENCE_GAP:")]
     assert [(i.kind, i.item_key, i.grn_no) for i in items] == [
         (ReviewKind.FLAG_ACK, "FLAG:SEQUENCE_GAP:4429", 4429)
