@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import pytest
 
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
     from app.core.db import Repo
     from app.core.memory_repo import MemoryRepo
     from app.core.storage import MemoryBlobStore
+    from app.domain.models import Run
+    from app.pipeline.engine import EngineInputs
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = API_DIR.parents[1]
@@ -82,3 +85,34 @@ def memory_blobs() -> "MemoryBlobStore":
     from tests.factories import T0
 
     return MemoryBlobStore(now=lambda: T0)
+
+
+# --- Engine inputs (Phase 1, tests/support/pack.py) --------------------------------------
+
+PACK_RUN_ID = UUID("00000000-0000-4000-8000-000000002609")
+"""Fixed run id of the pack run, so stable ids (F-05.R11) are the same in every test."""
+
+
+@pytest.fixture
+def extracted_run(memory_repo: "MemoryRepo", frozen_clock: datetime) -> "Run":
+    """The 2026-09 pack run in `memory_repo`, walked CREATED → … → EXTRACTED."""
+    from app.domain.enums import RunStatus
+    from tests.factories import make_run
+
+    run = memory_repo.create_run(
+        make_run(id=PACK_RUN_ID, scenario_now=frozen_clock, created_at=frozen_clock)
+    )
+    path = [RunStatus.UPLOADED, RunStatus.VALIDATED, RunStatus.EXTRACTING, RunStatus.EXTRACTED]
+    for to in path:
+        run = memory_repo.transition_run(run.id, to, expected={run.status})
+    return run
+
+
+@pytest.fixture
+def engine_inputs(
+    extracted_run: "Run", pack_dir: Path, ground_truth_dir: Path
+) -> "EngineInputs":
+    """Pack inputs for `extracted_run`, no decisions. Fresh per test (models are shallow-frozen)."""
+    from tests.support.pack import build_engine_inputs
+
+    return build_engine_inputs(pack_dir, ground_truth_dir, extracted_run.id)
