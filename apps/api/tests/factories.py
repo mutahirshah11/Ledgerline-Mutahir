@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
 
+from app.core.clock import KARACHI
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
@@ -58,7 +58,6 @@ from app.domain.models import (
     UnmatchedRowContext,
 )
 
-KARACHI = ZoneInfo("Asia/Karachi")
 T0 = datetime(2026, 10, 1, 9, 0, tzinfo=KARACHI)
 
 

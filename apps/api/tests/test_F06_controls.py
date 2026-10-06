@@ -1,5 +1,6 @@
 """F-06 acceptance criteria (blueprint Section 18; spec US3). Pack processed once per module."""
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,7 @@ def test_F06_AC2_backdated_unusual_user(controls: ControlsResult) -> None:
 
 
 def test_F06_AC3_sunday_dates(controls: ControlsResult) -> None:
-    assert sorted(_rows_with(controls, FlagType.SUNDAY_DATE), key=str) == ["ERP-0015", "XLS-r31"]
+    assert _rows_with(controls, FlagType.SUNDAY_DATE) == ["ERP-0015", "XLS-r31"]
 
 
 def test_F06_AC4_out_of_order(controls: ControlsResult) -> None:
@@ -65,7 +66,7 @@ def test_F06_AC4_out_of_order(controls: ControlsResult) -> None:
 def test_F06_AC5_flags_do_not_change_outcomes(
     inputs: EngineInputs, reconciled: ReconcileResult, controls: ControlsResult
 ) -> None:
-    before = reconcile(PACK_RUN_ID, normalise_pack(inputs).rows)
+    before = copy.deepcopy(reconciled)  # a dataclass: deepcopy, not model_copy
     rows_before = [r.model_dump() for r in before.rows]
     groups_before = [g.model_dump() for g in before.groups]
 

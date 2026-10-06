@@ -2,6 +2,7 @@
 
 import calendar
 import datetime as dt
+import re
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from app.domain.enums import FlagType, ReviewKind, ReviewReason, Source
 from app.domain.ids import review_item_key, stable_id
 from app.domain.models import CanonicalRow, ControlFlag, FlagAckContext, ReviewItem
 from app.pipeline.order import file_order, flag_order
+
+_MONTH = re.compile(r"([0-9]{4})-([0-9]{2})")
 
 ACK_FLAGS: frozenset[FlagType] = frozenset(
     {FlagType.SEQUENCE_GAP, FlagType.BACKDATED_ENTRY, FlagType.DATE_OUT_OF_PERIOD}
@@ -47,11 +50,11 @@ def _sequence_gaps(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
             yield FlagType.SEQUENCE_GAP, grn, None, dict(detail)
 
 
-def _backdated(rows: Sequence[CanonicalRow], month: str, backdate_days: int) -> Iterator[_Raw]:
+def _backdated(
+    rows: Sequence[CanonicalRow], month_end: dt.date, backdate_days: int
+) -> Iterator[_Raw]:
     """ERP entry dated (Asia/Karachi) after the month's last day, or > `backdate_days` after
     the GRN date."""
-    year, mon = int(month[:4]), int(month[5:7])
-    month_end = dt.date(year, mon, calendar.monthrange(year, mon)[1])
     for row in rows:
         entered = row.meta.entered_at
         if row.source is not Source.ERP or row.date is None or entered is None:
@@ -69,18 +72,23 @@ def _backdated(rows: Sequence[CanonicalRow], month: str, backdate_days: int) -> 
 
 def _unusual_users(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
     """ERP `entered_by` other than the most common one (tie: alphabetically first is usual)."""
-    erp = [r for r in rows if r.source is Source.ERP and r.meta.entered_by is not None]
-    counts = Counter(r.meta.entered_by for r in erp)
+    erp = [
+        (r, r.meta.entered_by)
+        for r in rows
+        if r.source is Source.ERP and r.meta.entered_by is not None
+    ]
+    counts = Counter(user for _, user in erp)
     if not counts:
         return
     usual = min(counts, key=lambda user: (-counts[user], user))
-    for row in erp:
-        if row.meta.entered_by != usual:
-            detail = {"entered_by": str(row.meta.entered_by), "usual": str(usual)}
+    for row, user in erp:
+        if user != usual:
+            detail = {"entered_by": user, "usual": usual}
             yield FlagType.UNUSUAL_USER, row.grn_no, row.source_row_id, detail
 
 
 def _sundays(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
+    """Any row (any source or kind) dated on a Sunday."""
     for row in rows:
         if row.date is not None and row.date.weekday() == calendar.SUNDAY:
             yield (
@@ -108,17 +116,29 @@ def _out_of_order(rows: Sequence[CanonicalRow]) -> Iterator[_Raw]:
         previous[row.source] = row
 
 
-def _out_of_period(rows: Sequence[CanonicalRow], month: str) -> Iterator[_Raw]:
+def _out_of_period(
+    rows: Sequence[CanonicalRow], period: tuple[int, int], month: str
+) -> Iterator[_Raw]:
+    """Any row dated outside the run month `period` (year, month)."""
     for row in rows:
-        if row.date is not None and row.date.strftime("%Y-%m") != month:
+        if row.date is not None and (row.date.year, row.date.month) != period:
             detail = {"date": row.date.isoformat(), "month": month}
             yield FlagType.DATE_OUT_OF_PERIOD, row.grn_no, row.source_row_id, detail
+
+
+def _parse_month(month: str) -> tuple[int, int]:
+    """`YYYY-MM` as (year, month); `ValueError` on anything else."""
+    found = _MONTH.fullmatch(month)
+    if found is None or not 1 <= int(found[2]) <= 12:
+        raise ValueError(f"month must be YYYY-MM, got {month!r}")
+    return int(found[1]), int(found[2])
 
 
 # --- Entry point (C1, C2) -----------------------------------------------------------------
 
 
 def _ack_item(run_id: UUID, flag: ControlFlag) -> ReviewItem:
+    """The `FLAG_ACK` review item for one acknowledgeable flag, keyed and id'd stably."""
     key = review_item_key(
         ReviewKind.FLAG_ACK, flag=flag.flag, row_id=flag.source_row_id, grn_no=flag.grn_no
     )
@@ -148,14 +168,16 @@ def run_controls(
     Rows are only read (C1). Flags are sorted by (flag, GRN nulls last, row id); items by key;
     ids from `stable_id` (C2, research R8).
     """
+    year, mon = _parse_month(month)
+    month_end = dt.date(year, mon, calendar.monthrange(year, mon)[1])
     ordered = sorted(rows, key=file_order)
     raw: list[_Raw] = [
         *_sequence_gaps(ordered),
-        *_backdated(ordered, month, backdate_days),
+        *_backdated(ordered, month_end, backdate_days),
         *_unusual_users(ordered),
         *_sundays(ordered),
         *_out_of_order(ordered),
-        *_out_of_period(ordered, month),
+        *_out_of_period(ordered, (year, mon), month),
     ]
     flags = sorted(
         (
