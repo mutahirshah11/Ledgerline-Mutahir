@@ -1,5 +1,6 @@
 """Phase 1 domain extensions (data-model.md Section 1: E1-E4)."""
 
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -8,12 +9,13 @@ from pydantic import ValidationError
 from app.domain.enums import CellStatus, Fault, RowKind, Source
 from app.domain.ids import stable_id
 from app.domain.models import CanonicalRow, MergedCell, MergedRow, RegisterPageInput, RowMeta
-
 from tests.factories import cell
 
 
 def _merged_cell(value: str = "x") -> MergedCell:
-    return MergedCell(merged=cell(value), read_a=cell(value), read_b=cell(value), review_reason=None)
+    return MergedCell(
+        merged=cell(value), read_a=cell(value), read_b=cell(value), review_reason=None
+    )
 
 
 def _merged_row(row_index: int) -> MergedRow:
@@ -97,7 +99,7 @@ def test_register_page_input_rejects_duplicate_row_index() -> None:
 
 @pytest.mark.parametrize("field", ["row_count_a", "row_count_b", "blank_slots_a", "blank_slots_b"])
 def test_register_page_input_counts_bounded_0_to_16(field: str) -> None:
-    base = dict(
+    base: dict[str, Any] = dict(
         page_no=1,
         page_sha256=None,
         month_written="Sep 2026",

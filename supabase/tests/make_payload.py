@@ -36,6 +36,7 @@ from app.domain.enums import (  # noqa: E402
     Source,
 )
 from app.domain.models import (  # noqa: E402
+    CANONICAL_CELL_FIELDS,
     CanonicalRow,
     ControlFlag,
     Diff,
@@ -48,6 +49,7 @@ from app.domain.models import (  # noqa: E402
 FIXTURES = HERE / "fixtures"
 KARACHI = ZoneInfo("Asia/Karachi")
 RUN_ID = uuid5(NAMESPACE_URL, "https://ledgerline.example/smoke/run")
+CANONICAL_CELL_KEY_ORDER = sorted(CANONICAL_CELL_FIELDS)
 
 
 def sid(*parts: str) -> UUID:
@@ -91,10 +93,10 @@ def row(
             entered_by="store.clerk",
             entered_at=datetime(2026, 9, day, 17, 5, tzinfo=KARACHI),
         )
-        cell_status = {"date": CellStatus.CLEAR, "qty": CellStatus.CLEAR}
+        cell_status = {key: CellStatus.CLEAR for key in CANONICAL_CELL_KEY_ORDER}
     else:
         meta = RowMeta(remarks="checked")
-        cell_status = {"date": CellStatus.CLEAR, "qty": CellStatus.CLEAR}
+        cell_status = {key: CellStatus.CLEAR for key in CANONICAL_CELL_KEY_ORDER}
     return CanonicalRow(
         id=sid("row", source_row_id),
         run_id=RUN_ID,
