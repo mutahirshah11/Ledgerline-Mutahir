@@ -46,10 +46,10 @@ def test_F06_AC2_backdated_unusual_user(controls: ControlsResult) -> None:
     (backdated,) = [f for f in controls.flags if f.flag is FlagType.BACKDATED_ENTRY]
     assert backdated.grn_no == 4430
     assert backdated.detail["grn_date"] == "2026-09-29"
-    assert backdated.detail["entered_at"].startswith("2026-10-02 ")
+    assert backdated.detail["entered_at"] == "2026-10-02 18:47"
     assert backdated.detail["days_after"] == "3"
     (unusual,) = [f for f in controls.flags if f.flag is FlagType.UNUSUAL_USER]
-    assert unusual.detail["entered_by"] == "admin2"
+    assert unusual.detail == {"entered_by": "admin2", "usual": "store.clerk"}
     keys = [i.item_key for i in controls.review_items if i.kind is ReviewKind.FLAG_ACK]
     assert "FLAG:BACKDATED_ENTRY:ERP-0028" in keys
 
@@ -65,18 +65,14 @@ def test_F06_AC4_out_of_order(controls: ControlsResult) -> None:
 def test_F06_AC5_flags_do_not_change_outcomes(
     inputs: EngineInputs, reconciled: ReconcileResult, controls: ControlsResult
 ) -> None:
-    rows_before = [r.model_dump() for r in reconciled.rows]
-    groups_before = [g.model_dump() for g in reconciled.groups]
+    before = reconcile(PACK_RUN_ID, normalise_pack(inputs).rows)
+    rows_before = [r.model_dump() for r in before.rows]
+    groups_before = [g.model_dump() for g in before.groups]
 
-    run_controls(PACK_RUN_ID, inputs.month, reconciled.rows)
-    again = reconcile(PACK_RUN_ID, normalise_pack(inputs).rows)
+    run_controls(PACK_RUN_ID, inputs.month, before.rows)
 
+    assert [r.model_dump() for r in before.rows] == rows_before
+    assert [g.model_dump() for g in before.groups] == groups_before
     assert [r.model_dump() for r in reconciled.rows] == rows_before
     assert [g.model_dump() for g in reconciled.groups] == groups_before
-    assert [(r.source_row_id, r.outcome, r.group_id) for r in again.rows] == [
-        (r.source_row_id, r.outcome, r.group_id) for r in reconciled.rows
-    ]
-    assert [(g.id, g.outcome, g.diffs) for g in again.groups] == [
-        (g.id, g.outcome, g.diffs) for g in reconciled.groups
-    ]
     assert controls.flags  # flags were raised, yet nothing above moved

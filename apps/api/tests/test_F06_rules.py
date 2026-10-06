@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from app.domain.enums import FlagType, ReviewKind, ReviewReason
+from app.domain.enums import FlagType, ReviewKind, ReviewReason, RowKind
 from app.domain.ids import stable_id
 from app.domain.models import CanonicalRow, ControlFlag, FlagAckContext, RowMeta
 from app.pipeline.controls import ControlsResult, run_controls
@@ -98,7 +98,12 @@ def test_F06_backdate_threshold_boundary() -> None:
         # 1 Oct 01:00 in Karachi is still 30 Sep in UTC: the Karachi date decides
         _erp(4, 4404, dt.date(2026, 9, 30), dt.datetime(2026, 9, 30, 20, 0, tzinfo=dt.UTC)),
         _erp(5, 4405, None, dt.datetime(2026, 10, 9, 9, 0, tzinfo=KARACHI)),
-        _row("REG-p1-r01", 4406, date=sep_10),
+        _row(
+            "REG-p1-r01",
+            4406,
+            date=sep_10,
+            meta=RowMeta(entered_at=dt.datetime(2026, 10, 5, 9, 0, tzinfo=KARACHI)),
+        ),  # REGISTER rows are never checked for backdating, even with a late entered_at
     ]
     result = run_controls(RUN, MONTH, rows)
 
@@ -109,6 +114,15 @@ def test_F06_backdate_threshold_boundary() -> None:
         "FLAG:BACKDATED_ENTRY:ERP-0003",
         "FLAG:BACKDATED_ENTRY:ERP-0004",
     ]
+
+
+def test_F06_backdate_renders_entered_at_in_karachi() -> None:
+    """`entered_at` given as UTC-aware must render as Asia/Karachi wall time (UTC+5)."""
+    rows = [_erp(1, 4401, SEP_1, dt.datetime(2026, 10, 2, 13, 47, tzinfo=dt.UTC))]
+    result = run_controls(RUN, MONTH, rows)
+
+    (flag,) = _flags(result, FlagType.BACKDATED_ENTRY)
+    assert flag.detail["entered_at"] == "2026-10-02 18:47"
 
 
 def test_F06_backdate_days_parameter() -> None:
@@ -130,6 +144,7 @@ def test_F06_out_of_order_skips_null_and_equal() -> None:
         _row("XLS-r10", 4406, date=dt.date(2026, 9, 8)),  # r10 follows r6, not r1
         _erp(9, 4407, dt.date(2026, 9, 2)),
         _erp(10, 4408, dt.date(2026, 9, 1)),
+        _erp(11, 4411, dt.date(2026, 9, 20)),  # ERP's own last date; must not leak to SHEET
         _row("REG-p1-r01", 4409, date=dt.date(2026, 9, 9)),
         _row("REG-p1-r02", 4410, date=dt.date(2026, 9, 1)),  # register is not checked
     ]
@@ -137,6 +152,7 @@ def test_F06_out_of_order_skips_null_and_equal() -> None:
 
     flags = _flags(result, FlagType.OUT_OF_ORDER)
     assert [f.source_row_id for f in flags] == ["XLS-r6", "ERP-0010"]
+    assert "XLS-r2" not in [f.source_row_id for f in flags]  # per-source tracker, not shared
     assert flags[0].detail == {
         "date": "2026-09-04",
         "previous_row": "XLS-r4",
@@ -149,7 +165,9 @@ def test_F06_sunday_date_any_row() -> None:
     sunday = dt.date(2026, 9, 13)
     rows = [
         _row("REG-p1-r01", 4401, date=sunday),
-        _row("XLS-r2", None, date=sunday, qty=Decimal("-5")),  # non-receipt rows too
+        _row(
+            "XLS-r2", None, date=sunday, qty=Decimal("-5"), row_kind=RowKind.NON_RECEIPT
+        ),  # non-receipt rows too
         _row("XLS-r3", 4402, date=dt.date(2026, 9, 12)),
         _row("XLS-r4", 4403, date=None),
     ]
@@ -166,11 +184,13 @@ def test_F06_unusual_user_tie_rule() -> None:
         _erp(3, 4403, by="zara"),
         _erp(4, 4404, by="amir"),
         _erp(5, 4405, by="bilal"),
+        _erp(6, 4406, by=None),  # no entered_by: excluded from both the count and the flags
     ]
     result = run_controls(RUN, MONTH, rows)
 
     flags = _flags(result, FlagType.UNUSUAL_USER)
     assert [f.source_row_id for f in flags] == ["ERP-0001", "ERP-0003", "ERP-0005"]
+    assert "ERP-0006" not in [f.source_row_id for f in flags]
     assert flags[0].detail == {"entered_by": "zara", "usual": "amir"}
     assert result.review_items == []
 
