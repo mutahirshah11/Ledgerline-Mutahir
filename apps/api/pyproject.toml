@@ -34,6 +34,7 @@ select = ["E", "F", "I", "B", "UP", "DTZ", "TID"]
 "datetime.datetime.today".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
 "datetime.date.today".msg = "Use app.core.clock.today() (scenario clock, constitution VI)"
 "time.time".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
+"time.time_ns".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
 
 [tool.ruff.lint.per-file-ignores]
 "app/core/clock.py" = ["TID251"]

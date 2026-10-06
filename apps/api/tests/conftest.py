@@ -1,5 +1,6 @@
 """Shared fixtures. Pack files are resolved by path, not symlinked (research R15)."""
 
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,6 +25,19 @@ def pack_dir() -> Path:
 @pytest.fixture(scope="session")
 def ground_truth_dir() -> Path:
     return API_DIR / "tests" / "ground_truth"
+
+
+@pytest.fixture(autouse=True)
+def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Settings see no .env and no OS env vars, so local runs behave like CI."""
+    from app.core.config import Settings, get_settings
+
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture

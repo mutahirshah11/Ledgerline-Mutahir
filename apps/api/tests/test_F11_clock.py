@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -11,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core import clock
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 
 API_DIR = Path(__file__).resolve().parents[1]
 SCENARIO = "2026-10-15T08:30:00+05:00"
@@ -121,33 +120,28 @@ def test_F11_R1_settings_read_from_environment(monkeypatch: pytest.MonkeyPatch) 
         Settings(_env_file=None)
 
 
-def test_F11_R1_lint_bans_system_clock() -> None:
-    planted = API_DIR / "app" / f"_planted_clock_{uuid.uuid4().hex}.py"
+def test_F11_R1_lint_bans_system_clock(tmp_path: Path) -> None:
+    planted = tmp_path / "planted_clock.py"
     planted.write_text(
         '"""Planted violation."""\n\nfrom datetime import datetime\n\nSTAMP = datetime.now()\n',
         encoding="utf-8",
     )
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "ruff",
-                "check",
-                "--no-cache",
-                "--select",
-                "TID251",
-                "--config",
-                str(API_DIR / "pyproject.toml"),
-                str(planted),
-            ],
-            cwd=API_DIR,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    finally:
-        planted.unlink(missing_ok=True)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--no-cache",
+            "--config",
+            str(API_DIR / "pyproject.toml"),
+            str(planted),
+        ],
+        cwd=API_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
     assert result.returncode == 1, result.stdout + result.stderr
     assert "TID251" in result.stdout
@@ -156,3 +150,14 @@ def test_F11_R1_lint_bans_system_clock() -> None:
 
 def test_F11_R1_frozen_clock_fixture(frozen_clock: datetime) -> None:
     assert clock.now() == frozen_clock == datetime(2026, 10, 15, 8, 30, tzinfo=KARACHI)
+
+
+def test_F11_R1_settings_hermetic_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No developer .env or OS env var leaks into tests: the clock is real time unless frozen."""
+    real = datetime(2026, 10, 6, 20, 0, tzinfo=UTC)
+    monkeypatch.setattr(clock, "_real_utc_now", lambda: real)
+
+    settings = get_settings()
+    assert settings.LEDGERLINE_NOW is None
+    assert settings.EXTRACT_PRICE_INPUT_PER_MTOK is None
+    assert clock.now() == real
