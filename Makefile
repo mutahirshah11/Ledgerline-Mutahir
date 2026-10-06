@@ -14,7 +14,7 @@ dev:
 	cd $(API) && uv run uvicorn app.main:app --reload --port 8000 & \
 	cd $(WEB) && pnpm dev
 
-# Must match the CI commands in .github/workflows/ci.yml
+# Same checks as CI (.github/workflows/ci.yml). lint also runs tsc, which CI covers via pnpm build.
 test:
 	cd $(API) && uv run pytest -m "not integration"
 

@@ -5,13 +5,17 @@ blueprint Section 10 and change log C7 to C9, constitution (numeric not float, s
 RLS with no policies, private buckets, append-only audit).
 """
 
+import glob
 import re
+import tomllib
 
 import pytest
 
 from app.domain.enums import Stage
 from tests.sql_helpers import (
+    REPO_ROOT,
     function_body,
+    raw_sql,
     sql,
     table_bodies,
     table_columns,
@@ -461,6 +465,54 @@ def test_default_privileges_revoked(kind: str) -> None:
         r"from (anon, ?authenticated|authenticated, ?anon);",
         sql(),
     ), kind
+
+
+def test_functions_created_later_are_not_executable_by_public() -> None:
+    # Postgres grants EXECUTE on every new function to PUBLIC (so to anon) by a built-in
+    # default. A per-schema ALTER DEFAULT PRIVILEGES cannot remove a global default, so the
+    # revoke must be global (no IN SCHEMA); service_role gets an explicit per-schema grant.
+    text = sql()
+    revoke = re.search(r"alter default privileges revoke execute on functions from public;", text)
+    assert revoke, "global default revoke of EXECUTE from PUBLIC"
+    # pgcrypto's functions are created before the revoke and keep their normal grants
+    assert text.index("create extension") < revoke.start()
+    assert re.search(
+        r"alter default privileges in schema public grant execute on functions to service_role;",
+        text,
+    )
+
+
+# --- project configuration consistent with the migration ---------------------------------
+
+
+def _pg_major_versions() -> dict[str, str]:
+    config = tomllib.loads((REPO_ROOT / "supabase" / "config.toml").read_text(encoding="utf-8"))
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    ci_image = re.search(r"image: postgres:(\d+)", ci)
+    header = re.search(r"^-- Postgres (\d+) \(Supabase\)", raw_sql(), flags=re.MULTILINE)
+    return {
+        "config.toml": str(config["db"]["major_version"]),
+        "ci.yml db service": ci_image.group(1) if ci_image else "missing",
+        "migration header": header.group(1) if header else "missing",
+    }
+
+
+def test_postgres_major_version_consistent() -> None:
+    versions = _pg_major_versions()
+    assert set(versions.values()) == {"17"}, versions  # new hosted Supabase projects run 17
+
+
+def test_seed_paths_match_seed_files() -> None:
+    supabase_dir = REPO_ROOT / "supabase"
+    config = tomllib.loads((supabase_dir / "config.toml").read_text(encoding="utf-8"))
+    matched = {
+        p.replace("\\", "/").rsplit("/", 1)[-1]
+        for pattern in config["db"]["seed"]["sql_paths"]
+        for p in glob.glob(str(supabase_dir / pattern))
+    }
+    on_disk = {p.name for p in (supabase_dir / "seed").glob("*.sql")}
+    assert on_disk, "supabase/seed has SQL files"
+    assert on_disk <= matched, f"seed files not loaded by db reset: {on_disk - matched}"
 
 
 def test_audit_trigger_blocks_update_delete_truncate() -> None:

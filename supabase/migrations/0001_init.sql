@@ -15,7 +15,7 @@
 --   * storage buckets are private.
 -- Columns marked "null" in data-model.md are nullable; every other column is NOT NULL.
 -- All foreign keys are ON DELETE RESTRICT.
--- Postgres 15 (Supabase).
+-- Postgres 17 (Supabase).
 -- =============================================================================================
 
 
@@ -340,6 +340,13 @@ revoke all on all sequences in schema public from anon, authenticated;
 alter default privileges in schema public revoke all on tables from anon, authenticated;
 alter default privileges in schema public revoke all on sequences from anon, authenticated;
 alter default privileges in schema public revoke all on functions from anon, authenticated;
+-- Postgres grants EXECUTE on every new function to PUBLIC (hence to anon) by a built-in
+-- default, and a per-schema default can only ADD to the global ones, so this revoke has
+-- to be global (no IN SCHEMA). It applies to functions this role creates from now on, in
+-- any schema; pgcrypto (section 1) is already installed. Functions in public that the API
+-- needs are executable by service_role only.
+alter default privileges revoke execute on functions from public;
+alter default privileges in schema public grant execute on functions to service_role;
 
 
 -- ---------------------------------------------------------------------------------------------

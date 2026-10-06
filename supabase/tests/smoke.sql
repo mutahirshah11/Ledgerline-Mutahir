@@ -556,6 +556,35 @@ $$;
 drop table public.smoke_probe;
 drop sequence public.smoke_probe_seq;
 
+-- functions created later: Postgres grants EXECUTE to PUBLIC by default, which would let anon
+-- call them (e.g. as a PostgREST RPC); only service_role may execute them
+create function public.smoke_probe_fn() returns int language sql as $$ select 1 $$;
+create function public.smoke_probe_definer_fn() returns int
+    language sql security definer as $$ select count(*)::int from public.runs $$;
+do $$
+declare
+    fn text;
+    r  text;
+begin
+    foreach fn in array array['public.smoke_probe_fn()', 'public.smoke_probe_definer_fn()'] loop
+        foreach r in array array['anon', 'authenticated'] loop
+            perform smoke.eq(has_function_privilege(r, fn, 'execute'), false,
+                format('a function created later (%s) is not executable by %s', fn, r));
+            perform smoke.expect_error(format('%s calls %s', r, fn), 'select ' || fn,
+                '42501', null, r);
+        end loop;
+        perform smoke.eq(has_function_privilege('service_role', fn, 'execute'), true,
+            format('a function created later (%s) is executable by service_role', fn));
+        set local role service_role;
+        execute 'select ' || fn;
+        reset role;
+        raise notice 'ok   service_role calls %', fn;
+    end loop;
+end;
+$$;
+drop function public.smoke_probe_fn();
+drop function public.smoke_probe_definer_fn();
+
 
 -- =============================================================================================
 -- Done
