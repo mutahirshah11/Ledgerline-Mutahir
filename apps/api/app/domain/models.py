@@ -385,7 +385,7 @@ class ReviewItem(DomainModel):
         ctx = self.context
         if isinstance(ctx, FlagAckContext) and ctx.flag.value != self.reason.value:
             raise ValueError(f"reason {self.reason} does not fit flag {ctx.flag}")
-        if self.status is ReviewStatus.CANNOT_DETERMINE and self.note is None:
+        if self.status is ReviewStatus.CANNOT_DETERMINE and not (self.note and self.note.strip()):
             raise ValueError("CANNOT_DETERMINE needs a note")
         return self
 
@@ -509,6 +509,13 @@ class Run(DomainModel):
     created_at: AwareDatetime
     finalised_at: AwareDatetime | None
     finalised_by: str | None
+
+    @model_validator(mode="after")
+    def _failed_stage_iff_failed(self) -> Self:
+        """Mirrors SQL runs_failed_stage_iff_failed_ck."""
+        if (self.status is RunStatus.FAILED) != (self.failed_stage is not None):
+            raise ValueError("failed_stage is set exactly when status = FAILED")
+        return self
 
 
 class SourceFile(DomainModel):

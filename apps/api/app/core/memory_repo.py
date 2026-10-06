@@ -157,12 +157,6 @@ class MemoryRepo:
         except KeyError:
             raise NotFound("run", run_id) from None
 
-    @staticmethod
-    def _check_failed_stage(run: Run) -> None:
-        """Run invariant: status FAILED <=> failed_stage set."""
-        if (run.status is RunStatus.FAILED) != (run.failed_stage is not None):
-            raise ValueError("failed_stage is set exactly when the run is FAILED")
-
     def _check_finalised_key(self, run: Run) -> None:
         if run.status is not RunStatus.FINALISED or run.run_key is None:
             return
@@ -223,7 +217,6 @@ class MemoryRepo:
             updates.update(failed_stage=None, error_message=None)
         updates["status"] = to
         new = _updated(current, updates)
-        self._check_failed_stage(new)
         self._check_finalised_key(new)
         self._runs[run_id] = new
         return _copy(new)
@@ -236,7 +229,6 @@ class MemoryRepo:
         if current.status is RunStatus.FINALISED:
             raise StateConflict(_copy(current))
         new = _updated(current, fields)
-        self._check_failed_stage(new)
         self._runs[run_id] = new
         return _copy(new)
 

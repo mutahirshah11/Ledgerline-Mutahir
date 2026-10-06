@@ -329,6 +329,13 @@ def test_review_item_cannot_determine_requires_note() -> None:
     review_item(status=ReviewStatus.CANNOT_DETERMINE, note="page torn")
 
 
+def test_review_item_cannot_determine_rejects_blank_note() -> None:
+    """Mirrors SQL `nullif(btrim(note), '')`."""
+    for blank in ("", "   ", " \t\n "):
+        with pytest.raises(ValidationError, match="CANNOT_DETERMINE needs a note"):
+            review_item(status=ReviewStatus.CANNOT_DETERMINE, note=blank)
+
+
 def test_review_context_matches_kind_and_reason() -> None:
     row_ctx = m.RowInOneReadContext(
         page_no=2, row_index=14, read=ReadVariant.A, cells={RegisterField.QTY: clear("12")}
@@ -498,8 +505,20 @@ def test_run_month_format_and_stage() -> None:
     for month in ("2026-13", "2026-9", "Sep 2026"):
         with pytest.raises(ValidationError):
             run(month=month)
-    with pytest.raises(ValidationError):
-        run(failed_stage="EXTRACT")
+    with pytest.raises(ValidationError, match="Input should be"):
+        run(status=RunStatus.FAILED, failed_stage="EXTRACT")
+
+
+def test_run_failed_iff_failed_stage() -> None:
+    """Mirrors SQL runs_failed_stage_iff_failed_ck."""
+    rule = "failed_stage is set exactly when status = FAILED"
+    with pytest.raises(ValidationError, match=rule):
+        run(status=RunStatus.FAILED, failed_stage=None)
+    for status in RunStatus:
+        if status is not RunStatus.FAILED:
+            with pytest.raises(ValidationError, match=rule):
+                run(status=status, failed_stage=Stage.UPLOAD)
+            assert run(status=status, failed_stage=None).failed_stage is None
 
 
 def test_datetimes_must_be_timezone_aware() -> None:

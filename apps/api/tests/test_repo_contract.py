@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.db import Repo
 from app.core.errors import AppendOnlyViolation, NotFound, StateConflict, UniqueViolation
@@ -213,6 +214,16 @@ def test_create_and_get_run(repo: Repo) -> None:
     with pytest.raises(UniqueViolation) as exc:
         repo.create_run(run)
     assert exc.value.constraint == "runs_pkey"
+
+
+def test_create_run_cannot_receive_invalid_failed_run(repo: Repo) -> None:
+    """FAILED <=> failed_stage is a Run model invariant, so no invalid Run reaches create_run."""
+    with pytest.raises(ValidationError, match="failed_stage is set exactly when"):
+        make_run(status=S.FAILED, failed_stage=None)
+    with pytest.raises(ValidationError, match="failed_stage is set exactly when"):
+        make_run(status=S.CREATED, failed_stage=Stage.UPLOAD)
+    failed = make_run(status=S.FAILED, failed_stage=Stage.UPLOAD, error_message="boom")
+    assert repo.create_run(failed) == failed
 
 
 def test_transition_enforces_lifecycle(repo: Repo) -> None:

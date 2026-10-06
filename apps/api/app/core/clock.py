@@ -20,8 +20,12 @@ def now() -> datetime:
     if scenario is None:
         instant = _real_utc_now()
     elif settings.clock_mode == "offset":
-        assert settings.LEDGERLINE_NOW_ANCHOR is not None  # guaranteed by Settings validation
-        instant = scenario + (_real_utc_now() - settings.LEDGERLINE_NOW_ANCHOR)
+        anchor = settings.LEDGERLINE_NOW_ANCHOR
+        if anchor is None:  # Settings validation prevents this; kept explicit (survives -O)
+            raise RuntimeError(
+                "LEDGERLINE_NOW_ANCHOR is required when LEDGERLINE_CLOCK_MODE=offset"
+            )
+        instant = scenario + (_real_utc_now() - anchor)
     else:
         instant = scenario
     return instant.astimezone(KARACHI)

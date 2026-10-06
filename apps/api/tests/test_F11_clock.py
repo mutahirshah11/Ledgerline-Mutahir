@@ -4,6 +4,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -161,3 +162,15 @@ def test_F11_R1_settings_hermetic_by_default(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.LEDGERLINE_NOW is None
     assert settings.EXTRACT_PRICE_INPUT_PER_MTOK is None
     assert clock.now() == real
+
+
+def test_F11_R1_offset_without_anchor_raises_not_asserts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The invariant survives `python -O`: an explicit RuntimeError, not an assert."""
+    unchecked = SimpleNamespace(
+        LEDGERLINE_NOW=datetime(2026, 10, 15, 3, 30, tzinfo=UTC),
+        clock_mode="offset",
+        LEDGERLINE_NOW_ANCHOR=None,
+    )
+    monkeypatch.setattr(clock, "get_settings", lambda: unchecked)
+    with pytest.raises(RuntimeError, match="LEDGERLINE_NOW_ANCHOR"):
+        clock.now()
