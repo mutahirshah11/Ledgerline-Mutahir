@@ -193,8 +193,9 @@ class ReplayModelClient:
         sha = hashlib.sha256(image).hexdigest()
         model = glob.escape(self.model) if self.model else "*"
         prompt_version = glob.escape(self.prompt_version) if self.prompt_version else "*"
-        # TODO(T029): derive the pattern from extract.cache_file_name
-        pattern = f"{sha}.{variant.value}.{model}.{prompt_version}.json"
+        from app.pipeline.extract import cache_file_name  # local: extract imports this module
+
+        pattern = cache_file_name(sha, variant, model, prompt_version)
         matches = sorted(self.cache_dir.glob(pattern))
         if not matches:
             raise KeyError(f"no cached read for {sha[:12]} variant {variant.value}")
