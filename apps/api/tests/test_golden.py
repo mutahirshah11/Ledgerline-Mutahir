@@ -248,3 +248,48 @@ def test_counts_before_and_after_review(before: Reconciled, after: Reconciled) -
     after_proof = after.repo.get_proof(PACK_RUN_ID)
     assert after_proof is not None
     assert after_proof.status is ProofStatus.PASS
+
+
+def _no_flags(r: Reconciled, *row_ids: str) -> bool:
+    return all(f.source_row_id not in row_ids for f in r.repo.list_flags(PACK_RUN_ID))
+
+
+def test_not_a_problem_items_unflagged(before: Reconciled) -> None:
+    """SC-006 / blueprint Section 8 "not a problem" list: "H202" (GRN 4408, OCR for H2O2), thread
+    cones 40/2 received in CONE (GRN 4404) and in CTN (GRN 4417, each unit consistent across its
+    own sources), and item text differences (e.g. "POLYBAGS 12X16 (BUNDLES)") are never flagged
+    and never produce a unit/qty/item diff beyond the planted GE-05 qty mismatch on 4417."""
+    # "H202" (GRN 4408): register "H202 50%" vs ERP/sheet "H2O2 50%" -- OCR text only, MATCHED.
+    h202 = before.group(4408)
+    assert h202.outcome is Outcome.MATCHED
+    assert h202.diffs == []
+    assert _no_flags(before, "REG-p1-r08", "ERP-0008", "XLS-r9")
+    reg_h202 = before.repo.get_source_row(PACK_RUN_ID, "REG-p1-r08")
+    erp_h202 = before.repo.get_source_row(PACK_RUN_ID, "ERP-0008")
+    assert reg_h202.item == "H202 50%"
+    assert erp_h202.item is not None and "H2O2" in erp_h202.item
+
+    # Thread cones 40/2 in CONE (GRN 4404): all three sources agree on unit CONE, MATCHED.
+    cone = before.group(4404)
+    assert cone.outcome is Outcome.MATCHED
+    assert cone.diffs == []
+    assert _no_flags(before, "REG-p1-r04", "ERP-0004", "XLS-r5")
+    assert before.repo.get_source_row(PACK_RUN_ID, "ERP-0004").uom == "CONE"
+
+    # Thread cones 40/2 in CTN (GRN 4417, GE-05): ERP qty differs (46 vs 48), already flagged
+    # as a qty mismatch, but the CTN unit itself is consistent across sources -- no uom diff.
+    ctn = before.group(4417)
+    assert ctn.outcome is Outcome.MISMATCHED
+    assert _diff_fields(ctn) == [(ComparedField.QTY, ERP)]
+    assert ComparedField.UOM not in {d.field for d in ctn.diffs}
+    assert _no_flags(before, "REG-p2-r03", "ERP-0017", "XLS-r19")
+    assert {
+        before.repo.get_source_row(PACK_RUN_ID, rid).uom
+        for rid in ("REG-p2-r03", "ERP-0017", "XLS-r19")
+    } == {"CTN"}
+
+    # Item text differences (e.g. ERP "POLYBAGS 12X16 (BUNDLES)" vs sheet casing) are never a
+    # diff: ComparedField has no item/description member, so no group's diffs can carry one.
+    assert all(d.field is not None for g in before.repo.list_groups(PACK_RUN_ID) for d in g.diffs)
+    bundles_erp = before.repo.get_source_row(PACK_RUN_ID, "ERP-0027")
+    assert bundles_erp.item == "POLYBAGS 12X16 (BUNDLES)"

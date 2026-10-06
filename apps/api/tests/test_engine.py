@@ -390,3 +390,18 @@ def test_engine_proof_failure_message_never_empty_clause(
     assert proof_failure_message(failing) == (
         "C1 failed: no detail; C2 failed: no detail; C4 failed: no detail"
     )
+
+
+def test_engine_reconcile_under_3s(
+    memory_repo: MemoryRepo, engine_inputs: EngineInputs, frozen_clock: datetime
+) -> None:
+    """NFR-05 / SC-005: a full reconcile of the pack completes in under 3 seconds."""
+    import time
+
+    threshold_s = 3.0
+
+    start = time.perf_counter()
+    reconcile_run(memory_repo, engine_inputs, now=lambda: frozen_clock)
+    elapsed_s = time.perf_counter() - start
+
+    assert elapsed_s < threshold_s
