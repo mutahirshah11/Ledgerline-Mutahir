@@ -79,17 +79,17 @@ def _text(value: object) -> str | None:
     return str(value).strip()
 
 
-def _decimal(value: object, where: str) -> Decimal | None:
+def _decimal(value: object) -> Decimal | None:
+    """The qty as a finite Decimal, else None: blank or non-numeric qty is `qty_unknown`,
+    never summed (F-07.R4; research R10)."""
     text = _text(value)
     if text is None:
         return None
     try:
         qty = Decimal(text)
     except InvalidOperation:
-        raise ValueError(f"{where}: qty {value!r} is not a number") from None
-    if not qty.is_finite():
-        raise ValueError(f"{where}: qty {value!r} is not a number")
-    return qty
+        return None
+    return qty if qty.is_finite() else None
 
 
 def _sheet_cells(data: bytes, month: str) -> list[tuple[object, ...]]:
@@ -238,7 +238,7 @@ def _erp_quantities(data: bytes) -> list[_Qty]:
             (
                 _key(Source.ERP, record.get(_ERP_UNIT)),
                 row_id,
-                _decimal(record.get(_ERP_QTY), row_id),
+                _decimal(record.get(_ERP_QTY)),
             )
         )
     return out
@@ -258,16 +258,18 @@ def _sheet_quantities(data: bytes, month: str) -> list[_Qty]:
         qty = at(values, qi)
         if isinstance(qty, int) and not isinstance(qty, bool):
             qty = Decimal(qty)
-        out.append((_key(Source.SHEET, at(values, ui)), row_id, _decimal(qty, row_id)))
+        out.append((_key(Source.SHEET, at(values, ui)), row_id, _decimal(qty)))
     return out
 
 
-def _resolved_cells(decisions: Iterable[ReviewItem]) -> dict[str, str | None]:
+def _resolved_cells(decisions: Iterable[ReviewItem]) -> dict[str, str]:
     """`RESOLVED` CELL overrides by item key `CELL:{row_id}:{register_field}` (F-04.R2)."""
     return {
         d.item_key: d.resolved_value
         for d in decisions
-        if d.kind is ReviewKind.CELL and d.status is ReviewStatus.RESOLVED
+        if d.kind is ReviewKind.CELL
+        and d.status is ReviewStatus.RESOLVED
+        and d.resolved_value is not None
     }
 
 
@@ -291,7 +293,7 @@ def _register_quantities(
             else:
                 raw = None
             unit = unit_cell.merged.value if unit_cell is not None else None
-            out.append((_key(Source.REGISTER, unit), row_id, _decimal(raw, row_id)))
+            out.append((_key(Source.REGISTER, unit), row_id, _decimal(raw)))
     return out
 
 

@@ -18,6 +18,7 @@ from app.domain.enums import (
     ReadVariant,
     RegisterField,
     ReviewReason,
+    ReviewStatus,
     RowKind,
     Source,
 )
@@ -177,6 +178,66 @@ def test_F07_C4_null_qty_listed_never_summed() -> None:
     assert c4.pass_
     assert c4.qty_unknown == ["REG-p1-r02"]
     assert c4.by_source_unit["REGISTER|KG"].in_ == Decimal("10")
+
+
+def test_F07_C4_non_numeric_qty_is_unknown() -> None:
+    """A qty that is not a finite number goes to `qty_unknown`, never summed (F-07.R4, R10)."""
+    inputs = _inputs(erp=[_erp_line("12m", "PCS"), _erp_line("5", "PCS")], sheet=[("abc", "m")])
+    rows = [
+        _placed("ERP-0001", None, "uom", "PCS"),
+        _placed("ERP-0002", "5", "uom", "PCS"),
+        _placed("XLS-r2", None, "UOM", "m"),
+    ]
+
+    c4 = proof.check_c4(inputs, rows)
+
+    assert c4.pass_
+    assert c4.qty_unknown == ["ERP-0001", "XLS-r2"]
+    assert c4.by_source_unit["ERP|PCS"].in_ == Decimal("5")
+    assert "SHEET|M" not in c4.by_source_unit
+
+
+def test_F07_C4_resolved_override_without_value_ignored() -> None:
+    """A `RESOLVED` CELL item with no `resolved_value` does not replace the merged qty (F-04.R2)."""
+    page = _full_page([_merged_row(1, "10", "kg")])
+    valueless = make_review(RUN, "CELL:REG-p1-r01:qty", status=ReviewStatus.RESOLVED)
+
+    c4 = proof.check_c4(
+        _inputs([page], decisions=[valueless]), [_placed("REG-p1-r01", "10", "unit", "kg")]
+    )
+
+    assert c4.pass_
+    assert c4.qty_unknown == []
+    assert c4.by_source_unit["REGISTER|KG"].in_ == Decimal("10")
+
+
+# --- C1, C2 ---------------------------------------------------------------------------------
+
+
+def test_F07_C1_unplaced_row_fails() -> None:
+    """C1 compares F-04's rows in with rows carrying an outcome, not the count with itself."""
+    rows = [
+        make_row(RUN, "ERP-0001", outcome=Outcome.MATCHED),
+        make_row(RUN, "ERP-0002", outcome=None),
+    ]
+
+    c1 = proof.check_c1({Source.ERP: 2}, rows)
+
+    assert not c1.pass_
+    assert (c1.per_source[Source.ERP].in_, c1.per_source[Source.ERP].placed) == (2, 1)
+
+
+def test_F07_C2_row_id_twice_in_rows_fails() -> None:
+    rows = [
+        make_row(RUN, "ERP-0001", outcome=Outcome.MATCHED),
+        make_row(RUN, "ERP-0001", outcome=Outcome.MATCHED),
+    ]
+
+    c2 = proof.check_c2(rows, [])
+
+    assert not c2.pass_
+    assert c2.placed_twice == ["ERP-0001"]
+    assert c2.unplaced == []
 
 
 # --- C3 -------------------------------------------------------------------------------------
