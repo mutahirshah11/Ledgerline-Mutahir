@@ -3,9 +3,12 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from app.domain.models import CanonicalRow, RegisterPageInput, ReviewItem
+from app.domain.enums import ReviewKind, ReviewReason, ReviewStatus, Source
+from app.domain.ids import review_item_key, stable_id
+from app.domain.models import CanonicalRow, RegisterPageInput, ReviewItem, UnknownMappingContext
 from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import NormaliseResult, RawRow, normalise_all, read_erp, read_sheet
+from tests.factories import T0
 
 PACK_RUN_ID = UUID("00000000-0000-4000-8000-000000002609")
 """Same fixed run id as `tests/conftest.py`, so stable ids match across tests."""
@@ -49,3 +52,38 @@ def with_values(rows: Sequence[RawRow], source_row_id: str, **changes: object) -
         else r
         for r in rows
     ]
+
+
+def map_decision(
+    run_id: UUID,
+    row_id: str,
+    field: str,
+    value: str,
+    source: Source,
+    status: ReviewStatus = ReviewStatus.RESOLVED,
+) -> ReviewItem:
+    """An `UNKNOWN_MAPPING` decision `MAP:{row_id}:{field}` (`supplier`, `unit`, `date`)."""
+    reason = {
+        "supplier": ReviewReason.UNKNOWN_SUPPLIER,
+        "unit": ReviewReason.UNKNOWN_UNIT,
+        "date": ReviewReason.UNPARSEABLE_DATE,
+    }[field]
+    key = review_item_key(ReviewKind.UNKNOWN_MAPPING, row_id=row_id, field=field)
+    return ReviewItem(
+        id=stable_id(run_id, key),
+        run_id=run_id,
+        kind=ReviewKind.UNKNOWN_MAPPING,
+        item_key=key,
+        grn_no=None,
+        source_row_id=row_id,
+        field=field,
+        reason=reason,
+        read_a=None,
+        read_b=None,
+        context=UnknownMappingContext(source=source, raw=""),
+        status=status,
+        resolved_value=value if status is ReviewStatus.RESOLVED else None,
+        resolved_by="reviewer@example.com",
+        resolved_at=T0,
+        note="cannot tell" if status is ReviewStatus.CANNOT_DETERMINE else None,
+    )

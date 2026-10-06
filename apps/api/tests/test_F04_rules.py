@@ -13,14 +13,21 @@ from app.domain.enums import (
     NormCode,
     ReviewKind,
     ReviewReason,
+    ReviewStatus,
     RowKind,
     Source,
 )
 from app.domain.models import CANONICAL_CELL_FIELDS, UnknownMappingContext
 from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import NormaliseResult, RawRow, read_erp, read_sheet
-from tests.support.normalised import PACK_RUN_ID, normalise_pack, row_by_id, with_values
-from tests.support.pack import build_engine_inputs
+from tests.support.normalised import (
+    PACK_RUN_ID,
+    map_decision,
+    normalise_pack,
+    row_by_id,
+    with_values,
+)
+from tests.support.pack import build_engine_inputs, resolved_cell
 
 
 @pytest.fixture(scope="module")
@@ -72,6 +79,74 @@ def test_F04_R1_row_ids(
     assert {r.row_kind for r in result.rows} == {RowKind.RECEIPT}  # N12
     assert {r.outcome for r in result.rows} == {None}
     assert {r.group_id for r in result.rows} == {None}
+
+
+def test_F04_R2_override_applied(inputs: EngineInputs, sheet: list[RawRow]) -> None:
+    resolved = resolved_cell(PACK_RUN_ID, "REG-p2-r05", "qty", "66")
+    resolved_14 = resolved_cell(PACK_RUN_ID, "REG-p2-r14", "qty", "250")
+    unit = map_decision(PACK_RUN_ID, "XLS-r2", "unit", "pcs", Source.SHEET)
+    changed = normalise_pack(
+        inputs,
+        sheet=with_values(sheet, "XLS-r2", UOM="boxes"),
+        decisions=[resolved, resolved_14, unit],
+    )
+
+    row = row_by_id(changed, "REG-p2-r05")
+    assert (row.qty, row.qty_base) == (Decimal("66"), Decimal("66.00"))
+    assert row.cell_status["qty"] is CellStatus.CLEAR
+    assert row.raw["qty"] == "66"  # the merged (struck-through and rewritten) value
+    row_14 = row_by_id(changed, "REG-p2-r14")
+    assert (row_14.qty, row_14.cell_status["qty"], row_14.raw["qty"]) == (
+        Decimal("250"),
+        CellStatus.CLEAR,
+        None,
+    )
+    xls = row_by_id(changed, "XLS-r2")
+    assert (xls.uom, xls.base_uom, xls.cell_status["uom"]) == ("PCS", "PCS", CellStatus.CLEAR)
+    assert xls.raw["UOM"] == "boxes"
+    assert changed.flags == [] and changed.review_items == []
+
+    ignored = [
+        resolved.model_copy(update={"status": ReviewStatus.OPEN, "resolved_value": None}),
+        resolved_14.model_copy(update={"status": ReviewStatus.CANNOT_DETERMINE, "note": "torn"}),
+    ]
+    unchanged = normalise_pack(inputs, decisions=ignored)
+    for row_id, status in (
+        ("REG-p2-r05", CellStatus.CORRECTED),
+        ("REG-p2-r14", CellStatus.ILLEGIBLE),
+    ):
+        row = row_by_id(unchanged, row_id)
+        assert (row.qty, row.cell_status["qty"]) == (None, status)
+
+
+def test_F04_R2_supplier_override_alias_or_code(inputs: EngineInputs, sheet: list[RawRow]) -> None:
+    """C24: a resolved supplier is an alias in supplier_map.csv or an exact code S-101..S-107."""
+    sheet = with_values(sheet, "XLS-r5", Supplier="Qasr Pckg")
+    for value, code in (("qasr pkg", "S-101"), ("S-101", "S-101"), ("S-199", None)):
+        decision = map_decision(PACK_RUN_ID, "XLS-r5", "supplier", value, Source.SHEET)
+        changed = normalise_pack(inputs, sheet=sheet, decisions=[decision])
+
+        row = row_by_id(changed, "XLS-r5")
+        assert row.supplier_code == code, value
+        assert row.raw["Supplier"] == "Qasr Pckg"
+        expected = CellStatus.CLEAR if code else CellStatus.UNCLEAR
+        assert row.cell_status["supplier_code"] is expected
+        assert [f.flag for f in changed.flags] == ([] if code else [FlagType.UNKNOWN_SUPPLIER])
+
+    register = resolved_cell(PACK_RUN_ID, "REG-p1-r01", "supplier", "S-106")
+    changed = normalise_pack(inputs, decisions=[register])
+    assert row_by_id(changed, "REG-p1-r01").supplier_code == "S-106"
+
+
+def test_F04_R2_date_override_uses_run_month(inputs: EngineInputs, sheet: list[RawRow]) -> None:
+    """data-model Section 6: a resolved date is `DD/MM` with the year from the run month."""
+    sheet = with_values(sheet, "XLS-r18", Date="14-09-2026")
+    decision = map_decision(PACK_RUN_ID, "XLS-r18", "date", "14/09", Source.SHEET)
+    changed = normalise_pack(inputs, sheet=sheet, decisions=[decision])
+
+    row = row_by_id(changed, "XLS-r18")
+    assert (row.date, row.cell_status["date"]) == (date(2026, 9, 14), CellStatus.CLEAR)
+    assert changed.review_items == []
 
 
 def test_F04_R3_grn_prefix_and_length(

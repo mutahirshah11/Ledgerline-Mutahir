@@ -23,6 +23,7 @@ from app.domain.enums import (
     RegisterField,
     ReviewKind,
     ReviewReason,
+    ReviewStatus,
     RowKind,
     Source,
 )
@@ -286,6 +287,8 @@ _REGISTER_DATE = re.compile(r"(\d{1,2})/(\d{1,2})")
 _SHEET_TEXT_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
 _ISO_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _CENT = Decimal("0.01")
+_MAP_FIELDS = {"date": "date", "supplier_code": "supplier", "uom": "unit"}
+"""Canonical field → `MAP:{row}:{field}` review field (data-model.md Section 6)."""
 
 
 @dataclass(frozen=True)
@@ -311,7 +314,9 @@ class _Out:
     """Run-wide accumulators, filled in row order."""
 
     run_id: UUID
+    run_year: int
     mappings: MappingTables
+    overrides: Mapping[str, str]  # item_key → resolved value of RESOLVED decisions (F-04.R2)
     norm_log: list[NormLogEntry] = field(default_factory=list)
     flags: list[ControlFlag] = field(default_factory=list)
     review_items: list[ReviewItem] = field(default_factory=list)
@@ -355,13 +360,34 @@ class _RowNormaliser:
         self.out = out
         self.source = source
         self.row_id = row_id
-        self.cells = cells
+        self.cells = dict(cells)
         self.year = year  # year for register `DD/MM` dates
+        self.overridden: set[str] = set()
+        self._apply_overrides()
         self.status = {
-            name: cells[name].status if name in cells else CellStatus.CLEAR
+            name: self.cells[name].status if name in self.cells else CellStatus.CLEAR
             for name in sorted(CANONICAL_CELL_FIELDS)
         }
         self.grn_no: int | None = None
+
+    def _apply_overrides(self) -> None:
+        """F-04.R2, before any other step: a `RESOLVED` `CELL:{row}:{register_field}` or
+        `MAP:{row}:{field}` decision replaces the value and makes the cell `CLEAR`; `raw` keeps
+        the original. A MAP decision is applied after a CELL one for the same field."""
+        keys: list[tuple[str, str]] = []
+        if self.source is Source.REGISTER:
+            keys += [
+                (name, review_item_key(ReviewKind.CELL, row_id=self.row_id, field=f.value))
+                for f, name in REGISTER_TO_CANONICAL.items()
+            ]
+        keys += [
+            (name, review_item_key(ReviewKind.UNKNOWN_MAPPING, row_id=self.row_id, field=f))
+            for name, f in _MAP_FIELDS.items()
+        ]
+        for name, key in keys:
+            if key in self.out.overrides:
+                self.cells[name] = _Cell(self.out.overrides[key])
+                self.overridden.add(name)
 
     def _readable(self, name: str) -> bool:
         """F-04.R9: only a `CLEAR` cell gives a canonical value."""
@@ -455,11 +481,14 @@ class _RowNormaliser:
         return parsed
 
     def _parse_date(self, value: object) -> tuple[date | None, NormCode]:
-        """Register `DD/MM` + header year; ERP ISO; sheet `datetime` (C2), serial or `M/D/YYYY`."""
+        """Register `DD/MM` + header year; ERP ISO; sheet `datetime` (C2), serial or `M/D/YYYY`.
+        A resolved date (F-04.R2) is `DD/MM` with the year of the run month (data-model Section 6).
+        """
         text = value.strip() if isinstance(value, str) else None
-        if self.source is Source.REGISTER:
+        if self.source is Source.REGISTER or "date" in self.overridden:
+            year = self.out.run_year if "date" in self.overridden else self.year
             m = _REGISTER_DATE.fullmatch(text or "")
-            parsed = _date_or_none(self.year, int(m[2]), int(m[1])) if m else None
+            parsed = _date_or_none(year, int(m[2]), int(m[1])) if m else None
             return parsed, NormCode.DATE_YEAR_FROM_HEADER
         if self.source is Source.ERP:
             m = _ISO_DATE.fullmatch(text or "")
@@ -481,16 +510,20 @@ class _RowNormaliser:
         return parsed, NormCode.DATE_TEXT_PARSED
 
     def supplier(self) -> str | None:
-        """F-04.R5: ERP code as is (must be in `codes`); names by exact alias lookup."""
+        """F-04.R5: ERP code as is (must be in `codes`); names by exact alias lookup. A resolved
+        supplier (F-04.R2) is an alias, or an exact code in `codes` taken directly (C24)."""
         if not self._readable("supplier_code"):
             return None
         text = _text(self.cells["supplier_code"].value) or ""
         mappings = self.out.mappings
-        if self.source is Source.ERP:
-            code = text.strip() if text.strip() in mappings.codes else None
+        exact_code = text.strip() if text.strip() in mappings.codes else None
+        if self.source is Source.ERP and "supplier_code" not in self.overridden:
+            code = exact_code
             log_code = NormCode.TEXT_TRIMMED
         else:
             code = mappings.suppliers.get(_alias_key(text))
+            if code is None and "supplier_code" in self.overridden:
+                code = exact_code
             log_code = NormCode.SUPPLIER_MAPPED
         if code is None:
             self._unknown(
@@ -646,7 +679,14 @@ def normalise_all(
     Rows come out REGISTER (page, row), ERP (line), SHEET (row) (N11), all `RECEIPT` (N12).
     """
     run_year = int(month[:4])
-    out = _Out(run_id=run_id, mappings=mappings)
+    overrides = {
+        d.item_key: d.resolved_value
+        for d in decisions
+        if d.status is ReviewStatus.RESOLVED
+        and d.resolved_value is not None
+        and d.kind in (ReviewKind.CELL, ReviewKind.UNKNOWN_MAPPING)
+    }
+    out = _Out(run_id=run_id, run_year=run_year, mappings=mappings, overrides=overrides)
     rows: list[CanonicalRow] = []
     for page in sorted(register_pages, key=lambda p: p.page_no):
         rows.extend(_register_rows(out, page, run_year))
