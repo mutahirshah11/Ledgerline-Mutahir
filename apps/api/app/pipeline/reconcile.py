@@ -14,7 +14,13 @@ from app.domain.enums import (
     RowKind,
     Source,
 )
-from app.domain.ids import grn_group_key, lot_group_key, review_item_key, stable_id
+from app.domain.ids import (
+    grn_group_key,
+    lot_group_key,
+    review_item_key,
+    row_group_key,
+    stable_id,
+)
 from app.domain.models import CanonicalRow, Diff, Group, ReviewItem, UnmatchedRowContext
 
 SOURCE_ORDER: tuple[Source, ...] = (Source.REGISTER, Source.ERP, Source.SHEET)
@@ -90,11 +96,13 @@ def _group_rows(receipts: Sequence[CanonicalRow]) -> tuple[list[_Members], list[
     Returns the groups and the rows that fell to their own fallback group (`UNMATCHED_NO_KEY`).
     """
     groups: dict[str, _Members] = {}
+    grn_keys_by_lot: dict[tuple[str, str], set[str]] = {}  # (lot, supplier) -> GRN group keys
     for row in receipts:
         if row.grn_no is not None:
             key = grn_group_key(row.grn_no)
             groups.setdefault(key, _Members(key, row.grn_no, [])).rows.append(row)
-    grn_groups = list(groups.values())
+            if row.lot_no is not None and row.supplier_code is not None:
+                grn_keys_by_lot.setdefault((row.lot_no, row.supplier_code), set()).add(key)
 
     unmatched: list[CanonicalRow] = []
     for row in receipts:
@@ -102,17 +110,13 @@ def _group_rows(receipts: Sequence[CanonicalRow]) -> tuple[list[_Members], list[
             continue
         lot, supplier = row.lot_no, row.supplier_code
         if lot is not None and supplier is not None:
-            candidates = [
-                g
-                for g in grn_groups
-                if any(r.lot_no == lot and r.supplier_code == supplier for r in g.rows)
-            ]
+            candidates = grn_keys_by_lot.get((lot, supplier), set())
             if len(candidates) == 1:
-                candidates[0].rows.append(row)
+                groups[next(iter(candidates))].rows.append(row)
                 continue
             key = lot_group_key(lot, supplier)
         else:
-            key = f"ROW:{row.source_row_id}"
+            key = row_group_key(row.source_row_id)
         groups.setdefault(key, _Members(key, None, [], fallback=True)).rows.append(row)
         unmatched.append(row)
     for members in groups.values():
@@ -166,6 +170,7 @@ def _diff(field: ComparedField, firsts: dict[Source, CanonicalRow]) -> Diff | No
             others = [v for s, v in known.items() if s is not source]
             if others[0] == others[1] != value:
                 outlier = source
+                break
     return Diff(
         field=field,
         values={s: render_value(r) for s, r in firsts.items()},
@@ -216,6 +221,8 @@ def _outcome(members: _Members, diffs: list[Diff], conflict: bool) -> Outcome:
         return Outcome.MISSING
     if diffs:
         return Outcome.MISMATCHED
+    # uom != base_uom is "factor != 1" (data-model Section 4): canonical codes have factor 1
+    # exactly when the unit is its own base.
     if any(
         r.uom is not None and r.base_uom is not None and r.uom != r.base_uom for r in members.rows
     ):
@@ -227,7 +234,7 @@ def _review_item(
     run_id: UUID, row: CanonicalRow, members: _Members, reason: ReviewReason
 ) -> ReviewItem:
     key = review_item_key(ReviewKind.UNMATCHED_ROW, row_id=row.source_row_id)
-    others = sorted(r.source_row_id for r in members.rows if r is not row)
+    others = [r.source_row_id for r in members.rows if r is not row]  # file order
     return ReviewItem(
         id=stable_id(run_id, key),
         run_id=run_id,
@@ -243,6 +250,42 @@ def _review_item(
     )
 
 
+def _build_group(
+    run_id: UUID, members: _Members, unmatched_ids: set[str]
+) -> tuple[Group, list[ReviewItem]]:
+    """The group with its diffs and outcome, and its `UNMATCHED_ROW` review items (R4 to R8)."""
+    firsts: dict[Source, CanonicalRow] = {}
+    row_ids: dict[Source, list[str]] = {}
+    for row in members.rows:  # file order, so sources come REGISTER, ERP, SHEET
+        firsts.setdefault(row.source, row)
+        row_ids.setdefault(row.source, []).append(row.source_row_id)
+    diffs = _diffs(firsts)
+    conflicts = _conflicts(members.rows)
+    outcome = _outcome(members, diffs, bool(conflicts))
+    items = [
+        _review_item(run_id, row, members, ReviewReason.UNMATCHED_NO_KEY)
+        for row in members.rows
+        if row.source_row_id in unmatched_ids
+    ] + [
+        _review_item(run_id, row, members, ReviewReason.CONFLICTING_ROWS_IN_SOURCE)
+        for row in conflicts
+        if row.source_row_id not in unmatched_ids
+    ]
+    group = Group(
+        id=stable_id(run_id, "GROUP", members.key),
+        run_id=run_id,
+        group_key=members.key,
+        grn_no=members.grn_no,
+        row_ids=row_ids,
+        outcome=outcome,
+        missing_from=(
+            [s for s in SOURCE_ORDER if s not in firsts] if outcome is Outcome.MISSING else []
+        ),
+        diffs=diffs,
+    )
+    return group, items
+
+
 # --- Entry point (R11) --------------------------------------------------------------------
 
 
@@ -250,7 +293,8 @@ def reconcile(run_id: UUID, rows: list[CanonicalRow]) -> ReconcileResult:
     """Give every row exactly one outcome and every group its diffs and outlier (F-05).
 
     Inputs are not mutated; new row instances are returned. Output is deterministic: groups by
-    GRN (nulls last) then key, rows by source then row id, ids from `stable_id` (F-05.R11).
+    GRN (nulls last) then key, rows by source then row id, review items in file order of their
+    row, ids from `stable_id` (F-05.R11).
     """
     ordered = sorted(rows, key=_file_order)
     duplicate_of = _duplicates(ordered)
@@ -269,74 +313,28 @@ def reconcile(run_id: UUID, rows: list[CanonicalRow]) -> ReconcileResult:
 
     groups: list[Group] = []
     review_items: list[ReviewItem] = []
-    placed: dict[str, tuple[UUID, Outcome]] = {}
+    placed: dict[str, Group] = {}
     for members in members_list:
-        firsts: dict[Source, CanonicalRow] = {}
-        for row in members.rows:
-            firsts.setdefault(row.source, row)
-        firsts = {s: firsts[s] for s in SOURCE_ORDER if s in firsts}
-        diffs = _diffs(firsts)
-        conflicts = _conflicts(members.rows)
-        outcome = _outcome(members, diffs, bool(conflicts))
-        group_id = stable_id(run_id, "GROUP", members.key)
-        row_ids: dict[Source, list[str]] = {}
-        for row in members.rows:
-            row_ids.setdefault(row.source, []).append(row.source_row_id)
-            placed[row.source_row_id] = (group_id, outcome)
-            if row.source_row_id in unmatched_ids:
-                review_items.append(
-                    _review_item(run_id, row, members, ReviewReason.UNMATCHED_NO_KEY)
-                )
-        for row in conflicts:
-            if row.source_row_id not in unmatched_ids:
-                review_items.append(
-                    _review_item(run_id, row, members, ReviewReason.CONFLICTING_ROWS_IN_SOURCE)
-                )
-        present = set(firsts)
-        groups.append(
-            Group(
-                id=group_id,
-                run_id=run_id,
-                group_key=members.key,
-                grn_no=members.grn_no,
-                row_ids=row_ids,
-                outcome=outcome,
-                missing_from=(
-                    [s for s in SOURCE_ORDER if s not in present]
-                    if outcome is Outcome.MISSING
-                    else []
-                ),
-                diffs=diffs,
-            )
-        )
+        group, items = _build_group(run_id, members, unmatched_ids)
+        groups.append(group)
+        review_items.extend(items)
+        placed.update((row.source_row_id, group) for row in members.rows)
 
     out_rows: list[CanonicalRow] = []
     for row in ordered:
         rid = row.source_row_id
+        choice: tuple[RowKind, str | None, UUID | None, Outcome]
         if rid in duplicate_of:
-            update: dict[str, object] = {
-                "row_kind": RowKind.DUPLICATE,
-                "duplicate_of": duplicate_of[rid],
-                "group_id": None,
-                "outcome": Outcome.DUPLICATE,
-            }
+            choice = (RowKind.DUPLICATE, duplicate_of[rid], None, Outcome.DUPLICATE)
         elif rid in non_receipts:
-            update = {
-                "row_kind": RowKind.NON_RECEIPT,
-                "duplicate_of": None,
-                "group_id": None,
-                "outcome": Outcome.NON_RECEIPT,
-            }
+            choice = (RowKind.NON_RECEIPT, None, None, Outcome.NON_RECEIPT)
         else:
-            group_id, outcome = placed[rid]
-            update = {
-                "row_kind": RowKind.RECEIPT,
-                "duplicate_of": None,
-                "group_id": group_id,
-                "outcome": outcome,
-            }
-        out_rows.append(row.model_copy(update=update))
+            choice = (RowKind.RECEIPT, None, placed[rid].id, placed[rid].outcome)
+        fields = ("row_kind", "duplicate_of", "group_id", "outcome")
+        out_rows.append(row.model_copy(update=dict(zip(fields, choice, strict=True))))
 
     groups.sort(key=lambda g: (g.grn_no is None, g.grn_no or 0, g.group_key))
-    review_items.sort(key=lambda i: i.item_key)
+    rank = {r.source_row_id: n for n, r in enumerate(ordered)}
+    # UNMATCHED_ROW items always carry their row id.
+    review_items.sort(key=lambda i: rank[i.source_row_id or ""])
     return ReconcileResult(rows=out_rows, groups=groups, review_items=review_items)

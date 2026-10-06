@@ -50,6 +50,11 @@ def lot_group_key(lot_no: str, supplier_code: str) -> str:
     return f"LOT:{_non_empty('lot_no', lot_no)}|{_non_empty('supplier_code', supplier_code)}"
 
 
+def row_group_key(row_id: str) -> str:
+    """Fallback group of a no-GRN row missing its lot or supplier (F-05.R4)."""
+    return f"ROW:{_non_empty('row_id', row_id)}"
+
+
 def review_item_key(
     kind: ReviewKind,
     *,

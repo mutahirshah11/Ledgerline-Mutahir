@@ -100,6 +100,21 @@ def test_F05_R11_group_ids_distinct_from_review_item_ids() -> None:
     assert group_ids.isdisjoint({i.id for i in result.review_items})
 
 
+def test_F05_R11_review_items_and_other_rows_in_file_order() -> None:
+    rows = [
+        _row("REG-p1-r01"),
+        _row("ERP-0001"),
+        _row("XLS-r2"),
+        _row("XLS-r10", qty=Decimal("12"), qty_base=Decimal("12.00")),  # conflicts with r2
+        _row("XLS-r8", None, lot_no=None),  # own fallback group
+    ]
+    result = reconcile(RUN, rows)
+
+    assert [i.item_key for i in result.review_items] == ["ROW:XLS-r8", "ROW:XLS-r10"]
+    conflict = result.review_items[1]
+    assert conflict.context.model_dump()["other_rows"] == ["REG-p1-r01", "ERP-0001", "XLS-r2"]
+
+
 def test_F05_R5_conflicting_rows_in_source() -> None:
     rows = [*_trio(4401), _row("ERP-0002", 4401, qty=Decimal("12"), qty_base=Decimal("12.00"))]
     result = reconcile(RUN, rows)
