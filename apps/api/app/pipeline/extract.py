@@ -2,15 +2,42 @@
 reading the shipped prompt and schema files."""
 
 import json
+import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from pydantic import ValidationError
 
-from app.core.errors import InvalidReadOutput
-from app.domain.enums import CellStatus, ReadVariant, RegisterField, ReviewReason
-from app.domain.models import Cell, MergedCell, MergedPage, MergedRow, PageRead
+from app.core.errors import InvalidReadOutput, PageUnreadable
+from app.domain.enums import (
+    REVIEWABLE_REGISTER_FIELDS,
+    CellStatus,
+    ReadVariant,
+    RegisterField,
+    ReviewKind,
+    ReviewReason,
+)
+from app.domain.ids import (
+    page_review_key,
+    parse_month,
+    register_row_id,
+    review_item_key,
+    row_review_key,
+    stable_id,
+)
+from app.domain.models import (
+    Cell,
+    CellContext,
+    MergedCell,
+    MergedPage,
+    MergedRow,
+    PageLabelMismatchContext,
+    PageRead,
+    ReviewItem,
+    RowInOneReadContext,
+)
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
@@ -203,3 +230,165 @@ def merge_reads(
         row_count_b=len(read_b.rows),
         rows=rows,
     )
+
+
+# --- page checks (FR-022, FR-023) --------------------------------------------------------
+
+_MONTH_NAMES = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
+
+
+def _month_forms(run_month: str) -> frozenset[str]:
+    """FR-022: the written forms that name `run_month` ("2026-09"), case-folded."""
+    year, month = parse_month(run_month)
+    name = _MONTH_NAMES[month - 1]
+    names = {name[:3], name}
+    if month == 9:
+        names.add("sept")
+    return frozenset(
+        {f"{n} {year}" for n in names}
+        | {f"{month:02}/{year}", f"{month}/{year}", f"{year}-{month:02}"}
+    )
+
+
+def page_label_ok(read: PageRead, *, page_no: int, run_month: str) -> bool:
+    """True when the read's written page number equals the uploaded label and its written month
+    names the run month (F-03.R9, FR-022). A missing value never matches."""
+    written_page = (read.page_no_written or "").strip()
+    page_ok = re.fullmatch(r"[0-9]+", written_page) is not None and int(written_page) == page_no
+    month = " ".join((read.month_written or "").split()).casefold()
+    return page_ok and month in _month_forms(run_month)
+
+
+def check_readable(page: MergedPage) -> None:
+    """Reject the page when more than half of its merged cells are ILLEGIBLE (FM-06, FR-023)."""
+    cells = [c for r in page.rows for c in r.cells.values()]
+    illegible = sum(1 for c in cells if c.merged.status is CellStatus.ILLEGIBLE)
+    if illegible * 2 > len(cells):
+        raise PageUnreadable(page.page_no, illegible, len(cells))
+
+
+# --- review items (data-model §4, FR-019, FR-022, FR-024 to FR-026) ----------------------
+
+
+def _grn_of(row: MergedRow) -> int | None:
+    """FR-026: the row's merged GRN when CLEAR and all digits, else None."""
+    grn = row.cells[RegisterField.GRN_NO].merged
+    if grn.status is CellStatus.CLEAR and grn.value is not None:
+        if re.fullmatch(r"[0-9]+", grn.value.strip()):
+            return int(grn.value)
+    return None
+
+
+def _page_item(
+    page: MergedPage, read_a: PageRead, read_b: PageRead, run_id: UUID, run_month: str
+) -> ReviewItem:
+    key = page_review_key(page.page_no)
+    return ReviewItem(
+        id=stable_id(run_id, key),
+        run_id=run_id,
+        kind=ReviewKind.CELL,
+        item_key=key,
+        grn_no=None,
+        source_row_id=None,
+        field="page",
+        reason=ReviewReason.PAGE_LABEL_MISMATCH,
+        read_a=None,
+        read_b=None,
+        context=PageLabelMismatchContext(
+            page_no=page.page_no,
+            run_month=run_month,
+            month_written={
+                ReadVariant.A: read_a.month_written,
+                ReadVariant.B: read_b.month_written,
+            },
+            page_no_written={
+                ReadVariant.A: read_a.page_no_written,
+                ReadVariant.B: read_b.page_no_written,
+            },
+        ),
+    )
+
+
+def _row_items(row: MergedRow, run_id: UUID) -> list[ReviewItem]:
+    row_id = register_row_id(row.page_no, row.row_index)
+    grn_no = _grn_of(row)
+    first = next(iter(row.cells.values()))
+    if first.read_a is None or first.read_b is None:  # FR-019: one item for the row
+        variant = ReadVariant.B if first.read_a is None else ReadVariant.A
+        side = "read_b" if variant is ReadVariant.B else "read_a"
+        cells = {f: getattr(c, side) for f, c in row.cells.items()}
+        key = row_review_key(row.page_no, row.row_index)
+        return [
+            ReviewItem(
+                id=stable_id(run_id, key),
+                run_id=run_id,
+                kind=ReviewKind.CELL,
+                item_key=key,
+                grn_no=grn_no,
+                source_row_id=row_id,
+                field="row",
+                reason=ReviewReason.ROW_IN_ONE_READ,
+                read_a=None,
+                read_b=None,
+                context=RowInOneReadContext(
+                    page_no=row.page_no, row_index=row.row_index, read=variant, cells=cells
+                ),
+            )
+        ]
+    items: list[ReviewItem] = []
+    for field, cell in row.cells.items():
+        if cell.review_reason is None or field not in REVIEWABLE_REGISTER_FIELDS:
+            continue
+        key = review_item_key(ReviewKind.CELL, row_id=row_id, field=field.value)
+        items.append(
+            ReviewItem(
+                id=stable_id(run_id, key),
+                run_id=run_id,
+                kind=ReviewKind.CELL,
+                item_key=key,
+                grn_no=grn_no,
+                source_row_id=row_id,
+                field=field.value,
+                reason=cell.review_reason,
+                read_a=cell.read_a,
+                read_b=cell.read_b,
+                context=CellContext(
+                    page_no=row.page_no,
+                    row_index=row.row_index,
+                    candidates=cell.merged.candidates,
+                    struck=cell.merged.struck,
+                    note=cell.merged.note,
+                ),
+            )
+        )
+    return items
+
+
+def build_review_items(
+    page: MergedPage, read_a: PageRead, read_b: PageRead, *, run_id: UUID, run_month: str
+) -> list[ReviewItem]:
+    """The CELL review items of one merged page (data-model §4), in a fixed order: the page
+    label item first, then rows by row index, cells in field order. Ids are stable per key, so
+    `Repo.upsert_review_items` keeps decisions already made (FR-025)."""
+    items: list[ReviewItem] = []
+    if not (
+        page_label_ok(read_a, page_no=page.page_no, run_month=run_month)
+        and page_label_ok(read_b, page_no=page.page_no, run_month=run_month)
+    ):
+        items.append(_page_item(page, read_a, read_b, run_id, run_month))
+    for row in page.rows:
+        items.extend(_row_items(row, run_id))
+    return items
