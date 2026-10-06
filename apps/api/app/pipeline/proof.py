@@ -55,6 +55,7 @@ if TYPE_CHECKING:
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _SHEET_QTY, _SHEET_UNIT = "Qty Received", "UOM"
 _ERP_QTY, _ERP_UNIT = "qty", "uom"
+_QTY_MAX_EXPONENT = 15  # same bound as F-04 qty parsing, kept local (independence)
 # Raw key holding the unit as recorded, per source (canonical rows keep the source's raw values).
 _RAW_UNIT_KEY = {
     Source.REGISTER: RegisterField.UNIT.value,
@@ -83,13 +84,14 @@ def _decimal(value: object) -> Decimal | None:
     """The qty as a finite Decimal, else None: blank or non-numeric qty is `qty_unknown`,
     never summed (F-07.R4; research R10)."""
     text = _text(value)
-    if text is None:
+    # Reject what F-04 rejects (own copy, F-07.R3): `1_000` numerals, non-finite, too large.
+    if text is None or isinstance(value, bool) or "_" in text:
         return None
     try:
         qty = Decimal(text)
     except InvalidOperation:
         return None
-    return qty if qty.is_finite() else None
+    return qty if qty.is_finite() and qty.adjusted() < _QTY_MAX_EXPONENT else None
 
 
 def _sheet_cells(data: bytes, month: str) -> list[tuple[object, ...]]:
@@ -113,18 +115,15 @@ def _data_rows(cells: Sequence[tuple[object, ...]]) -> list[tuple[int, tuple[obj
 
 
 def count_erp_lines(data: bytes) -> int:
-    """ERP rows = non-empty physical lines minus one header line (no `csv` module; R9)."""
-    lines = [line for line in data.decode("utf-8-sig").splitlines() if line.strip()]
+    """ERP rows = non-empty physical lines minus one header line (no `csv` module; R9).
+    Lines end at LF or CRLF only (`str.splitlines` would also split on U+2028, FF, ...)."""
+    text = data.decode("utf-8-sig").replace("\r\n", "\n")
+    lines = [line for line in text.split("\n") if line.strip()]
     return max(len(lines) - 1, 0)
 
 
 def _count_sheet_rows(cells: Sequence[tuple[object, ...]]) -> int:
     return len(_data_rows(cells))
-
-
-def count_sheet_rows(data: bytes, month: str) -> int:
-    """SHEET rows = rows 2..last row with any non-empty cell, by a separate openpyxl pass (R9)."""
-    return _count_sheet_rows(_sheet_cells(data, month))
 
 
 def _one_read_rows(page: RegisterPageInput) -> list[MergedRow]:

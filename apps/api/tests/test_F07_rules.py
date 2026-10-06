@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 import openpyxl
+import pytest
 
 import app.pipeline.proof as proof
 from app.domain.enums import (
@@ -196,6 +197,38 @@ def test_F07_C4_non_numeric_qty_is_unknown() -> None:
     assert c4.qty_unknown == ["ERP-0001", "XLS-r2"]
     assert c4.by_source_unit["ERP|PCS"].in_ == Decimal("5")
     assert "SHEET|M" not in c4.by_source_unit
+
+
+@pytest.mark.parametrize("qty", ["1_000", "1000000000000000", "NaN", "Infinity"])
+def test_F07_C4_qty_normalise_rejects_is_unknown(qty: str) -> None:
+    """Proof rejects exactly what normalise rejects (underscore numerals, non-finite,
+    adjusted() >= 15), so C4 lists the row instead of failing."""
+    inputs = _inputs(erp=[_erp_line(qty, "PCS"), _erp_line("5", "PCS")])
+    rows = [_placed("ERP-0001", None, "uom", "PCS"), _placed("ERP-0002", "5", "uom", "PCS")]
+
+    c4 = proof.check_c4(inputs, rows)
+
+    assert c4.pass_
+    assert c4.qty_unknown == ["ERP-0001"]
+    assert c4.by_source_unit["ERP|PCS"].in_ == Decimal("5")
+
+
+def test_F07_C4_largest_accepted_qty_is_summed() -> None:
+    inputs = _inputs(erp=[_erp_line("999999999999999", "PCS")])
+    rows = [_placed("ERP-0001", "999999999999999", "uom", "PCS")]
+
+    c4 = proof.check_c4(inputs, rows)
+
+    assert c4.pass_
+    assert c4.qty_unknown == []
+
+
+@pytest.mark.parametrize("sep", ["\u2028", "\x0c", "\x1c", "\x85"])
+def test_F07_C3_erp_line_count_splits_on_newline_only(sep: str) -> None:
+    line = _erp_line("1", "PCS").replace("ITEM", f"IT{sep}EM")
+    data = f"{ERP_HEADER}\r\n{line}\r\n".encode("utf-8-sig")
+    assert proof.count_erp_lines(data) == 1
+    assert proof.count_erp_lines(data + b"\n") == 1
 
 
 def test_F07_C4_resolved_override_without_value_ignored() -> None:

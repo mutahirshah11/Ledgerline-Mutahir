@@ -2,7 +2,6 @@
 
 import calendar
 import datetime as dt
-import re
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -11,11 +10,9 @@ from uuid import UUID
 from app.core.clock import KARACHI
 from app.core.config import BACKDATE_DAYS
 from app.domain.enums import FlagType, ReviewKind, ReviewReason, Source
-from app.domain.ids import review_item_key, stable_id
+from app.domain.ids import parse_month, review_item_key, stable_id
 from app.domain.models import CanonicalRow, ControlFlag, FlagAckContext, ReviewItem
 from app.pipeline.order import file_order, flag_order
-
-_MONTH = re.compile(r"([0-9]{4})-([0-9]{2})")
 
 ACK_FLAGS: frozenset[FlagType] = frozenset(
     {FlagType.SEQUENCE_GAP, FlagType.BACKDATED_ENTRY, FlagType.DATE_OUT_OF_PERIOD}
@@ -125,14 +122,6 @@ def _out_of_period(
             yield FlagType.DATE_OUT_OF_PERIOD, row.grn_no, row.source_row_id, detail
 
 
-def _parse_month(month: str) -> tuple[int, int]:
-    """`YYYY-MM` as (year, month); `ValueError` on anything else."""
-    found = _MONTH.fullmatch(month)
-    if found is None or not 1 <= int(found[2]) <= 12:
-        raise ValueError(f"month must be YYYY-MM, got {month!r}")
-    return int(found[1]), int(found[2])
-
-
 # --- Entry point (C1, C2) -----------------------------------------------------------------
 
 
@@ -167,7 +156,7 @@ def run_controls(
     Rows are only read (C1). Flags are sorted by (flag, GRN nulls last, row id); items by key;
     ids from `stable_id` (C2, research R8).
     """
-    year, mon = _parse_month(month)
+    year, mon = parse_month(month)
     month_end = dt.date(year, mon, calendar.monthrange(year, mon)[1])
     ordered = sorted(rows, key=file_order)
     raw: list[_Raw] = [

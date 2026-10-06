@@ -112,3 +112,26 @@ def test_review_item_key_rejects_missing_parts(kwargs: dict[str, Any]) -> None:
     kind = kwargs.pop("kind")
     with pytest.raises(ValueError):
         ids.review_item_key(kind, **kwargs)
+
+
+def test_parse_month_valid() -> None:
+    assert ids.parse_month("2026-09") == (2026, 9)
+    assert ids.parse_month("1999-12") == (1999, 12)
+
+
+@pytest.mark.parametrize(
+    "month",
+    [
+        "2026-9",
+        "2026-13",
+        "2026-00",
+        "26-09",
+        "2026/09",
+        "2026-09-01",
+        "",
+        "\u0662\u0660\u0662\u0666-09",
+    ],
+)
+def test_parse_month_invalid_raises(month: str) -> None:
+    with pytest.raises(ValueError, match="month"):
+        ids.parse_month(month)

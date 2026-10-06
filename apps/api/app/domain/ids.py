@@ -7,7 +7,7 @@ from uuid import UUID, uuid5
 
 from app.domain.enums import PRINTED_ROW_SLOTS, FlagType, ReviewKind, Stage
 
-_MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+_MONTH = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])")  # ASCII digits only
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -95,6 +95,14 @@ def summary_key(run_key: str) -> str:
 
 def alert_key(run_id: UUID | str, stage: Stage, attempt_group: int | str) -> str:
     return f"ALERT:{run_id}:{Stage(stage).value}:{attempt_group}"
+
+
+def parse_month(month: str) -> tuple[int, int]:
+    """`YYYY-MM` as (year, month); `ValueError` on anything else."""
+    found = _MONTH.fullmatch(month)
+    if found is None:
+        raise ValueError(f"month must be YYYY-MM, got {month!r}")
+    return int(found[1]), int(found[2])
 
 
 def run_key(month: str, file_hashes: Iterable[str]) -> str:
