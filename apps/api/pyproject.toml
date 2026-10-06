@@ -5,10 +5,12 @@ description = "Ledgerline reconciliation API (FastAPI)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    "openai>=3.25.0",
     "openpyxl>=3.1.5",
     "pydantic>=2.11",
     "pydantic-settings",
     "supabase>=2.32.0",
+    "tenacity>=9.1.4",
     "tzdata>=2026.5",
 ]
 
@@ -54,4 +56,5 @@ pythonpath = ["."]
 addopts = "-m \"not integration\""
 markers = [
     "integration: needs a real Supabase project (Phase 6)",
+    "live: needs OPENAI_API_KEY; skipped otherwise",
 ]

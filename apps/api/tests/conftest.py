@@ -28,6 +28,21 @@ def ground_truth_dir() -> Path:
     return API_DIR / "tests" / "ground_truth"
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip `live` tests unless OPENAI_API_KEY is set (OS env or apps/api/.env).
+
+    Read once at collection, before `hermetic_settings` hides env vars from each test.
+    """
+    from app.core.config import Settings
+
+    if Settings().OPENAI_API_KEY is not None:
+        return
+    skip_live = pytest.mark.skip(reason="needs OPENAI_API_KEY; skipped otherwise")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip_live)
+
+
 @pytest.fixture(autouse=True)
 def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Settings see no .env and no OS env vars, so local runs behave like CI."""
