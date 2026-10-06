@@ -84,6 +84,13 @@ def test_run_key_is_order_independent() -> None:
         (ids.lot_group_key, ("", "S-102")),
         (ids.lot_group_key, ("L2609-002", "")),
         (ids.run_key, ("2026-13", ["a" * 64])),
+        (ids.run_key, ("2026-09", "a" * 64)),
+        (ids.run_key, ("2026-09", [])),
+        (ids.run_key, ("2026-09", ["A" * 64])),
+        (ids.run_key, ("2026-09", ["a" * 63])),
+        (ids.lot_group_key, ("   ", "S-102")),
+        (ids.lot_group_key, ("L2609-002", " ")),
+        (ids.summary_key, ("  ",)),
     ],
 )
 def test_ids_reject_invalid_inputs(fn: Any, args: tuple[Any, ...]) -> None:
@@ -99,6 +106,8 @@ def test_ids_reject_invalid_inputs(fn: Any, args: tuple[Any, ...]) -> None:
         {"kind": ReviewKind.UNMATCHED_ROW},
         {"kind": ReviewKind.FLAG_ACK, "row_id": "ERP-0001"},
         {"kind": ReviewKind.FLAG_ACK, "flag": FlagType.SEQUENCE_GAP},
+        {"kind": ReviewKind.CELL, "row_id": " ", "field": "qty"},
+        {"kind": ReviewKind.FLAG_ACK, "flag": FlagType.SEQUENCE_GAP, "row_id": "", "grn_no": 5},
     ],
 )
 def test_review_item_key_rejects_missing_parts(kwargs: dict[str, Any]) -> None:

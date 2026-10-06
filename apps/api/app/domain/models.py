@@ -55,17 +55,26 @@ def _reject_float(value: object) -> object:
 DecimalStr = Annotated[
     Decimal,
     BeforeValidator(_reject_float),
-    PlainSerializer(str, return_type=str, when_used="json"),
+    PlainSerializer(lambda d: format(d, "f"), return_type=str, when_used="json"),
 ]
-"""Quantity or money: Decimal in Python, string in JSON ("1097.28"); float input is rejected."""
+"""Quantity or money: Decimal in Python, plain-notation string in JSON ("1097.28", never "1E+3");
+float input is rejected."""
 
 Sha256Hex = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Month = Annotated[str, StringConstraints(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
 RowIndex = Annotated[int, Field(ge=1, le=PRINTED_ROW_SLOTS)]
+PageNo = Annotated[int, Field(ge=1)]
 Fraction = Annotated[float, Field(ge=0, le=1)]
 
 
 class DomainModel(BaseModel):
+    """Base of every shared model: frozen, unknown keys rejected.
+
+    The freeze is shallow: attributes cannot be reassigned, but list and dict fields are
+    ordinary mutable containers. Never mutate them; build a new model (`model_copy(update=...)`)
+    instead. Because those fields are unhashable, models are not hashable either; key by id.
+    """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
@@ -139,7 +148,7 @@ class PageRead(DomainModel):
 
 
 class GroundTruthPage(PageRead):
-    page_no: int
+    page_no: PageNo
     source: Literal["ground_truth"]
 
 
@@ -151,7 +160,7 @@ class MergedCell(DomainModel):
 
 
 class MergedRow(DomainModel):
-    page_no: int
+    page_no: PageNo
     row_index: RowIndex
     cells: dict[RegisterField, MergedCell]
 
@@ -213,6 +222,14 @@ class Group(DomainModel):
     def _sorted(cls, row_ids: dict[Source, list[str]]) -> dict[Source, list[str]]:
         return {source: sorted(ids) for source, ids in row_ids.items()}
 
+    @field_validator("missing_from")
+    @classmethod
+    def _sorted_unique_sources(cls, sources: list[Source]) -> list[Source]:
+        if len(set(sources)) != len(sources):
+            raise ValueError("missing_from has a duplicate source")
+        order = list(Source)
+        return sorted(sources, key=order.index)  # Source declaration order (= Postgres enum)
+
     @model_validator(mode="after")
     def _missing_only_when_missing(self) -> Self:
         if bool(self.missing_from) != (self.outcome is Outcome.MISSING):
@@ -255,7 +272,7 @@ class ReconciliationPayload(DomainModel):
 class CellContext(DomainModel):
     """CELL with ILLEGIBLE, CORRECTED, UNCLEAR or READS_DISAGREE."""
 
-    page_no: int
+    page_no: PageNo
     row_index: RowIndex
     candidates: list[str] = []
     struck: str | None = None
@@ -263,7 +280,7 @@ class CellContext(DomainModel):
 
 
 class RowInOneReadContext(DomainModel):
-    page_no: int
+    page_no: PageNo
     row_index: RowIndex
     read: ReadVariant
     cells: dict[RegisterField, Cell]
@@ -304,6 +321,19 @@ _CELL_REASONS = frozenset(
     {ReviewReason.ILLEGIBLE, ReviewReason.CORRECTED, ReviewReason.UNCLEAR,
      ReviewReason.READS_DISAGREE}
 )
+# Reason codes per kind: blueprint Section 20 "Where review items come from".
+_REASONS_BY_KIND: dict[ReviewKind, frozenset[ReviewReason]] = {
+    ReviewKind.UNKNOWN_MAPPING: frozenset(
+        {ReviewReason.UNKNOWN_SUPPLIER, ReviewReason.UNKNOWN_UNIT, ReviewReason.UNPARSEABLE_DATE}
+    ),
+    ReviewKind.UNMATCHED_ROW: frozenset(
+        {ReviewReason.UNMATCHED_NO_KEY, ReviewReason.CONFLICTING_ROWS_IN_SOURCE}
+    ),
+    # "the flag type": the flags that queue a FLAG_ACK item (blueprint Section 18)
+    ReviewKind.FLAG_ACK: frozenset(
+        {ReviewReason.SEQUENCE_GAP, ReviewReason.BACKDATED_ENTRY, ReviewReason.DATE_OUT_OF_PERIOD}
+    ),
+}
 _CONTEXT_BY_KIND: dict[ReviewKind, type[DomainModel]] = {
     ReviewKind.UNKNOWN_MAPPING: UnknownMappingContext,
     ReviewKind.UNMATCHED_ROW: UnmatchedRowContext,
@@ -312,8 +342,9 @@ _CONTEXT_BY_KIND: dict[ReviewKind, type[DomainModel]] = {
 
 
 def _context_type(kind: ReviewKind, reason: ReviewReason) -> type[DomainModel] | None:
+    """The context shape for this kind/reason, or None when the reason does not fit the kind."""
     if kind is not ReviewKind.CELL:
-        return _CONTEXT_BY_KIND[kind]
+        return _CONTEXT_BY_KIND[kind] if reason in _REASONS_BY_KIND[kind] else None
     if reason in _CELL_REASONS:
         return CellContext
     if reason is ReviewReason.ROW_IN_ONE_READ:
@@ -345,7 +376,10 @@ class ReviewItem(DomainModel):
     def _rules(self) -> Self:
         expected = _context_type(self.kind, self.reason)
         if expected is None or type(self.context) is not expected:
-            raise ValueError(f"context does not fit {self.kind}/{self.reason}")
+            raise ValueError(f"reason or context does not fit {self.kind}/{self.reason}")
+        ctx = self.context
+        if isinstance(ctx, FlagAckContext) and ctx.flag.value != self.reason.value:
+            raise ValueError(f"reason {self.reason} does not fit flag {ctx.flag}")
         if self.status is ReviewStatus.CANNOT_DETERMINE and self.note is None:
             raise ValueError("CANNOT_DETERMINE needs a note")
         return self
@@ -480,7 +514,7 @@ class SourceFile(DomainModel):
     storage_path: str
     sha256: Sha256Hex
     size_bytes: int
-    page_no: int | None
+    page_no: PageNo | None
     confirmed_at: AwareDatetime | None
 
     @model_validator(mode="after")
@@ -493,7 +527,7 @@ class SourceFile(DomainModel):
 class PageManifestEntry(DomainModel):
     sha256: Sha256Hex
     month: Month
-    page_no: int
+    page_no: PageNo
     first_seen_run_id: UUID
     first_seen_at: AwareDatetime
 

@@ -116,6 +116,14 @@ def test_decimal_serialises_as_string() -> None:
     assert canonical().model_dump()["qty_base"] == Decimal("1097.28")
 
 
+@pytest.mark.parametrize(
+    ("given", "json_text"),
+    [("1E+3", "1000"), ("0.0000001", "0.0000001"), ("1097.28", "1097.28"), ("-0E-2", "-0.00")],
+)
+def test_decimal_json_never_uses_exponent(given: str, json_text: str) -> None:
+    assert canonical(qty=Decimal(given)).model_dump(mode="json")["qty"] == json_text
+
+
 # --- Cell -------------------------------------------------------------------------------
 
 
@@ -124,20 +132,26 @@ def test_cell_invariants() -> None:
     m.Cell(value=None, status=CellStatus.ILLEGIBLE, note="ink blot")
     m.Cell(value="126", status=CellStatus.CORRECTED, struck="120", note="overwritten")
     m.Cell(value=None, status=CellStatus.UNCLEAR, candidates=["120", "126"])
-    bad: list[dict[str, Any]] = [
-        {"value": "12", "status": CellStatus.CLEAR, "candidates": ["12"]},
-        {"value": "12", "status": CellStatus.CLEAR, "struck": "11"},
-        {"value": "12", "status": CellStatus.ILLEGIBLE},
-        {"value": None, "status": CellStatus.ILLEGIBLE, "candidates": ["1"]},
-        {"value": None, "status": CellStatus.CORRECTED, "struck": "120"},
-        {"value": "126", "status": CellStatus.CORRECTED},
-        {"value": "126", "status": CellStatus.CORRECTED, "struck": "120", "candidates": ["1"]},
-        {"value": "120", "status": CellStatus.UNCLEAR, "candidates": ["120"]},
-        {"value": None, "status": CellStatus.UNCLEAR},
-        {"value": None, "status": CellStatus.UNCLEAR, "candidates": ["1"], "struck": "2"},
+    struck_rule, candidates_rule = "struck is only set", "candidates are only set"
+    bad: list[tuple[dict[str, Any], str]] = [
+        ({"value": "12", "status": CellStatus.CLEAR, "candidates": ["12"]}, candidates_rule),
+        ({"value": "12", "status": CellStatus.CLEAR, "struck": "11"}, struck_rule),
+        ({"value": "12", "status": CellStatus.ILLEGIBLE}, "ILLEGIBLE cell has no value"),
+        ({"value": None, "status": CellStatus.ILLEGIBLE, "candidates": ["1"]}, candidates_rule),
+        ({"value": None, "status": CellStatus.CORRECTED, "struck": "120"},
+         "CORRECTED cell needs value and struck"),
+        ({"value": "126", "status": CellStatus.CORRECTED},
+         "CORRECTED cell needs value and struck"),
+        ({"value": "126", "status": CellStatus.CORRECTED, "struck": "120", "candidates": ["1"]},
+         candidates_rule),
+        ({"value": "120", "status": CellStatus.UNCLEAR, "candidates": ["120"]},
+         "UNCLEAR cell has no value"),
+        ({"value": None, "status": CellStatus.UNCLEAR}, "UNCLEAR cell has no value"),
+        ({"value": None, "status": CellStatus.UNCLEAR, "candidates": ["1"], "struck": "2"},
+         struck_rule),
     ]
-    for fields in bad:
-        with pytest.raises(ValidationError):
+    for fields, rule in bad:
+        with pytest.raises(ValidationError, match=rule):
             m.Cell(**fields)
 
 
@@ -145,11 +159,11 @@ def test_cell_invariants() -> None:
 
 
 def test_row_read_requires_all_eight_fields() -> None:
-    cells = {f: clear() for f in RegisterField if f is not RegisterField.RECD_BY}
-    with pytest.raises(ValidationError):
-        m.RowRead(row_index=1, cells=cells)
-    with pytest.raises(ValidationError):
-        m.RowRead(row_index=1, cells={**cells, RegisterField.RECD_BY: clear(), "extra": clear()})
+    m.RowRead(row_index=1, cells={f: clear() for f in RegisterField})
+    for missing in RegisterField:
+        cells = {f: clear() for f in RegisterField if f is not missing}
+        with pytest.raises(ValidationError, match="all 8 register fields"):
+            m.RowRead(row_index=1, cells=cells)
 
 
 def test_row_read_index_in_printed_slots() -> None:
@@ -210,6 +224,13 @@ def test_group_missing_from_only_when_missing() -> None:
         group(outcome=Outcome.MATCHED, missing_from=[Source.SHEET])
     with pytest.raises(ValidationError):
         group(outcome=Outcome.MISSING, missing_from=[])
+
+
+def test_group_missing_from_sorted_and_unique() -> None:
+    g = group(missing_from=[Source.SHEET, Source.REGISTER])
+    assert g.missing_from == [Source.REGISTER, Source.SHEET]  # Source declaration order
+    with pytest.raises(ValidationError, match="duplicate"):
+        group(missing_from=[Source.SHEET, Source.SHEET])
 
 
 def test_group_row_ids_sorted() -> None:
@@ -277,6 +298,50 @@ def test_review_context_matches_kind_and_reason() -> None:
         review_item(reason=ReviewReason.UNCLEAR, context=row_ctx)
     with pytest.raises(ValidationError):
         review_item(kind=ReviewKind.FLAG_ACK, reason=ReviewReason.SEQUENCE_GAP, context=map_ctx)
+
+
+def test_review_reason_fits_kind() -> None:
+    """Blueprint Section 20 'Where review items come from' table."""
+    map_ctx = m.UnknownMappingContext(source=Source.ERP, raw="S-999")
+    unmatched = m.UnmatchedRowContext(group_key="LOT:L2609-002|S-102", other_rows=[])
+    flag_ctx = m.FlagAckContext(flag=FlagType.BACKDATED_ENTRY, detail={})
+    for reason in (ReviewReason.UNKNOWN_SUPPLIER, ReviewReason.UNKNOWN_UNIT,
+                   ReviewReason.UNPARSEABLE_DATE):
+        review_item(kind=ReviewKind.UNKNOWN_MAPPING, reason=reason, context=map_ctx)
+    for reason in (ReviewReason.UNMATCHED_NO_KEY, ReviewReason.CONFLICTING_ROWS_IN_SOURCE):
+        review_item(kind=ReviewKind.UNMATCHED_ROW, reason=reason, context=unmatched)
+    review_item(kind=ReviewKind.FLAG_ACK, reason=ReviewReason.BACKDATED_ENTRY, context=flag_ctx)
+    bad = [
+        (ReviewKind.FLAG_ACK, ReviewReason.ILLEGIBLE, flag_ctx),
+        (ReviewKind.FLAG_ACK, ReviewReason.SEQUENCE_GAP, flag_ctx),  # reason must be the flag
+        (ReviewKind.UNKNOWN_MAPPING, ReviewReason.UNMATCHED_NO_KEY, map_ctx),
+        (ReviewKind.UNMATCHED_ROW, ReviewReason.UNKNOWN_UNIT, unmatched),
+        (ReviewKind.CELL, ReviewReason.UNKNOWN_SUPPLIER, m.CellContext(page_no=2, row_index=1)),
+    ]
+    for kind, reason, ctx in bad:
+        with pytest.raises(ValidationError, match="does not fit"):
+            review_item(kind=kind, reason=reason, context=ctx)
+
+
+def test_page_no_must_be_positive() -> None:
+    cell = clear()
+    builders: list[Any] = [
+        lambda p: m.MergedRow(page_no=p, row_index=1, cells={}),
+        lambda p: m.CellContext(page_no=p, row_index=1),
+        lambda p: m.RowInOneReadContext(page_no=p, row_index=1, read=ReadVariant.A,
+                                        cells={RegisterField.QTY: cell}),
+        lambda p: m.PageManifestEntry(sha256=SHA, month="2026-09", page_no=p,
+                                      first_seen_run_id=RUN_ID, first_seen_at=AT),
+        lambda p: m.GroundTruthPage(**page().model_dump(), page_no=p, source="ground_truth"),
+        lambda p: m.SourceFile(id=OTHER_ID, run_id=RUN_ID, source=Source.REGISTER,
+                               filename="p.jpg", storage_path="x", sha256=SHA, size_bytes=1,
+                               page_no=p, confirmed_at=None),
+    ]
+    for build in builders:
+        build(1)
+        for bad in (0, -1):
+            with pytest.raises(ValidationError, match="greater than or equal to 1"):
+                build(bad)
 
 
 def test_review_item_round_trips_through_json() -> None:
@@ -400,3 +465,14 @@ def test_models_are_frozen() -> None:
     for sample in samples:
         with pytest.raises(ValidationError):
             setattr(sample, next(iter(type(sample).model_fields)), None)
+
+
+def test_freeze_is_shallow_and_models_unhashable() -> None:
+    """Pins the documented DomainModel contract: containers are not frozen; never mutate them."""
+    assert "shallow" in (m.DomainModel.__doc__ or "")
+    g = group()
+    g.diffs.append(m.Diff(field="qty", values={}, compared={}, outlier=None))  # not prevented
+    assert len(g.diffs) == 1
+    for sample in (group(), canonical(), review_item(), m.Cell(value=None, status="ILLEGIBLE")):
+        with pytest.raises(TypeError):
+            hash(sample)

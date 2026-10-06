@@ -8,6 +8,7 @@ from uuid import UUID
 from app.domain.enums import PRINTED_ROW_SLOTS, FlagType, ReviewKind, Stage
 
 _MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def _int_at_least(name: str, value: int, minimum: int) -> int:
@@ -17,8 +18,8 @@ def _int_at_least(name: str, value: int, minimum: int) -> int:
 
 
 def _non_empty(name: str, value: str | None) -> str:
-    if not value:
-        raise ValueError(f"{name} is required")
+    if value is None or not value.strip():
+        raise ValueError(f"{name} is required (non-blank)")
     return value
 
 
@@ -67,8 +68,8 @@ def review_item_key(
         return f"ROW:{_non_empty('row_id', row_id)}"
     if flag is None:
         raise ValueError("flag is required")
-    if row_id:
-        return f"FLAG:{flag.value}:{row_id}"
+    if row_id is not None:
+        return f"FLAG:{flag.value}:{_non_empty('row_id', row_id)}"
     if grn_no is None:
         raise ValueError("row_id or grn_no is required")
     return f"FLAG:{flag.value}:{_int_at_least('grn_no', grn_no, 1)}"
@@ -83,7 +84,18 @@ def alert_key(run_id: UUID | str, stage: Stage, attempt_group: int | str) -> str
 
 
 def run_key(month: str, file_hashes: Iterable[str]) -> str:
-    """sha256(month + "".join(sorted(hashes))) as hex; independent of upload order."""
+    """sha256(month + "".join(sorted(hashes))) as hex; independent of upload order.
+
+    `file_hashes` is a non-empty collection of lower-case sha256 hex digests (not a bare str).
+    """
     if not _MONTH.fullmatch(month):
         raise ValueError(f"month must be YYYY-MM, got {month!r}")
-    return hashlib.sha256((month + "".join(sorted(file_hashes))).encode()).hexdigest()
+    if isinstance(file_hashes, str):
+        raise ValueError("file_hashes must be a collection of hashes, not a str")
+    hashes = sorted(file_hashes)
+    if not hashes:
+        raise ValueError("file_hashes must not be empty")
+    for h in hashes:
+        if not isinstance(h, str) or not _SHA256.fullmatch(h):
+            raise ValueError(f"not a lower-case sha256 hex digest: {h!r}")
+    return hashlib.sha256((month + "".join(hashes)).encode()).hexdigest()
