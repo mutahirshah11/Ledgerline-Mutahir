@@ -88,7 +88,7 @@ def memory_blobs() -> "MemoryBlobStore":
 
 # --- Engine inputs (Phase 1, tests/support/pack.py) --------------------------------------
 
-from tests.support.pack import PACK_RUN_ID  # noqa: E402
+from tests.support.pack import PACK_RUN_ID as PACK_RUN_ID  # noqa: E402
 
 
 @pytest.fixture
