@@ -672,3 +672,39 @@ def extract_page(
         result.disagreements,
     )
     return result
+
+
+# --- pack cache helpers (contract §5, research R10, FR-030, FR-031) ------------------------
+
+
+def cache_file_name(sha: str, variant: ReadVariant, model: str, prompt_version: str) -> str:
+    """The committed cache file name of one read: `{sha}.{variant}.{model}.{prompt_version}.json`
+    (the T-EXTRACT unique key, F-03.R1)."""
+    return f"{sha}.{variant.value}.{model}.{prompt_version}.json"
+
+
+def load_cached_extractions(repo: Repo, cache_dir: Path) -> int:
+    """Load every committed read in `cache_dir` (`*.json`, each a full `Extraction`) into
+    `repo`; returns how many were newly stored, so a second load returns 0 (idempotent).
+
+    Raises:
+        FileNotFoundError: `cache_dir` does not exist.
+        ValueError: a file is not a valid `Extraction`, or its name is not the
+            `cache_file_name` of its own record.
+    """
+    cache_dir = Path(cache_dir)
+    if not cache_dir.is_dir():
+        raise FileNotFoundError(f"cache directory not found: {cache_dir}")
+    records: list[Extraction] = []
+    for path in sorted(cache_dir.glob("*.json")):  # validate all before storing any
+        try:
+            record = Extraction.model_validate_json(path.read_text(encoding="utf-8"))
+        except ValidationError as exc:
+            raise ValueError(f"cached read {path.name} is not a valid extraction") from exc
+        expected = cache_file_name(
+            record.page_sha256, record.read_variant, record.model, record.prompt_version
+        )
+        if path.name != expected:
+            raise ValueError(f"cached read {path.name} does not match its record ({expected})")
+        records.append(record)
+    return sum(1 for record in records if repo.put_extraction(record)[1])

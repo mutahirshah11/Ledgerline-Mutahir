@@ -28,12 +28,15 @@ from app.domain.models import Extraction, PageRead
 from app.pipeline import extract
 from app.pipeline.extract import (
     RetryInfo,
+    cache_file_name,
     extract_page,
+    load_cached_extractions,
     load_prompt,
     load_read_schema,
     merge_reads,
+    parse_read,
 )
-from app.pipeline.model_client import FaultModelClient, RawRead
+from app.pipeline.model_client import FaultModelClient, RawRead, ReplayModelClient
 from tests.factories import make_audit, make_event, make_run
 from tests.fakes.model_clients import Answer, ScriptedModelClient
 
@@ -563,3 +566,86 @@ def test_F03_R5_retry_logs_cause_without_secrets(
     assert "timeout" in caplog.text
     assert API_KEY not in caplog.text
     assert "register-page-two" not in caplog.text
+
+
+# --- T029: pack cache helpers (contract §5, research R10, FR-031) -----------------------------
+
+
+def _record(variant: ReadVariant, frozen: datetime, **over: Any) -> Extraction:
+    base: dict[str, Any] = dict(
+        id=UUID(int=0xE0 + list(ReadVariant).index(variant)),
+        page_sha256=SHA,
+        read_variant=variant,
+        model=MODEL,
+        prompt_version="v1",
+        result=PageRead.model_validate(payload()),
+        input_tokens=1500,
+        output_tokens=700,
+        latency_ms=4321,
+        created_at=frozen,
+    )
+    return Extraction(**(base | over))
+
+
+def _write(cache_dir: Path, record: Extraction, name: str | None = None) -> Path:
+    path = cache_dir / (
+        name
+        or cache_file_name(
+            record.page_sha256, record.read_variant, record.model, record.prompt_version
+        )
+    )
+    path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
+    return path
+
+
+def test_F03_cache_file_name_format() -> None:
+    assert cache_file_name(SHA, A, "gpt-5.6-luna", "v1") == f"{SHA}.A.gpt-5.6-luna.v1.json"
+    assert cache_file_name(SHA, B, MODEL, "v2") == f"{SHA}.B.{MODEL}.v2.json"
+
+
+def test_F03_FR031_load_cached_extractions_idempotent(
+    repo: MemoryRepo, tmp_path: Path, frozen_clock: datetime
+) -> None:
+    records = [_record(A, frozen_clock), _record(B, frozen_clock)]
+    for record in records:
+        _write(tmp_path, record)
+    (tmp_path / ".gitkeep").write_text("")
+
+    assert load_cached_extractions(repo, tmp_path) == 2
+    assert load_cached_extractions(repo, tmp_path) == 0  # second load stores nothing new
+    for record in records:
+        assert stored(repo, record.read_variant) == record
+
+    client = ScriptedModelClient()  # the loaded cache serves the page with no model call
+    result = run(repo, client)
+    assert client.calls == 0 and result.cached is True
+
+
+def test_F03_load_cached_extractions_rejects_misnamed_file(
+    repo: MemoryRepo, tmp_path: Path, frozen_clock: datetime
+) -> None:
+    _write(tmp_path, _record(A, frozen_clock), name=f"{SHA}.B.{MODEL}.v1.json")
+    with pytest.raises(ValueError, match="does not match its record"):
+        load_cached_extractions(repo, tmp_path)
+    assert stored(repo, A) is None and stored(repo, B) is None
+
+
+def test_F03_load_cached_extractions_missing_dir_errors(repo: MemoryRepo, tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_cached_extractions(repo, tmp_path / "absent")
+
+
+@pytest.mark.parametrize("narrow", [False, True], ids=["any-model", "narrowed"])
+def test_F03_replay_client_finds_cache_file_name(
+    tmp_path: Path, frozen_clock: datetime, narrow: bool
+) -> None:
+    record = _record(B, frozen_clock)
+    _write(tmp_path, record)
+    replay = (
+        ReplayModelClient(tmp_path, model=MODEL, prompt_version="v1")
+        if narrow
+        else ReplayModelClient(tmp_path)
+    )
+    answer = replay.read_page(image=JPEG, mime="image/jpeg", variant=B, instructions="", schema={})
+    assert parse_read(answer.payload) == record.result
+    assert (answer.input_tokens, answer.output_tokens, answer.latency_ms) == (1500, 700, 4321)
