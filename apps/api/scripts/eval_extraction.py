@@ -13,11 +13,22 @@ Scoring, per ground-truth (GT) cell, using the merge's "same" rule (trim + case-
 - GT `ILLEGIBLE`: guessed when the merged cell is `CLEAR` with a non-null value.
 - GT `CORRECTED`: correct when the merged cell is `CORRECTED` with the same struck and value
   (reported apart; not part of the accuracy denominator).
+- GT `UNCLEAR`: not scored.
+
+Every GT non-`CLEAR` cell is also listed with its merged status and value. Merged rows absent
+from the ground truth (`extra_rows`) and rows found by one read only (`row_in_one_read`) are
+reported for information; neither changes the exit code.
 
 Per-read accuracy applies the same rule to read A and read B alone. Cost (US$) =
 (input tokens x price_in + output tokens x price_out) / 1e6, prices in US$ per million tokens
-from the command line (never hard-coded). Exit codes: 0 when accuracy >= 0.98 and guessed == 0;
-1 otherwise; 2 when reads cannot be loaded (empty cache, missing key, bad arguments).
+from the command line (never hard-coded). When `--pages` picks fewer than all pack pages, the
+report also projects the cost of all pack pages, scaled per page (research R14).
+
+Output: a short text table by default; `--json` prints the JSON report only (for machine use).
+
+Exit codes: 0 when accuracy >= 0.98 and guessed == 0; 1 otherwise; 2 when reads cannot be loaded
+(empty or partial cache, bad cache file, missing key, model error, bad arguments), with one
+`eval: <error type>: <message>` line on stderr and no traceback.
 
 Offline mode reads the committed cache (`supabase/seed/extractions/`) through
 `ReplayModelClient`; `--live` reads afresh with `OpenAIModelClient` and writes nothing.
@@ -27,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -36,11 +48,19 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+import openai
+
 from app.core.config import get_settings
+from app.core.errors import InvalidReadOutput
 from app.domain.enums import REVIEWABLE_REGISTER_FIELDS, CellStatus, ReadVariant, ReviewReason
 from app.domain.models import Cell, GroundTruthPage, MergedPage, PageRead
 from app.pipeline.extract import _same_key, load_prompt, load_read_schema, merge_reads, parse_read
-from app.pipeline.model_client import ModelClient, OpenAIModelClient, ReplayModelClient
+from app.pipeline.model_client import (
+    CachedReadAmbiguous,
+    ModelClient,
+    OpenAIModelClient,
+    ReplayModelClient,
+)
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 API_DIR = SCRIPTS_DIR.parent
@@ -77,8 +97,14 @@ class CellRef:
 
 
 @dataclass(frozen=True, slots=True)
+class RowRef:
+    page_no: int
+    row_index: int
+
+
+@dataclass(frozen=True, slots=True)
 class Mismatch:
-    """A GT `CLEAR` or `CORRECTED` cell the merged read did not get right."""
+    """A GT cell beside its merged result: a miss, or a GT non-`CLEAR` cell listed for review."""
 
     page_no: int
     row_index: int
@@ -119,9 +145,13 @@ class EvalReport:
     guessed: list[CellRef] = field(default_factory=list)
     mismatches: list[Mismatch] = field(default_factory=list)
     disagreements: list[CellRef] = field(default_factory=list)
+    non_clear: list[Mismatch] = field(default_factory=list)
+    extra_rows: list[RowRef] = field(default_factory=list)
+    row_in_one_read: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: Decimal | None = None
+    projected_cost_usd: Decimal | None = None
 
     @property
     def passed(self) -> bool:
@@ -136,25 +166,36 @@ class EvalReport:
             "read_b": self.read_b.as_json(),
             "corrected": self.corrected.as_json(),
             "guessed": [_ref_json(g) for g in self.guessed],
-            "mismatches": [
-                {
-                    "page_no": m.page_no,
-                    "row_index": m.row_index,
-                    "field": m.field,
-                    "expected": {
-                        "status": m.expected_status,
-                        "value": m.expected_value,
-                        "struck": m.expected_struck,
-                    },
-                    "got": {"status": m.got_status, "value": m.got_value, "struck": m.got_struck},
-                }
-                for m in self.mismatches
-            ],
+            "mismatches": [_cell_json(m) for m in self.mismatches],
             "reviewable_disagreements": [_ref_json(d) for d in self.disagreements],
+            "non_clear_cells": [_cell_json(c) for c in self.non_clear],
+            "extra_rows": [
+                {"page_no": r.page_no, "row_index": r.row_index} for r in self.extra_rows
+            ],
+            "row_in_one_read": self.row_in_one_read,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
-            "cost_usd": None if self.cost_usd is None else str(self.cost_usd),
+            "cost_usd": _money(self.cost_usd),
+            "projected_cost_usd": _money(self.projected_cost_usd),
         }
+
+
+def _money(value: Decimal | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _cell_json(m: Mismatch) -> dict[str, Any]:
+    return {
+        "page_no": m.page_no,
+        "row_index": m.row_index,
+        "field": m.field,
+        "expected": {
+            "status": m.expected_status,
+            "value": m.expected_value,
+            "struck": m.expected_struck,
+        },
+        "got": {"status": m.got_status, "value": m.got_value, "struck": m.got_struck},
+    }
 
 
 def _ref_json(ref: CellRef) -> dict[str, Any]:
@@ -233,6 +274,19 @@ def evaluate(
         _score_clear(gt, _cells(pair.read_b), report.read_b)
         for (row_index, name), cell in _cells(gt).items():
             got = merged.get((row_index, name))
+            outcome = Mismatch(
+                page_no=pair.page_no,
+                row_index=row_index,
+                field=name,
+                expected_status=cell.status.value,
+                expected_value=cell.value,
+                expected_struck=cell.struck,
+                got_status=None if got is None else got.status.value,
+                got_value=None if got is None else got.value,
+                got_struck=None if got is None else got.struck,
+            )
+            if cell.status is not CellStatus.CLEAR:
+                report.non_clear.append(outcome)
             ok: bool
             if cell.status is CellStatus.CLEAR:
                 report.merged.total += 1
@@ -252,20 +306,13 @@ def evaluate(
                     report.guessed.append(CellRef(pair.page_no, row_index, name))
                 continue
             if not ok:
-                report.mismatches.append(
-                    Mismatch(
-                        page_no=pair.page_no,
-                        row_index=row_index,
-                        field=name,
-                        expected_status=cell.status.value,
-                        expected_value=cell.value,
-                        expected_struck=cell.struck,
-                        got_status=None if got is None else got.status.value,
-                        got_value=None if got is None else got.value,
-                        got_struck=None if got is None else got.struck,
-                    )
-                )
+                report.mismatches.append(outcome)
+        gt_rows = {r.row_index for r in gt.rows}
         for row in page.rows:
+            if row.row_index not in gt_rows:
+                report.extra_rows.append(RowRef(pair.page_no, row.row_index))
+            first = next(iter(row.cells.values()))
+            report.row_in_one_read += first.read_a is None or first.read_b is None
             for reg_field, mc in row.cells.items():
                 if (
                     mc.review_reason is ReviewReason.READS_DISAGREE
@@ -277,6 +324,9 @@ def evaluate(
         report.input_tokens += pair.input_tokens
         report.output_tokens += pair.output_tokens
     report.cost_usd = cost_usd(report.input_tokens, report.output_tokens, price_in, price_out)
+    if report.cost_usd is not None and 0 < len(report.pages) < len(PACK_PAGES):
+        # research R14: one page read live, the all-pages cost projected per page
+        report.projected_cost_usd = report.cost_usd / len(report.pages) * len(PACK_PAGES)
     return report
 
 
@@ -426,6 +476,15 @@ def format_text(report: EvalReport) -> str:
             else f"US${report.cost_usd:.6f}"
         ),
     ]
+    if report.projected_cost_usd is not None:
+        lines.append(
+            f"projected cost   US${report.projected_cost_usd:.6f} for all {len(PACK_PAGES)} "
+            "pack pages (research R14)"
+        )
+    lines += [
+        f"extra rows       {len(report.extra_rows)}  (merged rows not in the ground truth)",
+        f"row in one read  {report.row_in_one_read}",
+    ]
     for m in report.mismatches:
         lines.append(
             f"  miss p{m.page_no} r{m.row_index:02} {m.field}: expected {m.expected_status} "
@@ -436,8 +495,46 @@ def format_text(report: EvalReport) -> str:
         lines.append(f"  GUESSED p{g.page_no} r{g.row_index:02} {g.field}")
     for d in report.disagreements:
         lines.append(f"  disagree p{d.page_no} r{d.row_index:02} {d.field}")
+    for c in report.non_clear:
+        got = f"{c.got_status} {c.got_value!r}"
+        if c.got_struck is not None:
+            got += f" struck {c.got_struck!r}"
+        lines.append(
+            f"  non-CLEAR p{c.page_no} r{c.row_index:02} {c.field}: expected {c.expected_status}; "
+            f"got {got}"
+        )
+    for r in report.extra_rows:
+        lines.append(f"  extra row p{r.page_no} r{r.row_index:02}")
     lines.append("PASS" if report.passed else "FAIL")
     return "\n".join(lines)
+
+
+LOAD_ERRORS: tuple[type[Exception], ...] = (
+    CacheEmpty,
+    CachedReadAmbiguous,
+    InvalidReadOutput,
+    ValueError,
+    OSError,
+    KeyError,
+    openai.OpenAIError,
+    RuntimeError,
+)
+"""Failures to load reads or ground truth: exit 2 with one stderr line, never a traceback."""
+
+_API_KEY = re.compile(r"sk-[A-Za-z0-9_\-*]+")
+
+
+def _load_error_line(exc: Exception) -> str:
+    """`eval: <type>: <message>`, with anything shaped like an API key masked."""
+    message = str(exc.args[0]) if isinstance(exc, KeyError) and exc.args else str(exc)
+    line = f"eval: {type(exc).__name__}: {_API_KEY.sub('sk-***', message)}"
+    if isinstance(exc, CacheEmpty):
+        line += (
+            ". The pack's reads are not captured yet; run "
+            "`uv run python -m scripts.seed_cache --capture` (needs OPENAI_API_KEY) "
+            "or pass --live."
+        )
+    return line
 
 
 def main(
@@ -449,18 +546,10 @@ def main(
     args = _parser().parse_args(sys.argv[1:] if argv is None else list(argv))
     try:
         pairs = loader(args.pages, args.live)
-    except CacheEmpty as exc:
-        print(
-            f"eval: {exc}. The pack's reads are not captured yet; run "
-            "`uv run python -m scripts.seed_cache --capture` (needs OPENAI_API_KEY) "
-            "or pass --live.",
-            file=sys.stderr,
-        )
+        gt = load_ground_truth() if ground_truth is None else ground_truth
+    except LOAD_ERRORS as exc:
+        print(_load_error_line(exc), file=sys.stderr)
         return EXIT_ERROR
-    except RuntimeError as exc:
-        print(f"eval: {exc}", file=sys.stderr)
-        return EXIT_ERROR
-    gt = load_ground_truth() if ground_truth is None else ground_truth
     report = evaluate(gt, pairs, price_in=args.price_in, price_out=args.price_out)
     print(json.dumps(report.as_json(), indent=2) if args.json else format_text(report))
     return exit_code(report)

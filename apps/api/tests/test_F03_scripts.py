@@ -7,12 +7,18 @@ images, no model calls.
 import json
 from decimal import Decimal
 from fractions import Fraction
+from hashlib import sha256
 from pathlib import Path
 
+import openai
 import pytest
 
-from app.domain.enums import CellStatus, RegisterField
+import scripts.eval_extraction as eval_script
+from app.core.config import Settings
+from app.core.errors import InvalidReadOutput
+from app.domain.enums import CellStatus, ReadVariant, RegisterField
 from app.domain.models import Cell, GroundTruthPage, PageRead, RowRead
+from app.pipeline.model_client import CachedReadAmbiguous
 from scripts.eval_extraction import (
     CacheEmpty,
     ReadPair,
@@ -197,24 +203,174 @@ def test_F03_eval_pages_option(capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(ValueError):
             parse_pages(bad)
 
-    seen: list[tuple[int, ...]] = []
+    seen: list[tuple[tuple[int, ...], bool]] = []
     gt = {1: _gt(1, _row(1)), 2: _gt(2, _row(1))}
 
     def loader(pages: tuple[int, ...], live: bool) -> list[ReadPair]:
-        seen.append(pages)
+        seen.append((pages, live))
         return [_pair(p, _read(_row(1))) for p in pages]
 
     assert main(["--pages", "2", "--json"], loader=loader, ground_truth=gt) == 0
-    assert seen == [(2,)]
+    assert seen == [((2,), False)]
     out = json.loads(capsys.readouterr().out)
     assert out["pages"] == [2]
     assert out["merged"]["total"] == 8
     assert out["passed"] is True
+    # --live reaches the (injected) loader as live=True; no network here
+    seen.clear()
+    assert main(["--live", "--pages", "1", "--json"], loader=loader, ground_truth=gt) == 0
+    assert seen == [((1,), True)]
+
+
+def test_F03_eval_cli_load_errors_exit_2(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gt = {1: _gt(1, _row(1)), 2: _gt(2, _row(1))}
+    fake_key = "sk-" + "-".join(["proj", "not", "real"])  # built at runtime: no literal key
+    errors: list[Exception] = [
+        ValueError("cached read x.json: read_variant is not A"),
+        OSError("no such file t4_register_page1.jpg"),
+        KeyError("no cached read for abc"),
+        CachedReadAmbiguous("ambiguous cached reads (a, b)"),
+        InvalidReadOutput("rows: not a list"),
+        openai.OpenAIError(f"Incorrect API key provided: {fake_key}"),
+        RuntimeError("boom"),
+    ]
+    for error in errors:
+
+        def loader(pages: tuple[int, ...], live: bool, error: Exception = error) -> list[ReadPair]:
+            raise error
+
+        assert main([], loader=loader, ground_truth=gt) == 2, type(error).__name__
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.startswith(f"eval: {type(error).__name__}: "), captured.err
+        assert "Traceback" not in captured.err
+        assert fake_key not in captured.err  # an API key is never echoed
+
+    # --live without OPENAI_API_KEY (hermetic settings: none set) -> 2, through the real loader
+    monkeypatch.setattr(eval_script, "get_settings", lambda: Settings())
+    assert main(["--live", "--pages", "1"], ground_truth=gt) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("eval: RuntimeError: ") and "OPENAI_API_KEY" in err
+
+
+def test_F03_eval_report_lists_non_clear_cells_and_extra_rows(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    corrected = Cell(value="66", status=CellStatus.CORRECTED, struck="60")
+    illegible = Cell(value=None, status=CellStatus.ILLEGIBLE)
+    gt = {2: _gt(2, _row(5, qty=corrected), _row(14, qty=illegible))}
+    unclear = Cell(value=None, status=CellStatus.UNCLEAR, candidates=["40", "46"])
+    read_a = _read(_row(5, qty=corrected), _row(14, qty=unclear), _row(15), _row(16))
+    read_b = _read(_row(5, qty=corrected), _row(14, qty=unclear), _row(15))
+    report = evaluate(gt, [_pair(2, read_a, read_b)])
+    # every GT non-CLEAR cell with the merged status and value
+    got = [
+        (c.page_no, c.row_index, c.field, c.expected_status, c.got_status, c.got_value)
+        for c in report.non_clear
+    ]
+    assert got == [
+        (2, 5, "qty", "CORRECTED", "CORRECTED", "66"),
+        (2, 14, "qty", "ILLEGIBLE", "UNCLEAR", None),
+    ]
+    # informational: merged rows absent from GT, and rows found by one read only
+    assert [(r.page_no, r.row_index) for r in report.extra_rows] == [(2, 15), (2, 16)]
+    assert report.row_in_one_read == 1
+    assert exit_code(report) == 0  # neither changes the exit code
+    out = report.as_json()
+    assert out["non_clear_cells"][1] == {
+        "page_no": 2,
+        "row_index": 14,
+        "field": "qty",
+        "expected": {"status": "ILLEGIBLE", "value": None, "struck": None},
+        "got": {"status": "UNCLEAR", "value": None, "struck": None},
+    }
+    assert out["extra_rows"] == [{"page_no": 2, "row_index": 15}, {"page_no": 2, "row_index": 16}]
+    assert out["row_in_one_read"] == 1
+
+    def loader(pages: tuple[int, ...], live: bool) -> list[ReadPair]:
+        return [_pair(2, read_a, read_b)]
+
+    assert main([], loader=loader, ground_truth=gt) == 0
+    text = capsys.readouterr().out
+    assert "non-CLEAR p2 r14 qty: expected ILLEGIBLE; got UNCLEAR None" in text
+    assert "non-CLEAR p2 r05 qty: expected CORRECTED; got CORRECTED '66' struck '60'" in text
+    assert "extra rows       2" in text
+    assert "row in one read  1" in text
+
+
+def test_F03_eval_projected_cost_for_all_pack_pages(capsys: pytest.CaptureFixture[str]) -> None:
+    gt = {1: _gt(1, _row(1)), 2: _gt(2, _row(1))}
+
+    def loader(pages: tuple[int, ...], live: bool) -> list[ReadPair]:
+        return [ReadPair(p, SHA, _read(_row(1)), _read(_row(1)), 3000, 1000) for p in pages]
+
+    prices = ["--price-in", "1", "--price-out", "4"]
+    assert main(["--pages", "1", *prices, "--json"], loader=loader, ground_truth=gt) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["cost_usd"] == "0.007"
+    assert Decimal(out["projected_cost_usd"]) == Decimal("0.014")  # scaled per page to 2 pages
+    assert main(["--pages", "1", *prices], loader=loader, ground_truth=gt) == 0
+    assert "projected cost   US$0.014000 for all 2 pack pages" in capsys.readouterr().out
+    # all pages, or no prices: no projection
+    assert main([*prices, "--json"], loader=loader, ground_truth=gt) == 0
+    assert json.loads(capsys.readouterr().out)["projected_cost_usd"] is None
+    assert main(["--pages", "1", "--json"], loader=loader, ground_truth=gt) == 0
+    assert json.loads(capsys.readouterr().out)["projected_cost_usd"] is None
 
 
 def test_F03_eval_load_cached_reads_empty_dir(tmp_path: Path) -> None:
     with pytest.raises(CacheEmpty):
         load_cached_reads((1, 2), cache_dir=tmp_path, model="m", prompt_version="v1")
+
+
+def _write_replay_cache(
+    cache_dir: Path, pack: Path, page_no: int, read: PageRead, tokens: tuple[int, int]
+) -> str:
+    """One page's image plus A/B replay files in the format `ReplayModelClient` reads."""
+    image = f"page {page_no} image".encode()
+    (pack / f"t4_register_page{page_no}.jpg").write_bytes(image)
+    sha = sha256(image).hexdigest()
+    for variant in ReadVariant:
+        record = {
+            "page_sha256": sha,
+            "read_variant": variant.value,
+            "result": read.model_dump(mode="json"),
+            "input_tokens": tokens[0],
+            "output_tokens": tokens[1],
+            "latency_ms": 5,
+        }
+        name = f"{sha}.{variant.value}.m.v1.json"
+        (cache_dir / name).write_text(json.dumps(record), encoding="utf-8")
+    return sha
+
+
+def test_F03_eval_load_cached_reads_from_replay_files(tmp_path: Path) -> None:
+    cache_dir, pack = tmp_path / "cache", tmp_path / "pack"
+    cache_dir.mkdir()
+    pack.mkdir()
+    read_1, read_2 = _read(_row(1)), _read(_row(1), _row(2))
+    sha_1 = _write_replay_cache(cache_dir, pack, 1, read_1, (100, 10))
+    sha_2 = _write_replay_cache(cache_dir, pack, 2, read_2, (200, 20))
+    pairs = load_cached_reads(
+        (1, 2), cache_dir=cache_dir, pack_dir=pack, model="m", prompt_version="v1"
+    )
+    assert [(p.page_no, p.page_sha256) for p in pairs] == [(1, sha_1), (2, sha_2)]
+    assert (pairs[0].read_a, pairs[0].read_b, pairs[1].read_a) == (read_1, read_1, read_2)
+    assert [(p.input_tokens, p.output_tokens) for p in pairs] == [(200, 20), (400, 40)]
+
+
+def test_F03_eval_load_cached_reads_partial_cache(tmp_path: Path) -> None:
+    cache_dir, pack = tmp_path / "cache", tmp_path / "pack"
+    cache_dir.mkdir()
+    pack.mkdir()
+    _write_replay_cache(cache_dir, pack, 1, _read(_row(1)), (1, 1))
+    (pack / "t4_register_page2.jpg").write_bytes(b"page 2 image")  # page 2 never captured
+    with pytest.raises(CacheEmpty):
+        load_cached_reads(
+            (1, 2), cache_dir=cache_dir, pack_dir=pack, model="m", prompt_version="v1"
+        )
 
 
 def test_F03_eval_ground_truth_scores_itself_perfectly() -> None:
