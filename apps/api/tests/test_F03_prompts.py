@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -47,8 +48,9 @@ def _flat(text: str) -> str:
 
 
 def _cell_keys() -> list[str]:
-    schema = json.loads(_text(READ_SCHEMA))
-    return schema["properties"]["rows"]["items"]["properties"]["cells"]["required"]
+    schema: dict[str, Any] = json.loads(_text(READ_SCHEMA))
+    keys: list[str] = schema["properties"]["rows"]["items"]["properties"]["cells"]["required"]
+    return keys
 
 
 # Each rule's text (from its tag up to the next tag) must keep these phrases, so a rule cannot
