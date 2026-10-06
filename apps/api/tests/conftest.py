@@ -2,8 +2,15 @@
 
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 import pytest
+
+if TYPE_CHECKING:
+    from app.core.db import Repo
+    from app.core.memory_repo import MemoryRepo
+    from app.core.storage import MemoryBlobStore
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = API_DIR.parents[1]
@@ -33,3 +40,32 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     )
     monkeypatch.setattr(clock, "get_settings", lambda: settings)
     return clock.now()
+
+
+# --- Repo and BlobStore (US4, contracts/repo-interface.md) -------------------------------
+
+REPO_IMPLEMENTATIONS = ["memory_repo"]
+"""Fixture names of every Repo implementation; Phase 3 appends "supabase_repo"."""
+
+
+@pytest.fixture
+def memory_repo() -> "MemoryRepo":
+    from app.core.memory_repo import MemoryRepo
+
+    return MemoryRepo()
+
+
+@pytest.fixture(params=REPO_IMPLEMENTATIONS)
+def repo(request: pytest.FixtureRequest) -> "Repo":
+    """Every Repo implementation; the shared contract suite runs once per entry."""
+    impl: Repo = request.getfixturevalue(request.param)
+    return impl
+
+
+@pytest.fixture
+def memory_blobs() -> "MemoryBlobStore":
+    """MemoryBlobStore whose signed-URL expiry is computed from a fixed instant."""
+    from app.core.storage import MemoryBlobStore
+
+    fixed = datetime(2026, 10, 1, 9, 0, tzinfo=ZoneInfo("Asia/Karachi"))
+    return MemoryBlobStore(now=lambda: fixed)
