@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ledgerline/ground-truth-page.schema.json",
+  "title": "GroundTruthPage",
+  "description": "Hand-typed transcription of one register page. Same shape as an F-03 model read (blueprint Section 15) plus page_no and source. Quantities are strings exactly as written.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source", "page_no", "month_written", "page_no_written", "table_top", "table_bottom", "blank_row_slots", "rows"],
+  "properties": {
+    "source": { "const": "ground_truth" },
+    "page_no": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "month_written": { "type": ["string", "null"] },
+    "page_no_written": { "type": ["string", "null"] },
+    "table_top": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Top edge of printed data slot 1, fraction of image height" },
+    "table_bottom": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "Bottom edge of printed data slot 16, fraction of image height" },
+    "blank_row_slots": { "type": "integer", "minimum": 0, "maximum": 16 },
+    "rows": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_index", "cells"],
+      "properties": {
+        "row_index": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "cells": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["date", "grn_no", "supplier", "item", "lot_no", "qty", "unit", "recd_by"],
+          "properties": {
+            "date": { "$ref": "#/$defs/cell" },
+            "grn_no": { "$ref": "#/$defs/cell" },
+            "supplier": { "$ref": "#/$defs/cell" },
+            "item": { "$ref": "#/$defs/cell" },
+            "lot_no": { "$ref": "#/$defs/cell" },
+            "qty": { "$ref": "#/$defs/cell" },
+            "unit": { "$ref": "#/$defs/cell" },
+            "recd_by": { "$ref": "#/$defs/cell" }
+          }
+        }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "status", "struck", "candidates", "note"],
+      "properties": {
+        "value": { "type": ["string", "null"] },
+        "status": { "enum": ["CLEAR", "UNCLEAR", "CORRECTED", "ILLEGIBLE"] },
+        "struck": { "type": ["string", "null"] },
+        "candidates": { "type": "array", "items": { "type": "string" } },
+        "note": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "CLEAR" } } },
+          "then": { "properties": { "struck": { "type": "null" }, "candidates": { "maxItems": 0 } } } },
+        { "if": { "properties": { "status": { "const": "ILLEGIBLE" } } },
+          "then": { "properties": { "value": { "type": "null" }, "candidates": { "maxItems": 0 } } } },
+        { "if": { "properties": { "status": { "const": "CORRECTED" } } },
+          "then": { "properties": { "value": { "type": "string" }, "struck": { "type": "string" } } } },
+        { "if": { "properties": { "status": { "const": "UNCLEAR" } } },
+          "then": { "properties": { "value": { "type": "null" }, "candidates": { "minItems": 1 } } } }
+      ]
+    }
+  }
+}
