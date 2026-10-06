@@ -610,6 +610,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "openai" },
     { name = "openpyxl" },
     { name = "pydantic" },
@@ -631,6 +632,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
+    { name = "httpx2", specifier = ">=2.13" },
     { name = "openai", specifier = ">=3.25.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.11" },
