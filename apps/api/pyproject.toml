@@ -1,0 +1,51 @@
+[project]
+name = "ledgerline-api"
+version = "0.1.0"
+description = "Ledgerline reconciliation API (FastAPI)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "pydantic>=2",
+    "pydantic-settings",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "pre-commit",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "DTZ", "TID"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"datetime.datetime.now".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
+"datetime.datetime.utcnow".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
+"datetime.datetime.today".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
+"datetime.date.today".msg = "Use app.core.clock.today() (scenario clock, constitution VI)"
+"time.time".msg = "Use app.core.clock.now() (scenario clock, constitution VI)"
+
+[tool.ruff.lint.per-file-ignores]
+"app/core/clock.py" = ["TID251"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-m \"not integration\""
+markers = [
+    "integration: needs a real Supabase project (Phase 6)",
+]

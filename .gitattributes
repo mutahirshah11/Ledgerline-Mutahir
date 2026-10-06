@@ -1,0 +1,2 @@
+# Pack files are evidence: never convert line endings
+data/** -text
