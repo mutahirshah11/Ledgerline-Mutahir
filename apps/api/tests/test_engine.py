@@ -82,6 +82,7 @@ def test_engine_atomic_write_keeps_previous(
     first = reconcile_run(memory_repo, engine_inputs)
     previous = _state(memory_repo, extracted_run.id)
     audit_before = len(memory_repo.list_audit(extracted_run.id))
+    events_before = memory_repo.list_run_events(extracted_run.id)
     last_key = first.payload.groups[-1].group_key
 
     real_copy = memory_repo_module._copy
@@ -102,15 +103,59 @@ def test_engine_atomic_write_keeps_previous(
         with pytest.raises(RuntimeError, match="last group"):
             reconcile_run(memory_repo, changed)
 
-    assert _state(memory_repo, extracted_run.id) == previous
+    after = _state(memory_repo, extracted_run.id)
+    assert {k: v for k, v in after.items() if k != "run"} == {
+        k: v for k, v in previous.items() if k != "run"
+    }
+    run = memory_repo.get_run(extracted_run.id)
+    assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.RECONCILE)
+    assert run.error_message == repr(RuntimeError("write failed on the last group"))
     assert memory_repo.get_group(extracted_run.id, "GRN:4419").outcome is Outcome.NEEDS_REVIEW
     assert len(memory_repo.list_audit(extracted_run.id)) == audit_before
     events = memory_repo.list_run_events(extracted_run.id)  # one frozen instant: insertion order
-    assert [(e.stage, e.status) for e in events[4:]] == [
+    assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
         (Stage.RECONCILE, RunEventStatus.STARTED),
         (Stage.PROOF, RunEventStatus.STARTED),
         (Stage.RECONCILE, RunEventStatus.FAILED),
     ]
+
+
+@pytest.mark.parametrize("method", ["upsert_review_items", "save_proof"])
+def test_engine_failure_after_replace_marks_run_failed(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    engine_inputs: EngineInputs,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    """User decision 2026-10-07: any error in steps 4 to 7 (after `replace_reconciliation`
+    succeeded) logs `reconcile/FAILED`, moves the run to `FAILED` at `reconcile`, re-raises."""
+    error = RuntimeError(f"{method} failed")
+
+    def failing(*_: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(memory_repo, method, failing)  # a repo whose one write fails
+
+    with pytest.raises(RuntimeError) as exc:
+        reconcile_run(memory_repo, engine_inputs)
+
+    assert exc.value is error
+    assert memory_repo.list_source_rows(extracted_run.id) != []  # the replace went through
+    run = memory_repo.get_run(extracted_run.id)
+    assert (run.status, run.failed_stage, run.error_message) == (
+        RunStatus.FAILED,
+        Stage.RECONCILE,
+        repr(error),
+    )
+    events = memory_repo.list_run_events(extracted_run.id)
+    assert [(e.stage, e.status) for e in events] == [
+        (Stage.RECONCILE, RunEventStatus.STARTED),
+        (Stage.PROOF, RunEventStatus.STARTED),
+        (Stage.RECONCILE, RunEventStatus.FAILED),
+    ]
+    assert events[-1].detail == {"error": repr(error)}
+    assert memory_repo.list_audit(extracted_run.id) == []
 
 
 def test_engine_proof_fail_keeps_previous_reconciliation(
@@ -118,6 +163,8 @@ def test_engine_proof_fail_keeps_previous_reconciliation(
 ) -> None:
     reconcile_run(memory_repo, engine_inputs)
     previous = _state(memory_repo, extracted_run.id)
+    events_before = memory_repo.list_run_events(extracted_run.id)
+    audit_before = memory_repo.list_audit(extracted_run.id)
 
     result = reconcile_run(memory_repo, engine_inputs, faults=frozenset({Fault.PROOF_DROP_ROW}))
 
@@ -129,6 +176,49 @@ def test_engine_proof_fail_keeps_previous_reconciliation(
     assert stored is not None and stored.status is ProofStatus.FAIL
     run = memory_repo.get_run(extracted_run.id)
     assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.PROOF)
+    assert run.error_message == proof_failure_message(result.proof)
+    events = memory_repo.list_run_events(extracted_run.id)
+    assert events[: len(events_before)] == events_before
+    assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
+        (Stage.RECONCILE, RunEventStatus.STARTED),
+        (Stage.PROOF, RunEventStatus.STARTED),
+        (Stage.PROOF, RunEventStatus.FAILED),
+        (Stage.RECONCILE, RunEventStatus.FAILED),
+    ]
+    assert memory_repo.list_audit(extracted_run.id) == audit_before
+
+
+def test_engine_proof_fail_on_finalised_run_keeps_its_proof(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    engine_inputs: EngineInputs,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run finalised between the status check and the FAIL path: the transition to `FAILED`
+    raises `StateConflict` before the finalised run's proof could be overwritten."""
+    reconcile_run(memory_repo, engine_inputs)
+    _resolve_open_flag_items(memory_repo, extracted_run.id, frozen_clock)
+    again = _with_decisions(engine_inputs, pack_dir, ground_truth_dir, memory_repo)
+    reconcile_run(memory_repo, again)
+    stale = memory_repo.get_run(extracted_run.id)  # READY, as the engine's status check sees it
+    memory_repo.update_run_fields(stale.id, run_key="k-final")
+    memory_repo.transition_run(
+        stale.id,
+        RunStatus.FINALISED,
+        expected={RunStatus.READY},
+        finalised_at=frozen_clock,
+        finalised_by="controller@example.com",
+    )
+    proof = memory_repo.get_proof(stale.id)
+    monkeypatch.setattr(memory_repo, "get_run", lambda _: stale)
+
+    with pytest.raises(StateConflict):
+        reconcile_run(memory_repo, again, faults=frozenset({Fault.PROOF_DROP_ROW}))
+
+    assert memory_repo.get_proof(stale.id) == proof
 
 
 def test_engine_status_awaiting_review_then_ready(
@@ -274,4 +364,29 @@ def test_engine_proof_failure_message_names_checks_and_c3_problems(
     assert f"; C2 failed: unplaced [{dropped}]; " in message
     assert (
         "; C3 failed: counted REGISTER 28, ERP 28, SHEET 30, problems [" + problem + "]" in message
+    )
+
+
+def test_engine_proof_failure_message_never_empty_clause(
+    engine_inputs: EngineInputs, frozen_clock: datetime
+) -> None:
+    """A failing check with no listed detail reads `no detail`, never `C2 failed: `."""
+    proof = run_pipeline(engine_inputs, now=frozen_clock).proof
+    c = proof.checks
+    failing = proof.model_copy(
+        update={
+            "checks": c.model_copy(
+                update={
+                    "C1": c.C1.model_copy(update={"pass_": False}),
+                    "C2": c.C2.model_copy(
+                        update={"pass_": False, "unplaced": [], "placed_twice": []}
+                    ),
+                    "C4": c.C4.model_copy(update={"pass_": False}),
+                }
+            )
+        }
+    )
+
+    assert proof_failure_message(failing) == (
+        "C1 failed: no detail; C2 failed: no detail; C4 failed: no detail"
     )

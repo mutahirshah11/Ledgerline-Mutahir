@@ -122,7 +122,7 @@ class Repo(Protocol):
 
     # proof (F-07)
     def save_proof(self, proof: Proof) -> Proof:
-        """Overwrite."""
+        """Overwrite. StateConflict(run) on a FINALISED run."""
         ...
 
     def get_proof(self, run_id: UUID) -> Proof | None: ...

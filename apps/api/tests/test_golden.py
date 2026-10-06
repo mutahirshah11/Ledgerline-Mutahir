@@ -238,9 +238,13 @@ def test_counts_before_and_after_review(before: Reconciled, after: Reconciled) -
     assert _stored_row_counts(before) == rows_before
     assert sum(groups_before.values()) == 29
     assert [sum(n[s] for n in rows_before.values()) for s in Source] == [28, 28, 30]
-    assert before.repo.get_proof(PACK_RUN_ID).status is ProofStatus.PASS  # type: ignore[union-attr]
+    before_proof = before.repo.get_proof(PACK_RUN_ID)
+    assert before_proof is not None
+    assert before_proof.status is ProofStatus.PASS
 
     groups_after = _zero_filled(MATCHED=22, MISMATCHED=5, MISSING=2)
     assert after.result.counts.groups_by_outcome == groups_after
     assert _stored_group_counts(after) == +Counter(groups_after)
-    assert after.repo.get_proof(PACK_RUN_ID).status is ProofStatus.PASS  # type: ignore[union-attr]
+    after_proof = after.repo.get_proof(PACK_RUN_ID)
+    assert after_proof is not None
+    assert after_proof.status is ProofStatus.PASS

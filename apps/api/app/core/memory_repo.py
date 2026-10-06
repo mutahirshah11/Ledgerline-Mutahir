@@ -403,7 +403,9 @@ class MemoryRepo:
     # --- proof ---------------------------------------------------------------------------
 
     def save_proof(self, proof: Proof) -> Proof:
-        self._run(proof.run_id)
+        run = self._run(proof.run_id)
+        if run.status is RunStatus.FINALISED:
+            raise StateConflict(_copy(run))
         self._proofs[proof.run_id] = _copy(proof)
         return _copy(proof)
 
