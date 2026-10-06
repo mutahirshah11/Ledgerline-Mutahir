@@ -11,10 +11,11 @@ import pytest
 
 import app.pipeline.normalise as normalise
 from app.core import clock
-from app.domain.enums import ProofStatus, Source
-from app.domain.models import CanonicalRow, ControlFlag, Group, Proof, ReviewItem
+from app.core.memory_repo import MemoryRepo
+from app.domain.enums import Fault, ProofStatus, RunStatus, Source, Stage
+from app.domain.models import CanonicalRow, ControlFlag, Group, Proof, ReviewItem, Run
 from app.pipeline.controls import run_controls
-from app.pipeline.engine import EngineInputs
+from app.pipeline.engine import EngineInputs, reconcile_run
 from app.pipeline.proof import prove
 from app.pipeline.reconcile import reconcile
 from tests.support.normalised import PACK_RUN_ID, normalise_pack
@@ -128,3 +129,30 @@ def test_F07_AC5_parser_skips_row(
     assert result.checks.C3.per_source[Source.SHEET] == 30
     assert result.checks.C1.per_source[Source.SHEET].in_ == 29
     assert result.status is ProofStatus.FAIL
+
+
+def test_F07_AC3_drop_row_fails(
+    memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs
+) -> None:
+    """FM-07: a row un-placed after F-05 fails C1 and C2; the failing proof is saved, nothing
+    reconciled is written, and the run is FAILED at stage `proof` naming both checks."""
+    result = reconcile_run(memory_repo, engine_inputs, faults=frozenset({Fault.PROOF_DROP_ROW}))
+
+    checks = result.proof.checks
+    assert not checks.C1.pass_
+    assert not checks.C2.pass_
+    (dropped,) = checks.C2.unplaced
+    (row,) = [r for r in result.payload.rows if r.source_row_id == dropped]
+    assert (row.outcome, row.group_id) == (None, None)
+    off = {s: (c.in_, c.placed) for s, c in checks.C1.per_source.items() if c.in_ != c.placed}
+    n = checks.C1.per_source[row.source].in_
+    assert off == {row.source: (n, n - 1)}
+    stored = memory_repo.get_proof(extracted_run.id)
+    assert stored == result.proof
+    assert stored is not None and stored.status is ProofStatus.FAIL
+    run = memory_repo.get_run(extracted_run.id)
+    assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.PROOF)
+    assert run.error_message is not None
+    assert run.error_message.startswith("C1 failed: ")
+    assert f"; C2 failed: unplaced [{dropped}]" in run.error_message
+    assert memory_repo.list_groups(extracted_run.id) == []
