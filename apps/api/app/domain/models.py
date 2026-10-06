@@ -427,6 +427,63 @@ class ReviewItem(DomainModel):
         return self
 
 
+# --- 003 extensions E1, E2: page-level extraction results ---------------------------------
+
+SlotCount = Annotated[int, Field(ge=0, le=PRINTED_ROW_SLOTS)]
+Count = Annotated[int, Field(ge=0)]
+
+
+class MergedPage(DomainModel):
+    """E1: one page after both reads are merged (F-03.R6, F-07.R3)."""
+
+    page_no: PageNo
+    page_sha256: Sha256Hex
+    month_written: str | None
+    page_no_written: str | None
+    table_top: Fraction | None
+    table_bottom: Fraction | None
+    blank_row_slots_a: SlotCount
+    blank_row_slots_b: SlotCount
+    row_count_a: SlotCount
+    row_count_b: SlotCount
+    rows: list[MergedRow]
+
+    @field_validator("rows")
+    @classmethod
+    def _sorted_unique(cls, rows: list[MergedRow]) -> list[MergedRow]:
+        indexes = [r.row_index for r in rows]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError("row_index must be unique within a page")
+        return sorted(rows, key=lambda r: r.row_index)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        top, bottom = self.table_top, self.table_bottom
+        if top is not None and bottom is not None and not top < bottom:
+            raise ValueError("table_top must be above table_bottom")
+        if any(r.page_no != self.page_no for r in self.rows):
+            raise ValueError("every row must belong to this page")
+        return self
+
+
+class PageExtractionResult(DomainModel):
+    """E2: what the extract service returns for one page (EP-09 rows = `page.rows`)."""
+
+    page_no: PageNo
+    cached: bool
+    page: MergedPage
+    review_items: list[ReviewItem]
+    review_cells: Count
+    disagreements: Count
+    calls_made: Count
+
+    @model_validator(mode="after")
+    def _same_page(self) -> Self:
+        if self.page.page_no != self.page_no:
+            raise ValueError("page_no must match page.page_no")
+        return self
+
+
 # --- 4.3 Proof -----------------------------------------------------------------------------
 
 

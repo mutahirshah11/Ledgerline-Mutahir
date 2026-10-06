@@ -32,6 +32,16 @@ def register_row_id(page_no: int, row_index: int) -> str:
     return f"REG-p{page_no}-r{row_index:02}"
 
 
+def row_review_key(page_no: int, row_index: int) -> str:
+    """003 E3: row-level CELL item key `CELL:REG-p{p}-r{rr}:row` (ROW_IN_ONE_READ)."""
+    return f"CELL:{register_row_id(page_no, row_index)}:row"
+
+
+def page_review_key(page_no: int) -> str:
+    """003 E3: page-level CELL item key `CELL:REG-p{p}:page` (PAGE_LABEL_MISMATCH)."""
+    return f"CELL:REG-p{_int_at_least('page_no', page_no, 1)}:page"
+
+
 def erp_row_id(line_number: int) -> str:
     """`ERP-{line:04}`; line 1 is the first data row."""
     return f"ERP-{_int_at_least('line_number', line_number, 1):04}"

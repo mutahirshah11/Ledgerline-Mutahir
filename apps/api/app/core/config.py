@@ -13,6 +13,13 @@ API_DIR = Path(__file__).resolve().parents[2]
 BACKDATE_DAYS = 1
 """F-06: an ERP posting more than this many days after the register date is backdated."""
 
+EXTRACT_TIMEOUT_S = 60
+"""F-03.R5: seconds before one page-read call times out."""
+EXTRACT_ATTEMPTS = 3
+"""F-03.R5: attempts per page read, including the first."""
+EXTRACT_WAITS_S = (2, 8)
+"""F-03.R5: seconds to wait before the second and third attempts."""
+
 ClockMode = Literal["frozen", "offset"]
 
 
