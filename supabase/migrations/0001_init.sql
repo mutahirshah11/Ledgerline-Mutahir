@@ -105,12 +105,17 @@ create table runs (
         failed_stage is null or failed_stage in (
             'upload', 'validate', 'extract', 'reconcile', 'proof', 'review', 'finalise', 'notify'
         )
-    )
+    ),
+    -- a FAILED run always says which stage failed, and only a FAILED run does
+    constraint runs_failed_stage_iff_failed_ck check ((status = 'FAILED') = (failed_stage is not null))
 );
 
 -- T-FILES: uploaded source files
+-- seq (here and on control_flags, normalisation_log, notifications, run_events) is the
+-- insertion order that Repo list methods return (repo-interface.md G3).
 create table source_files (
     id            uuid primary key default gen_random_uuid(),
+    seq           bigint not null generated always as identity,
     run_id        uuid not null references runs (id) on delete restrict,
     source        source not null,
     filename      text not null,
@@ -157,7 +162,9 @@ create table groups (
     outcome       outcome not null,
     missing_from  source[] not null,
     diffs         jsonb not null,
-    constraint groups_run_group_key_uq unique (run_id, group_key)
+    constraint groups_run_group_key_uq unique (run_id, group_key),
+    -- target of the composite FK from source_rows: a row can only join a group of its own run
+    constraint groups_run_id_id_uq unique (run_id, id)
 );
 
 -- T-ROWS: canonical rows of all three sources
@@ -180,14 +187,17 @@ create table source_rows (
     raw            jsonb not null,
     meta           jsonb not null,
     duplicate_of   text,
-    group_id       uuid references groups (id) on delete restrict deferrable initially deferred,
+    group_id       uuid,
     outcome        outcome,
-    constraint source_rows_run_row_uq unique (run_id, source_row_id)
+    constraint source_rows_run_row_uq unique (run_id, source_row_id),
+    constraint source_rows_group_fk foreign key (run_id, group_id)
+        references groups (run_id, id) on delete restrict deferrable initially deferred
 );
 
 -- T-NORMLOG: one row per changed value
 create table normalisation_log (
     id             uuid primary key default gen_random_uuid(),
+    seq            bigint not null generated always as identity,
     run_id         uuid not null references runs (id) on delete restrict,
     source_row_id  text not null,
     field          text not null,
@@ -199,6 +209,7 @@ create table normalisation_log (
 -- T-FLAGS: rebuilt on every reconcile
 create table control_flags (
     id             uuid primary key default gen_random_uuid(),
+    seq            bigint not null generated always as identity,
     run_id         uuid not null references runs (id) on delete restrict,
     flag           flag_type not null,
     grn_no         integer,
@@ -226,7 +237,7 @@ create table review_items (
     note            text,
     constraint review_items_run_item_key_uq unique (run_id, item_key),
     constraint review_items_cannot_determine_note_ck check (
-        status <> 'CANNOT_DETERMINE' or note is not null
+        status <> 'CANNOT_DETERMINE' or nullif(btrim(note), '') is not null
     )
 );
 
@@ -241,6 +252,7 @@ create table proofs (
 -- T-NOTIFS: the unique key blocks duplicate sends
 create table notifications (
     id                   uuid primary key default gen_random_uuid(),
+    seq                  bigint not null generated always as identity,
     run_id               uuid not null references runs (id) on delete restrict,
     kind                 notification_kind not null,
     idempotency_key      text not null,
@@ -256,6 +268,7 @@ create table notifications (
 -- T-RUNLOG: one row per stage step
 create table run_events (
     id           uuid primary key default gen_random_uuid(),
+    seq          bigint not null generated always as identity,
     run_id       uuid not null references runs (id) on delete restrict,
     stage        text not null,
     status       run_event_status not null,
@@ -294,6 +307,12 @@ create index audit_log_run_id_idx on audit_log (run_id);
 
 create index source_rows_run_source_row_idx on source_rows (run_id, source, source_row_id);
 
+-- per-run lists, read in seq (insertion) order or, for run events, by time
+create index normalisation_log_run_id_idx on normalisation_log (run_id, seq);
+create index control_flags_run_id_idx on control_flags (run_id, seq);
+create index notifications_run_id_idx on notifications (run_id, seq);
+create index run_events_run_id_idx on run_events (run_id, at);
+
 
 -- ---------------------------------------------------------------------------------------------
 -- 5. Row level security: enabled everywhere, NO policies (only service_role, which bypasses
@@ -316,6 +335,11 @@ alter table audit_log enable row level security;
 
 revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
+
+-- objects created later in public (by this role) are not granted to the browser roles either
+alter default privileges in schema public revoke all on tables from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------------------------
@@ -347,15 +371,20 @@ create trigger audit_log_no_truncate
 --    (contract item 7; Repo.replace_reconciliation, data-model.md Section 7).
 --
 --    Payload: {"rows": [CanonicalRow], "groups": [Group], "flags": [ControlFlag],
---              "norm_log": [NormLogEntry]}; quantities are JSON strings, cast to numeric.
+--              "norm_log": [NormLogEntry]} as produced by ReconciliationPayload
+--              .model_dump(mode="json"); quantities are JSON strings, cast to numeric.
 --    One function call = one transaction: any error aborts every change.
 --    Touches only control_flags, normalisation_log, groups and source_rows; human decisions,
 --    proofs, notifications, run events and the audit trail are left alone.
---    Errors raised (message prefix = API error code):
---      NOT_FOUND           run does not exist
---      RUN_STATE_CONFLICT  run is FINALISED (read-only)
---      CONTRACT_VIOLATION  payload shape is wrong (missing array, foreign run_id,
---                          quantity sent as a JSON number instead of a string)
+--    Every check runs before the first write. Errors (message prefix = API error code):
+--      NOT_FOUND           (P0002) run does not exist
+--      RUN_STATE_CONFLICT  (55000) run is FINALISED (read-only)
+--      CONTRACT_VIOLATION  (22023) payload shape is wrong: a key is not an array, an element is
+--                          not an object, an id / run_id is not a uuid string, an element
+--                          belongs to another run, a quantity is a JSON number, or a row
+--                          references a group that is not in the payload
+--      UNIQUE_VIOLATION    (23505) a key appears twice in the payload; CONSTRAINT names the
+--                          unique constraint the duplicate would break
 -- ---------------------------------------------------------------------------------------------
 create or replace function replace_reconciliation(p_run_id uuid, p_payload jsonb)
 returns void
@@ -364,8 +393,12 @@ security invoker
 set search_path = public, pg_temp
 as $$
 declare
-    v_status run_status;
-    v_key    text;
+    c_uuid       constant text :=
+        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+    v_status     run_status;
+    v_key        text;
+    v_bad        text;
+    v_constraint text;
 begin
     -- the run must exist and must not be finalised; lock it for the rest of the call
     select r.status into v_status from runs r where r.id = p_run_id for update;
@@ -378,28 +411,85 @@ begin
             using errcode = 'object_not_in_prerequisite_state';
     end if;
 
-    -- payload shape: four arrays, every element (if it says) belongs to this run
+    -- shape: four arrays of objects, each with a uuid id and (if given) this run's run_id.
+    -- CASE keeps the regex test ahead of the ::uuid cast, so a bad string never raises 22P02.
     foreach v_key in array array['rows', 'groups', 'flags', 'norm_log'] loop
         if jsonb_typeof(p_payload -> v_key) is distinct from 'array' then
             raise exception 'CONTRACT_VIOLATION: payload.% must be an array', v_key
                 using errcode = 'invalid_parameter_value';
         end if;
-        if exists (
-            select 1
-            from jsonb_array_elements(p_payload -> v_key) as e
-            where e ->> 'run_id' is not null and (e ->> 'run_id')::uuid <> p_run_id
-        ) then
-            raise exception 'CONTRACT_VIOLATION: payload.% has an element of another run', v_key
+        select e.value::text into v_bad
+        from jsonb_array_elements(p_payload -> v_key) as e
+        where case
+            when jsonb_typeof(e.value) <> 'object' then true
+            when coalesce(e.value ->> 'id', '') !~* c_uuid then true
+            when e.value ->> 'run_id' is null then false
+            when e.value ->> 'run_id' !~* c_uuid then true
+            else (e.value ->> 'run_id')::uuid <> p_run_id
+        end
+        limit 1;
+        if v_bad is not null then
+            raise exception 'CONTRACT_VIOLATION: payload.% element has a bad id or run_id: %',
+                v_key, left(v_bad, 200)
                 using errcode = 'invalid_parameter_value';
         end if;
     end loop;
-    if exists (
-        select 1
-        from jsonb_array_elements(p_payload -> 'rows') as e
-        where jsonb_typeof(e -> 'qty') = 'number' or jsonb_typeof(e -> 'qty_base') = 'number'
-    ) then
-        raise exception 'CONTRACT_VIOLATION: quantities must be JSON strings, not numbers'
+
+    -- quantities travel as strings (constitution: never floating point)
+    select e.value ->> 'source_row_id' into v_bad
+    from jsonb_array_elements(p_payload -> 'rows') as e
+    where jsonb_typeof(e.value -> 'qty') = 'number'
+       or jsonb_typeof(e.value -> 'qty_base') = 'number'
+    limit 1;
+    if v_bad is not null then
+        raise exception 'CONTRACT_VIOLATION: row % has a quantity as a JSON number, not a string',
+            v_bad
             using errcode = 'invalid_parameter_value';
+    end if;
+
+    -- rows may only reference groups of this payload
+    select e.value ->> 'source_row_id' into v_bad
+    from jsonb_array_elements(p_payload -> 'rows') as e
+    where case
+        when e.value ->> 'group_id' is null then false
+        when e.value ->> 'group_id' !~* c_uuid then true
+        else not exists (
+            select 1
+            from jsonb_array_elements(p_payload -> 'groups') as g
+            where (g.value ->> 'id')::uuid = (e.value ->> 'group_id')::uuid
+        )
+    end
+    limit 1;
+    if v_bad is not null then
+        raise exception 'CONTRACT_VIOLATION: row % references a group that is not in the payload',
+            v_bad
+            using errcode = 'invalid_parameter_value';
+    end if;
+
+    -- duplicates inside the payload: report the unique constraint they would break (23505)
+    -- instead of letting the upsert fail with 21000 ("cannot affect row a second time")
+    select d.constraint_name, d.value into v_constraint, v_bad
+    from (
+        select k.constraint_name, e.value ->> k.field as value
+        from (
+            values
+                ('rows', 'source_row_id', 'source_rows_run_row_uq', 1),
+                ('rows', 'id', 'source_rows_pkey', 2),
+                ('groups', 'group_key', 'groups_run_group_key_uq', 3),
+                ('groups', 'id', 'groups_pkey', 4),
+                ('flags', 'id', 'control_flags_pkey', 5),
+                ('norm_log', 'id', 'normalisation_log_pkey', 6)
+        ) as k (payload_key, field, constraint_name, rank)
+        cross join lateral jsonb_array_elements(p_payload -> k.payload_key) as e
+        group by k.rank, k.constraint_name, e.value ->> k.field
+        having count(*) > 1
+        order by k.rank
+        limit 1
+    ) as d;
+    if v_constraint is not null then
+        raise exception 'UNIQUE_VIOLATION: % appears more than once in the payload (%)',
+            v_bad, v_constraint
+            using errcode = 'unique_violation', constraint = v_constraint;
     end if;
 
     -- clear the previous reconcile outputs of this run
@@ -408,22 +498,32 @@ begin
     update source_rows set group_id = null where run_id = p_run_id;
     delete from groups where run_id = p_run_id;
 
-    -- groups first: source_rows.group_id references them
+    -- groups first: source_rows (run_id, group_id) references them
     insert into groups (id, run_id, group_key, grn_no, row_ids, outcome, missing_from, diffs)
     select
-        (g ->> 'id')::uuid,
+        (g.value ->> 'id')::uuid,
         p_run_id,
-        g ->> 'group_key',
-        (g ->> 'grn_no')::integer,
-        g -> 'row_ids',
-        (g ->> 'outcome')::outcome,
+        g.value ->> 'group_key',
+        (g.value ->> 'grn_no')::integer,
+        g.value -> 'row_ids',
+        (g.value ->> 'outcome')::outcome,
         array(
             select m.value::source
-            from jsonb_array_elements_text(g -> 'missing_from') with ordinality as m (value, ord)
+            from jsonb_array_elements_text(g.value -> 'missing_from')
+                with ordinality as m (value, ord)
             order by m.ord
         ),
-        g -> 'diffs'
-    from jsonb_array_elements(p_payload->'groups') as g;
+        g.value -> 'diffs'
+    from jsonb_array_elements(p_payload -> 'groups') as g;
+
+    -- rows that left the payload go first, so their ids are free before the upsert
+    delete from source_rows s
+    where s.run_id = p_run_id
+      and not exists (
+          select 1
+          from jsonb_array_elements(p_payload -> 'rows') as r
+          where r.value ->> 'source_row_id' = s.source_row_id
+      );
 
     -- rows: upsert on the natural key, so the stored run equals the payload
     insert into source_rows (
@@ -431,27 +531,27 @@ begin
         qty, uom, qty_base, base_uom, cell_status, raw, meta, duplicate_of, group_id, outcome
     )
     select
-        (r ->> 'id')::uuid,
+        (r.value ->> 'id')::uuid,
         p_run_id,
-        (r ->> 'source')::source,
-        r ->> 'source_row_id',
-        (r ->> 'row_kind')::row_kind,
-        (r ->> 'grn_no')::integer,
-        (r ->> 'date')::date,
-        r ->> 'supplier_code',
-        r ->> 'item',
-        r ->> 'lot_no',
-        (r ->> 'qty')::numeric,
-        r ->> 'uom',
-        (r ->> 'qty_base')::numeric,
-        r ->> 'base_uom',
-        r -> 'cell_status',
-        r -> 'raw',
-        r -> 'meta',
-        r ->> 'duplicate_of',
-        (r ->> 'group_id')::uuid,
-        (r ->> 'outcome')::outcome
-    from jsonb_array_elements(p_payload->'rows') as r
+        (r.value ->> 'source')::source,
+        r.value ->> 'source_row_id',
+        (r.value ->> 'row_kind')::row_kind,
+        (r.value ->> 'grn_no')::integer,
+        (r.value ->> 'date')::date,
+        r.value ->> 'supplier_code',
+        r.value ->> 'item',
+        r.value ->> 'lot_no',
+        (r.value ->> 'qty')::numeric,
+        r.value ->> 'uom',
+        (r.value ->> 'qty_base')::numeric,
+        r.value ->> 'base_uom',
+        r.value -> 'cell_status',
+        r.value -> 'raw',
+        r.value -> 'meta',
+        r.value ->> 'duplicate_of',
+        (r.value ->> 'group_id')::uuid,
+        (r.value ->> 'outcome')::outcome
+    from jsonb_array_elements(p_payload -> 'rows') as r
     on conflict (run_id, source_row_id) do update set
         id            = excluded.id,
         source        = excluded.source,
@@ -472,35 +572,29 @@ begin
         group_id      = excluded.group_id,
         outcome       = excluded.outcome;
 
-    -- rows of this run that are no longer in the payload are removed
-    delete from source_rows s
-    where s.run_id = p_run_id
-      and not exists (
-          select 1
-          from jsonb_array_elements(p_payload -> 'rows') as r
-          where r ->> 'source_row_id' = s.source_row_id
-      );
-
+    -- flags and norm_log keep payload order (seq is assigned in this order)
     insert into control_flags (id, run_id, flag, grn_no, source_row_id, detail)
     select
-        (f ->> 'id')::uuid,
+        (f.elem ->> 'id')::uuid,
         p_run_id,
-        (f ->> 'flag')::flag_type,
-        (f ->> 'grn_no')::integer,
-        f ->> 'source_row_id',
-        f -> 'detail'
-    from jsonb_array_elements(p_payload->'flags') as f;
+        (f.elem ->> 'flag')::flag_type,
+        (f.elem ->> 'grn_no')::integer,
+        f.elem ->> 'source_row_id',
+        f.elem -> 'detail'
+    from jsonb_array_elements(p_payload -> 'flags') with ordinality as f (elem, ord)
+    order by f.ord;
 
     insert into normalisation_log (id, run_id, source_row_id, field, code, before, after)
     select
-        (n ->> 'id')::uuid,
+        (n.elem ->> 'id')::uuid,
         p_run_id,
-        n ->> 'source_row_id',
-        n ->> 'field',
-        (n ->> 'code')::norm_code,
-        n ->> 'before',
-        n ->> 'after'
-    from jsonb_array_elements(p_payload->'norm_log') as n;
+        n.elem ->> 'source_row_id',
+        n.elem ->> 'field',
+        (n.elem ->> 'code')::norm_code,
+        n.elem ->> 'before',
+        n.elem ->> 'after'
+    from jsonb_array_elements(p_payload -> 'norm_log') with ordinality as n (elem, ord)
+    order by n.ord;
 end;
 $$;
 

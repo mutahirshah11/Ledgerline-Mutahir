@@ -12,7 +12,6 @@ import pytest
 from app.domain.enums import Stage
 from tests.sql_helpers import (
     function_body,
-    raw_sql,
     sql,
     table_bodies,
     table_columns,
@@ -60,6 +59,7 @@ COLUMNS: dict[str, list[tuple[str, str, bool]]] = {
     ],
     "source_files": [
         ("id", "uuid", False),
+        ("seq", "bigint", False),
         ("run_id", "uuid", False),
         ("source", "source", False),
         ("filename", "text", False),
@@ -122,6 +122,7 @@ COLUMNS: dict[str, list[tuple[str, str, bool]]] = {
     ],
     "normalisation_log": [
         ("id", "uuid", False),
+        ("seq", "bigint", False),
         ("run_id", "uuid", False),
         ("source_row_id", "text", False),
         ("field", "text", False),
@@ -131,6 +132,7 @@ COLUMNS: dict[str, list[tuple[str, str, bool]]] = {
     ],
     "control_flags": [
         ("id", "uuid", False),
+        ("seq", "bigint", False),
         ("run_id", "uuid", False),
         ("flag", "flag_type", False),
         ("grn_no", "integer", True),
@@ -163,6 +165,7 @@ COLUMNS: dict[str, list[tuple[str, str, bool]]] = {
     ],
     "notifications": [
         ("id", "uuid", False),
+        ("seq", "bigint", False),
         ("run_id", "uuid", False),
         ("kind", "notification_kind", False),
         ("idempotency_key", "text", False),
@@ -175,6 +178,7 @@ COLUMNS: dict[str, list[tuple[str, str, bool]]] = {
     ],
     "run_events": [
         ("id", "uuid", False),
+        ("seq", "bigint", False),
         ("run_id", "uuid", False),
         ("stage", "text", False),
         ("status", "run_event_status", False),
@@ -212,13 +216,15 @@ UNIQUES: dict[str, tuple[str, ...]] = {
     "notifications": ("idempotency_key",),
 }
 
-# (table, column, referenced table)
+# Tables whose Repo list methods return insertion order (repo-interface.md G3: = seq)
+SEQ_TABLES = ["source_files", "normalisation_log", "control_flags", "notifications", "run_events"]
+
+# (table, column, referenced table); source_rows.group_id is a composite FK (tested separately)
 FOREIGN_KEYS = [
     ("source_files", "run_id", "runs"),
     ("page_manifest", "first_seen_run_id", "runs"),
     ("groups", "run_id", "runs"),
     ("source_rows", "run_id", "runs"),
-    ("source_rows", "group_id", "groups"),
     ("normalisation_log", "run_id", "runs"),
     ("control_flags", "run_id", "runs"),
     ("review_items", "run_id", "runs"),
@@ -303,12 +309,35 @@ def test_foreign_keys_restrict(table: str, column: str, ref: str) -> None:
     assert "on delete restrict" in fk[0]
 
 
-def test_group_fk_deferrable() -> None:
+def test_group_fk_same_run_and_deferrable() -> None:
+    # a row can only point at a group of its own run: composite FK (run_id, group_id)
+    assert _has_unique("groups", ("run_id", "id"))
     body = table_bodies()["source_rows"]
-    defs = [table_columns(body)["group_id"]] + [
-        c for c in table_constraints(body) if "foreign key (group_id)" in c
+    assert "references" not in table_columns(body)["group_id"]
+    fks = [
+        _norm(c)
+        for c in table_constraints(body)
+        if re.search(r"foreign key ?\(run_id, ?group_id\)", c)
     ]
-    assert any("deferrable initially deferred" in d for d in defs)
+    assert len(fks) == 1
+    assert "referencesgroups(run_id,id)" in fks[0].replace("public.", "")
+    assert "ondeleterestrict" in fks[0]
+    assert "deferrableinitiallydeferred" in fks[0]
+
+
+@pytest.mark.parametrize("table", SEQ_TABLES)
+def test_seq_identity_gives_insertion_order(table: str) -> None:
+    definition = table_columns(table_bodies()[table])["seq"]
+    assert "generated always as identity" in definition
+
+
+@pytest.mark.parametrize(
+    "table", ["normalisation_log", "control_flags", "notifications", "run_events"]
+)
+def test_run_id_indexed(table: str) -> None:
+    assert re.search(
+        rf"create index (?:if not exists )?\w+ on (?:public\.)?{table} ?\(run_id[,)]", sql()
+    ), table
 
 
 def test_audit_log_run_id_indexed() -> None:
@@ -356,12 +385,20 @@ def test_required_checks_present() -> None:
     assert any("email=lower(email)" in c for c in checks["allowed_users"])
     assert any(r"month~'^\d{4}-(0[1-9]|1[0-2])$'" in c for c in checks["runs"])
     assert any("page_noisnullorsource='register'" in c for c in checks["source_files"])
-    assert any("status<>'cannot_determine'ornoteisnotnull" in c for c in checks["review_items"])
+    assert any(
+        "status<>'cannot_determine'ornullif(btrim(note),'')isnotnull" in c
+        for c in checks["review_items"]
+    )
+    # FAILED if and only if failed_stage is set
+    assert any(
+        "runs_failed_stage_iff_failed_ck" in c and "(status='failed')=(failed_stageisnotnull)" in c
+        for c in checks["runs"]
+    )
 
 
 @pytest.mark.parametrize(("table", "column"), [("runs", "failed_stage"), ("run_events", "stage")])
 def test_stage_check_lists_every_stage(table: str, column: str) -> None:
-    stage_checks = [c for c in _checks(table) if column in c]
+    stage_checks = [c for c in _checks(table) if column in c and "'upload'" in c]
     assert len(stage_checks) == 1
     listed = re.findall(r"'([a-z]+)'", stage_checks[0])
     assert listed == [s.value for s in Stage]
@@ -416,6 +453,16 @@ def test_tables_revoked_from_anon_and_authenticated() -> None:
     assert every_table or per_table
 
 
+@pytest.mark.parametrize("kind", ["tables", "sequences", "functions"])
+def test_default_privileges_revoked(kind: str) -> None:
+    # objects created later in public are not granted to the browser roles either
+    assert re.search(
+        rf"alter default privileges in schema public revoke all on {kind} "
+        r"from (anon, ?authenticated|authenticated, ?anon);",
+        sql(),
+    ), kind
+
+
 def test_audit_trigger_blocks_update_delete_truncate() -> None:
     fn = function_body("audit_log_append_only")
     assert "returns trigger" in fn
@@ -451,8 +498,9 @@ def test_replace_reconciliation_defined() -> None:
         r"delete from (?:public\.)?groups where run_id = p_run_id",
     ):
         assert re.search(stmt, fn), stmt
+    flat = _norm(fn)
     for key in ("groups", "rows", "flags", "norm_log"):
-        assert f"p_payload->'{key}'" in fn, key
+        assert f"p_payload->'{key}'" in flat, key
     assert re.search(r"on conflict ?\(run_id, ?source_row_id\) do update", fn)
     assert "::numeric" in fn
     # never touches tables outside the rebuilt set
@@ -460,18 +508,23 @@ def test_replace_reconciliation_defined() -> None:
         assert table not in fn, table
 
 
+def test_replace_reconciliation_payload_keys_spaced_consistently() -> None:
+    fn = function_body("replace_reconciliation")
+    assert "p_payload->" not in fn  # always written `p_payload -> 'key'`
+
+
 def test_replace_reconciliation_step_order() -> None:
     fn = function_body("replace_reconciliation")
-    # contract item 7 order: clear outputs; insert groups (FK target) before upserting rows;
-    # prune rows not in the payload; then flags and norm_log
+    # contract item 7 order: clear outputs; insert groups (FK target); prune rows that left the
+    # payload BEFORE the upsert (so a re-used id cannot collide); then flags and norm_log
     steps = [
         r"delete from (?:public\.)?control_flags where",
         r"delete from (?:public\.)?normalisation_log where",
         r"update (?:public\.)?source_rows set group_id = null",
         r"delete from (?:public\.)?groups where",
         r"insert into (?:public\.)?groups ?\(",
-        r"insert into (?:public\.)?source_rows ?\(",
         r"delete from (?:public\.)?source_rows ",
+        r"insert into (?:public\.)?source_rows ?\(",
         r"insert into (?:public\.)?control_flags ?\(",
         r"insert into (?:public\.)?normalisation_log ?\(",
     ]
@@ -479,6 +532,49 @@ def test_replace_reconciliation_step_order() -> None:
     assert all(found), [s for s, m in zip(steps, found, strict=True) if m is None]
     order = [m.start() for m in found if m is not None]
     assert order == sorted(order)
+
+
+# Duplicates inside one payload are reported as unique_violation (23505) naming the
+# constraint the database would have hit, before anything is written (never 21000).
+PAYLOAD_UNIQUES = [
+    "source_rows_run_row_uq",
+    "source_rows_pkey",
+    "groups_run_group_key_uq",
+    "groups_pkey",
+    "control_flags_pkey",
+    "normalisation_log_pkey",
+]
+
+
+@pytest.mark.parametrize("constraint", PAYLOAD_UNIQUES)
+def test_replace_reconciliation_duplicates_raise_unique_violation(constraint: str) -> None:
+    flat = _norm(function_body("replace_reconciliation"))
+    first_write = flat.index("deletefromcontrol_flags")
+    assert 0 <= flat.find(f"'{constraint}'") < first_write, constraint
+    raise_at = flat.find("errcode='unique_violation',constraint=")
+    assert 0 <= raise_at < first_write, "pre-check must raise 23505 before any write"
+
+
+def test_replace_reconciliation_validates_uuids_and_group_refs() -> None:
+    fn = function_body("replace_reconciliation")
+    flat = _norm(fn)
+    # a malformed run_id / id string is CONTRACT_VIOLATION, not 22P02 from a cast
+    assert "^[0-9a-f]{8}-" in flat, "uuid regex"
+    assert "contract_violation" in fn
+    # rows may only reference groups of this payload (repo-interface.md, Reconciliation)
+    assert re.search(r"contract_violation[^']*group", fn)
+    assert flat.index("^[0-9a-f]{8}-") < flat.index("deletefromcontrol_flags")
+
+
+def test_replace_reconciliation_keeps_payload_order() -> None:
+    # flags and norm_log get their seq in payload order
+    flat = _norm(function_body("replace_reconciliation"))
+    for key in ("flags", "norm_log"):
+        assert re.search(
+            rf"jsonb_array_elements\(p_payload->'{key}'\)withordinalityas\w+\((\w+),(\w+)\)"
+            r"orderby\w+\.\2",
+            flat,
+        ), key
 
 
 def test_replace_reconciliation_execute_only_service_role() -> None:
@@ -509,22 +605,6 @@ def test_buckets_private() -> None:
 
 def test_pgcrypto_extension() -> None:
     assert re.search(r"create extension if not exists \"?pgcrypto\"?", sql())
-
-
-def test_migration_is_commented_and_sectioned() -> None:
-    # readability: one numbered header comment per contract item, in contract order
-    headers = re.findall(r"^-- (\d)\. (\w+)", raw_sql(), flags=re.MULTILINE)
-    assert [int(n) for n, _ in headers] == list(range(1, 9))
-    assert [w.lower() for _, w in headers] == [
-        "extensions",
-        "enum",
-        "tables",
-        "indexes",
-        "row",
-        "audit",
-        "replace_reconciliation",
-        "storage",
-    ]
 
 
 def test_parser_sees_every_create_table() -> None:

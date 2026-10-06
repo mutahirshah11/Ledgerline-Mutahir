@@ -39,6 +39,28 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
 
+  db:
+    # Applies supabase/migrations/0001_init.sql to a real Postgres (on top of a minimal Supabase
+    # stub) and runs the behavioural smoke test in supabase/tests/smoke.sql.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgres://postgres:pg@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash supabase/tests/run_smoke.sh
+
   secrets:
     runs-on: ubuntu-latest
     steps:
