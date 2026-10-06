@@ -138,6 +138,9 @@ def test_GE06_correction_4419(before: Reconciled, after: Reconciled) -> None:
     group = after.group(4419)
     assert group.outcome is Outcome.MISMATCHED
     assert _diff_fields(group) == [(ComparedField.QTY, SHEET)]
+    assert group.diffs[0].values == {REG: "66 DRUM", ERP: "66 DRUM", SHEET: "60 DRUM"}
+    # Blueprint GE-06 / T069 do not state the cell status after RESOLVED review (only that it
+    # starts CORRECTED); not asserted here.
 
 
 def test_GE07_missing_from_erp_4421(before: Reconciled) -> None:
@@ -193,7 +196,9 @@ def test_GE12_return_row(before: Reconciled) -> None:
         for g in before.repo.list_groups(PACK_RUN_ID)
         for ids in g.row_ids.values()
     )
-    assert "XLS-r31" in before.flagged_rows(FlagType.SUNDAY_DATE)
+    # F-06.AC3: SUNDAY_DATE on ERP-0015 and XLS-r31 only (asserted exactly here for both GE-03
+    # and GE-12).
+    assert before.flagged_rows(FlagType.SUNDAY_DATE) == ["ERP-0015", "XLS-r31"]
     assert before.flagged_rows(FlagType.OUT_OF_ORDER) == ["XLS-r31"]
 
 

@@ -211,6 +211,17 @@ def test_engine_events_and_audit(
         }
     )
     assert all(e.at == frozen_clock for e in events)
+    assert all(
+        e.duration_ms is None or (isinstance(e.duration_ms, int) and e.duration_ms >= 0)
+        for e in events
+    )
+    (reconcile_ok,) = [
+        e for e in events if (e.stage, e.status) == (Stage.RECONCILE, RunEventStatus.OK)
+    ]
+    assert isinstance(reconcile_ok.duration_ms, int) and reconcile_ok.duration_ms >= 0
+    counts = result.counts.as_json()
+    assert reconcile_ok.detail == counts
+
     (entry,) = memory_repo.list_audit(extracted_run.id)
     assert (entry.action, entry.actor, entry.channel, entry.entity) == (
         AuditAction.RECONCILED,
@@ -220,13 +231,23 @@ def test_engine_events_and_audit(
     )
     assert entry.entity_id == str(extracted_run.id)
     assert entry.at == frozen_clock
-    assert entry.after is not None and entry.after["proof_status"] == ProofStatus.PASS.value
+    assert entry.after is not None
+    open_items = memory_repo.list_review_items(extracted_run.id, ReviewStatus.OPEN)
+    assert entry.after == {
+        "status": RunStatus.AWAITING_REVIEW.value,
+        "proof_status": ProofStatus.PASS.value,
+        "open_review_items": len(open_items),
+        **counts,
+    }
     assert result.proof.computed_at == frozen_clock
 
 
 def test_engine_idempotent(
     memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs
 ) -> None:
+    """Re-reconciling the same inputs leaves run, rows, groups, flags, norm_log, review and proof
+    unchanged; run events and audit are append-only and excluded from this comparison (E5,
+    constitution VIII)."""
     reconcile_run(memory_repo, engine_inputs)
     first = _state(memory_repo, extracted_run.id)
 
