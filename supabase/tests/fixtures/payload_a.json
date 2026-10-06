@@ -53,7 +53,13 @@
       "base_uom": "KG",
       "cell_status": {
         "date": "CLEAR",
-        "qty": "CLEAR"
+        "grn_no": "CLEAR",
+        "item": "CLEAR",
+        "lot_no": "CLEAR",
+        "qty": "CLEAR",
+        "received_by": "CLEAR",
+        "supplier_code": "CLEAR",
+        "uom": "CLEAR"
       },
       "raw": {
         "qty": "40.00 KG",
@@ -88,7 +94,13 @@
       "base_uom": "KG",
       "cell_status": {
         "date": "CLEAR",
-        "qty": "CLEAR"
+        "grn_no": "CLEAR",
+        "item": "CLEAR",
+        "lot_no": "CLEAR",
+        "qty": "CLEAR",
+        "received_by": "CLEAR",
+        "supplier_code": "CLEAR",
+        "uom": "CLEAR"
       },
       "raw": {
         "qty": "45 KG",
@@ -159,7 +171,13 @@
       "base_uom": "M",
       "cell_status": {
         "date": "CLEAR",
-        "qty": "CLEAR"
+        "grn_no": "CLEAR",
+        "item": "CLEAR",
+        "lot_no": "CLEAR",
+        "qty": "CLEAR",
+        "received_by": "CLEAR",
+        "supplier_code": "CLEAR",
+        "uom": "CLEAR"
       },
       "raw": {
         "qty": "1097.28 M",
@@ -194,7 +212,13 @@
       "base_uom": "M",
       "cell_status": {
         "date": "CLEAR",
-        "qty": "CLEAR"
+        "grn_no": "CLEAR",
+        "item": "CLEAR",
+        "lot_no": "CLEAR",
+        "qty": "CLEAR",
+        "received_by": "CLEAR",
+        "supplier_code": "CLEAR",
+        "uom": "CLEAR"
       },
       "raw": {
         "qty": "1097.28 M",
@@ -265,7 +289,13 @@
       "base_uom": "KG",
       "cell_status": {
         "date": "CLEAR",
-        "qty": "CLEAR"
+        "grn_no": "CLEAR",
+        "item": "CLEAR",
+        "lot_no": "CLEAR",
+        "qty": "CLEAR",
+        "received_by": "CLEAR",
+        "supplier_code": "CLEAR",
+        "uom": "CLEAR"
       },
       "raw": {
         "qty": "12.50 KG",
@@ -300,7 +330,13 @@
       "base_uom": "KG",
       "cell_status": {
         "date": "CLEAR",
-        "qty": "CLEAR"
+        "grn_no": "CLEAR",
+        "item": "CLEAR",
+        "lot_no": "CLEAR",
+        "qty": "CLEAR",
+        "received_by": "CLEAR",
+        "supplier_code": "CLEAR",
+        "uom": "CLEAR"
       },
       "raw": {
         "qty": "12.50 KG",

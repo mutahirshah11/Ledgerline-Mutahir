@@ -1,0 +1,256 @@
+"""Engine entry point `reconcile_run` (contracts/engine.md; spec US5, FR-030 to FR-035,
+Clarification 4, FM-07, FM-08)."""
+
+from collections import Counter
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+import pytest
+
+import app.core.memory_repo as memory_repo_module
+from app.core.errors import StateConflict
+from app.core.memory_repo import MemoryRepo
+from app.domain.enums import (
+    AuditAction,
+    AuditChannel,
+    Fault,
+    FlagType,
+    Outcome,
+    ProofStatus,
+    RegisterField,
+    ReviewKind,
+    ReviewStatus,
+    RunEventStatus,
+    RunStatus,
+    Stage,
+)
+from app.domain.models import Group, Run
+from app.pipeline.engine import EngineInputs, proof_failure_message, reconcile_run, run_pipeline
+from tests.support.pack import build_engine_inputs, resolved_cell
+
+_RECONCILE_PATHS: dict[RunStatus, tuple[RunStatus, ...]] = {
+    RunStatus.RECONCILED: (RunStatus.RECONCILED,),
+    RunStatus.FAILED: (RunStatus.FAILED,),
+    RunStatus.FINALISED: (RunStatus.RECONCILED, RunStatus.READY, RunStatus.FINALISED),
+}
+
+
+def _state(repo: MemoryRepo, rid: UUID) -> dict[str, str]:
+    """Everything a reconcile writes except the append-only logs, as JSON per kind."""
+    proof = repo.get_proof(rid)
+    return {
+        "run": repo.get_run(rid).model_dump_json(),
+        "rows": "".join(r.model_dump_json() for r in repo.list_source_rows(rid)),
+        "groups": "".join(g.model_dump_json() for g in repo.list_groups(rid)),
+        "flags": "".join(f.model_dump_json() for f in repo.list_flags(rid)),
+        "norm_log": "".join(n.model_dump_json() for n in repo.list_norm_log(rid)),
+        "review": "".join(i.model_dump_json() for i in repo.list_review_items(rid)),
+        "proof": "" if proof is None else proof.model_dump_json(),
+    }
+
+
+def _with_decisions(
+    inputs: EngineInputs, pack_dir: Path, ground_truth_dir: Path, repo: MemoryRepo
+) -> EngineInputs:
+    """Inputs for a re-reconcile: the run's stored review items as decisions."""
+    stored = repo.list_review_items(inputs.run_id)
+    return build_engine_inputs(pack_dir, ground_truth_dir, inputs.run_id, stored)
+
+
+def _resolve_open_flag_items(repo: MemoryRepo, run_id: UUID, at: datetime) -> None:
+    for item in repo.list_review_items(run_id, ReviewStatus.OPEN):
+        repo.resolve_review_item(
+            item.id,
+            status=ReviewStatus.RESOLVED,
+            resolved_value=None,
+            resolved_by="reviewer@example.com",
+            resolved_at=at,
+            note="checked with stores",
+        )
+
+
+def test_engine_atomic_write_keeps_previous(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    engine_inputs: EngineInputs,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = reconcile_run(memory_repo, engine_inputs)
+    previous = _state(memory_repo, extracted_run.id)
+    audit_before = len(memory_repo.list_audit(extracted_run.id))
+    last_key = first.payload.groups[-1].group_key
+
+    real_copy = memory_repo_module._copy
+
+    def failing_copy(model: Any) -> Any:
+        if isinstance(model, Group) and model.group_key == last_key:
+            raise RuntimeError("write failed on the last group")
+        return real_copy(model)
+
+    changed = build_engine_inputs(
+        pack_dir,
+        ground_truth_dir,
+        extracted_run.id,
+        [resolved_cell(extracted_run.id, "REG-p2-r05", RegisterField.QTY, "66")],
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(memory_repo_module, "_copy", failing_copy)
+        with pytest.raises(RuntimeError, match="last group"):
+            reconcile_run(memory_repo, changed)
+
+    assert _state(memory_repo, extracted_run.id) == previous
+    assert memory_repo.get_group(extracted_run.id, "GRN:4419").outcome is Outcome.NEEDS_REVIEW
+    assert len(memory_repo.list_audit(extracted_run.id)) == audit_before
+    events = memory_repo.list_run_events(extracted_run.id)  # one frozen instant: insertion order
+    assert [(e.stage, e.status) for e in events[4:]] == [
+        (Stage.RECONCILE, RunEventStatus.STARTED),
+        (Stage.PROOF, RunEventStatus.STARTED),
+        (Stage.RECONCILE, RunEventStatus.FAILED),
+    ]
+
+
+def test_engine_proof_fail_keeps_previous_reconciliation(
+    memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs
+) -> None:
+    reconcile_run(memory_repo, engine_inputs)
+    previous = _state(memory_repo, extracted_run.id)
+
+    result = reconcile_run(memory_repo, engine_inputs, faults=frozenset({Fault.PROOF_DROP_ROW}))
+
+    assert result.proof.status is ProofStatus.FAIL
+    after = _state(memory_repo, extracted_run.id)
+    for kind in ("rows", "groups", "flags", "norm_log", "review"):
+        assert after[kind] == previous[kind], kind
+    stored = memory_repo.get_proof(extracted_run.id)
+    assert stored is not None and stored.status is ProofStatus.FAIL
+    run = memory_repo.get_run(extracted_run.id)
+    assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.PROOF)
+
+
+def test_engine_status_awaiting_review_then_ready(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    engine_inputs: EngineInputs,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+) -> None:
+    reconcile_run(memory_repo, engine_inputs)
+
+    assert memory_repo.get_run(extracted_run.id).status is RunStatus.AWAITING_REVIEW
+    open_items = memory_repo.list_review_items(extracted_run.id, ReviewStatus.OPEN)
+    assert [(i.kind, i.reason.value) for i in open_items] == [
+        (ReviewKind.FLAG_ACK, FlagType.BACKDATED_ENTRY.value),
+        (ReviewKind.FLAG_ACK, FlagType.SEQUENCE_GAP.value),
+    ]
+
+    _resolve_open_flag_items(memory_repo, extracted_run.id, frozen_clock)
+    again = _with_decisions(engine_inputs, pack_dir, ground_truth_dir, memory_repo)
+    reconcile_run(memory_repo, again)
+
+    assert memory_repo.get_run(extracted_run.id).status is RunStatus.READY
+
+
+@pytest.mark.parametrize("status", list(_RECONCILE_PATHS))
+def test_engine_rejects_other_statuses(
+    memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs, status: RunStatus
+) -> None:
+    run = extracted_run
+    for to in _RECONCILE_PATHS[status]:
+        failed = {"failed_stage": Stage.EXTRACT} if to is RunStatus.FAILED else {}
+        run = memory_repo.transition_run(run.id, to, expected={run.status}, **failed)
+    events_before = memory_repo.list_run_events(run.id)
+
+    with pytest.raises(StateConflict):
+        reconcile_run(memory_repo, engine_inputs)
+
+    assert memory_repo.get_run(run.id) == run
+    assert memory_repo.list_source_rows(run.id) == []
+    assert memory_repo.list_groups(run.id) == []
+    assert memory_repo.list_review_items(run.id) == []
+    assert memory_repo.get_proof(run.id) is None
+    assert memory_repo.list_run_events(run.id) == events_before
+    assert memory_repo.list_audit(run.id) == []
+
+
+def test_engine_decisions_survive(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    engine_inputs: EngineInputs,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+) -> None:
+    reconcile_run(memory_repo, engine_inputs)
+    _resolve_open_flag_items(memory_repo, extracted_run.id, frozen_clock)
+    decided = memory_repo.list_review_items(extracted_run.id, ReviewStatus.RESOLVED)
+    assert len(decided) == 2
+
+    again = _with_decisions(engine_inputs, pack_dir, ground_truth_dir, memory_repo)
+    reconcile_run(memory_repo, again)
+
+    assert memory_repo.list_review_items(extracted_run.id, ReviewStatus.RESOLVED) == decided
+
+
+def test_engine_events_and_audit(
+    memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs, frozen_clock: datetime
+) -> None:
+    result = reconcile_run(memory_repo, engine_inputs)
+
+    events = memory_repo.list_run_events(extracted_run.id)
+    assert Counter((e.stage, e.status) for e in events) == Counter(
+        {
+            (Stage.RECONCILE, RunEventStatus.STARTED): 1,
+            (Stage.PROOF, RunEventStatus.STARTED): 1,
+            (Stage.PROOF, RunEventStatus.OK): 1,
+            (Stage.RECONCILE, RunEventStatus.OK): 1,
+        }
+    )
+    assert all(e.at == frozen_clock for e in events)
+    (entry,) = memory_repo.list_audit(extracted_run.id)
+    assert (entry.action, entry.actor, entry.channel, entry.entity) == (
+        AuditAction.RECONCILED,
+        "system",
+        AuditChannel.SYSTEM,
+        "run",
+    )
+    assert entry.entity_id == str(extracted_run.id)
+    assert entry.at == frozen_clock
+    assert entry.after is not None and entry.after["proof_status"] == ProofStatus.PASS.value
+    assert result.proof.computed_at == frozen_clock
+
+
+def test_engine_idempotent(
+    memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs
+) -> None:
+    reconcile_run(memory_repo, engine_inputs)
+    first = _state(memory_repo, extracted_run.id)
+
+    reconcile_run(memory_repo, engine_inputs)
+
+    assert _state(memory_repo, extracted_run.id) == first
+
+
+def test_engine_proof_failure_message_names_checks_and_c3_problems(
+    engine_inputs: EngineInputs, frozen_clock: datetime
+) -> None:
+    """FM-07: `error_message` carries each failing check with its numbers, and C3's problems."""
+    proof = run_pipeline(
+        engine_inputs, now=frozen_clock, faults=frozenset({Fault.PROOF_DROP_ROW})
+    ).proof
+    problem = "page 2 read A: 13 rows + 2 blank != 16"
+    c3 = proof.checks.C3.model_copy(update={"pass_": False, "problems": [problem]})
+    failing = proof.model_copy(update={"checks": proof.checks.model_copy(update={"C3": c3})})
+
+    message = proof_failure_message(failing)
+
+    (dropped,) = proof.checks.C2.unplaced
+    assert message.startswith("C1 failed: ")
+    assert f"; C2 failed: unplaced [{dropped}]; " in message
+    assert (
+        "; C3 failed: counted REGISTER 28, ERP 28, SHEET 30, problems [" + problem + "]" in message
+    )

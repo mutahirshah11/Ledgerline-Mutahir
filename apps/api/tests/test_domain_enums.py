@@ -239,7 +239,7 @@ def test_all_values_upper_snake_except_stage_and_fields() -> None:
         for obj in vars(e).values()
         if isinstance(obj, type) and issubclass(obj, StrEnum) and obj is not StrEnum
     ]
-    assert len(all_enums) == 25
+    assert len(all_enums) == 26
     for enum in all_enums:
         pattern = r"^[a-z][a-z_]*$" if enum in lower else r"^[A-Z][A-Z0-9_]*$"
         for member in enum:

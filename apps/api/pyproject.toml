@@ -5,6 +5,7 @@ description = "Ledgerline reconciliation API (FastAPI)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    "openpyxl>=3.1.5",
     "pydantic>=2.11",
     "pydantic-settings",
     "supabase>=2.32.0",
@@ -17,6 +18,7 @@ dev = [
     "ruff",
     "mypy",
     "pre-commit",
+    "types-openpyxl>=3.1.5.20260827",
 ]
 
 [tool.uv]

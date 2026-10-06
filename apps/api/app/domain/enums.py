@@ -80,6 +80,15 @@ class ProofStatus(StrEnum):
     FAIL = "FAIL"
 
 
+class Fault(StrEnum):
+    """Section 25 fault names; shared by engine, extraction, API and Telegram (E3)."""
+
+    EXTRACT_TIMEOUT = "EXTRACT_TIMEOUT"
+    EXTRACT_BAD_JSON = "EXTRACT_BAD_JSON"
+    TELEGRAM_DOWN = "TELEGRAM_DOWN"
+    PROOF_DROP_ROW = "PROOF_DROP_ROW"
+
+
 class NotificationKind(StrEnum):
     SUMMARY = "SUMMARY"
     ALERT = "ALERT"

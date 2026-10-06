@@ -31,6 +31,7 @@ def test_sheet_row_id_format() -> None:
 def test_group_keys() -> None:
     assert ids.grn_group_key(4425) == "GRN:4425"
     assert ids.lot_group_key("L2609-002", "S-102") == "LOT:L2609-002|S-102"
+    assert ids.row_group_key("XLS-r10") == "ROW:XLS-r10"
 
 
 def test_review_item_keys() -> None:
