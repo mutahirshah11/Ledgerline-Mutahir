@@ -109,9 +109,7 @@ def extracted_run(memory_repo: "MemoryRepo", frozen_clock: datetime) -> "Run":
 
 
 @pytest.fixture
-def engine_inputs(
-    extracted_run: "Run", pack_dir: Path, ground_truth_dir: Path
-) -> "EngineInputs":
+def engine_inputs(extracted_run: "Run", pack_dir: Path, ground_truth_dir: Path) -> "EngineInputs":
     """Pack inputs for `extracted_run`, no decisions. Fresh per test (models are shallow-frozen)."""
     from tests.support.pack import build_engine_inputs
 
