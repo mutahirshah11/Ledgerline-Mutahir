@@ -13,6 +13,7 @@ from app.domain.enums import ComparedField, Outcome, RowKind, Source
 from app.domain.models import CanonicalRow, Group
 from app.pipeline.reconcile import ReconcileResult, reconcile
 from tests.conftest import PACK_RUN_ID
+from tests.support.normalised import normalise_pack
 from tests.support.pack import build_engine_inputs
 
 R, E, S = Source.REGISTER, Source.ERP, Source.SHEET
@@ -21,18 +22,7 @@ R, E, S = Source.REGISTER, Source.ERP, Source.SHEET
 @pytest.fixture(scope="module")
 def pack_rows(pack_dir: Path, ground_truth_dir: Path) -> list[CanonicalRow]:
     """The 86 canonical rows of the pack before review (F-04), normalised once per module."""
-    from app.pipeline.normalise import normalise_all, read_erp, read_sheet
-
-    inputs = build_engine_inputs(pack_dir, ground_truth_dir, PACK_RUN_ID)
-    return normalise_all(
-        PACK_RUN_ID,
-        inputs.month,
-        inputs.register_pages,
-        read_erp(inputs.erp_bytes),
-        read_sheet(inputs.sheet_bytes, inputs.month),
-        inputs.mappings,
-        inputs.decisions,
-    ).rows
+    return normalise_pack(build_engine_inputs(pack_dir, ground_truth_dir, PACK_RUN_ID)).rows
 
 
 @pytest.fixture(scope="module")

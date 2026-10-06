@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from app.domain.enums import CellStatus, ComparedField, Outcome, ReviewReason, RowKind, Source
-from app.domain.models import CanonicalRow, Group
+from app.domain.models import CanonicalRow, Group, RowMeta
 from app.pipeline.reconcile import ReconcileResult, reconcile
 from tests.factories import make_row
 
@@ -43,6 +43,21 @@ def _group(result: ReconcileResult, key: str) -> Group:
 
 def _row_out(result: ReconcileResult, row_id: str) -> CanonicalRow:
     return next(r for r in result.rows if r.source_row_id == row_id)
+
+
+def test_F05_R2_remark_only_non_receipt() -> None:
+    back = dict(qty=Decimal("3"), qty_base=Decimal("3.00"))  # positive, not a duplicate
+    rtv = _row("ERP-0002", 4401, meta=RowMeta(remarks="RTV to supplier"), **back)
+    returned = _row("XLS-r3", 4401, meta=RowMeta(remarks="Goods return"), **back)
+    result = reconcile(RUN, [*_trio(4401), rtv, returned])
+
+    for row_id in ("ERP-0002", "XLS-r3"):
+        row = _row_out(result, row_id)
+        assert row.qty is not None and row.qty > 0
+        assert row.row_kind is RowKind.NON_RECEIPT
+        assert row.outcome is Outcome.NON_RECEIPT
+        assert row.group_id is None
+    assert _group(result, "GRN:4401").outcome is Outcome.MATCHED
 
 
 def test_F05_R4_fallback_joins_single_group() -> None:

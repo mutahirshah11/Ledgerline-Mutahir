@@ -551,7 +551,11 @@ class _RowNormaliser:
         return unit
 
     def qty(self) -> Decimal | None:
-        """F-04.R7: `Decimal`, never from a float (research R1). Parsing is not a change."""
+        """F-04.R7: `Decimal`, never from a float (research R1). Parsing is not a change.
+
+        Unparseable (any source; user decision 2026-10-07) → null and `cell_status.qty =
+        UNCLEAR`, raw kept, so F-05 rule 1 sends the group to review and C4 lists it unknown.
+        """
         value = self._value("qty")
         if _blank(value):
             return None
@@ -560,9 +564,10 @@ class _RowNormaliser:
                 raise InvalidOperation
             qty = Decimal(value) if isinstance(value, int) else Decimal(_text(value) or "")
         except InvalidOperation:
-            raise ValueError(f"{self.row_id}: qty {value!r} is not a number") from None
-        if not qty.is_finite():
-            raise ValueError(f"{self.row_id}: qty {value!r} is not a number")
+            qty = None
+        if qty is None or not qty.is_finite():
+            self.status["qty"] = CellStatus.UNCLEAR
+            return None
         return qty
 
     def qty_base(self, qty: Decimal | None, unit: UnitDef | None) -> Decimal | None:
@@ -640,21 +645,28 @@ def _register_rows(out: _Out, page: RegisterPageInput, run_year: int) -> list[Ca
 
 
 def _entered_at(row: RawRow) -> datetime | None:
-    """ERP `entered_at` (`YYYY-MM-DD HH:MM`), aware in Asia/Karachi (research R2)."""
-    text = _text(row.values.get("entered_at"))
-    if text is None or not text.strip():
+    """ERP `entered_at` (`YYYY-MM-DD HH:MM`), aware in Asia/Karachi (research R2); null when
+    blank or unreadable (never raises; `raw` keeps the text)."""
+    text = _stripped(row.values.get("entered_at"))
+    if text is None:
         return None
     try:
-        naive = datetime.strptime(text.strip(), "%Y-%m-%d %H:%M")  # noqa: DTZ007
+        naive = datetime.strptime(text, "%Y-%m-%d %H:%M")  # noqa: DTZ007
     except ValueError:
-        raise ValueError(f"{row.source_row_id}: entered_at {text!r} is not a time") from None
+        return None
     return naive.replace(tzinfo=KARACHI)
+
+
+def _stripped(value: object) -> str | None:
+    """Trimmed text of a meta value (research R2); blank → None."""
+    text = (_text(value) or "").strip()
+    return text or None
 
 
 def _erp_row(out: _Out, row: RawRow, run_year: int) -> CanonicalRow:
     cells = {name: _Cell(row.values.get(col)) for col, name in _ERP_TO_CANONICAL.items()}
     raw = {k: _text(v) for k, v in row.values.items()}
-    meta = RowMeta(entered_by=_text(row.values.get("entered_by")), entered_at=_entered_at(row))
+    meta = RowMeta(entered_by=_stripped(row.values.get("entered_by")), entered_at=_entered_at(row))
     return _RowNormaliser(out, Source.ERP, row.source_row_id, cells, run_year).build(raw, meta)
 
 

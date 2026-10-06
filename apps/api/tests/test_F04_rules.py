@@ -388,3 +388,48 @@ def test_F04_meta_filled(result: NormaliseResult) -> None:
     )
     assert erp_row.raw["grn_no"] == "GRN-4425"
     assert erp_row.date == date(2026, 9, 24)
+
+
+def test_F04_unparseable_qty_unclear(
+    inputs: EngineInputs, erp: list[RawRow], sheet: list[RawRow]
+) -> None:
+    """User decision 2026-10-07: an unparseable qty in any source never raises; qty and qty_base
+    null, `cell_status.qty = UNCLEAR`, raw kept (F-05 rule 1 → NEEDS_REVIEW; C4 qty_unknown)."""
+    erp = with_values(erp, "ERP-0001", qty="12O")
+    sheet = with_values(sheet, "XLS-r2", **{"Qty Received": "two thousand"})
+    decision = resolved_cell(PACK_RUN_ID, "REG-p2-r14", "qty", "2,50")
+    changed = normalise_pack(inputs, erp=erp, sheet=sheet, decisions=[decision])
+
+    for row_id, raw_key, raw in (
+        ("ERP-0001", "qty", "12O"),
+        ("XLS-r2", "Qty Received", "two thousand"),
+        ("REG-p2-r14", "qty", None),
+    ):
+        row = row_by_id(changed, row_id)
+        assert (row.qty, row.qty_base) == (None, None), row_id
+        assert row.cell_status["qty"] is CellStatus.UNCLEAR, row_id
+        assert row.raw[raw_key] == raw, row_id
+        assert row.uom is not None, row_id  # the unit still maps
+    infinite = normalise_pack(inputs, erp=with_values(erp, "ERP-0002", qty="Infinity"))
+    assert row_by_id(infinite, "ERP-0002").cell_status["qty"] is CellStatus.UNCLEAR
+
+
+def test_F04_bad_entered_at_null(inputs: EngineInputs, erp: list[RawRow]) -> None:
+    """Same spirit: a bad ERP `entered_at` gives `meta.entered_at` null, never an error."""
+    changed = normalise_pack(inputs, erp=with_values(erp, "ERP-0001", entered_at="02/10/2026"))
+
+    row = row_by_id(changed, "ERP-0001")
+    assert row.meta.entered_at is None
+    assert row.raw["entered_at"] == "02/10/2026"
+
+
+def test_F04_erp_meta_trimmed(inputs: EngineInputs, erp: list[RawRow]) -> None:
+    """Research R2: ERP values are trimmed, so F-06 UNUSUAL_USER sees `admin2`, not ` admin2 `."""
+    erp = with_values(erp, "ERP-0028", entered_by=" admin2 ", entered_at=" 2026-10-02 18:47 ")
+    meta = row_by_id(normalise_pack(inputs, erp=erp), "ERP-0028").meta
+
+    assert meta.entered_by == "admin2"
+    assert meta.entered_at is not None
+    assert meta.entered_at.isoformat() == "2026-10-02T18:47:00+05:00"
+    blank = normalise_pack(inputs, erp=with_values(erp, "ERP-0028", entered_by="  "))
+    assert row_by_id(blank, "ERP-0028").meta.entered_by is None
