@@ -1,6 +1,7 @@
 """The model client seam for page reads (contracts/extract-service.md §1)."""
 
 import base64
+import glob
 import hashlib
 import json
 import logging
@@ -75,6 +76,7 @@ class OpenAIModelClient:
         self.model = model if model is not None else settings.EXTRACT_MODEL
         self.timeout_s = timeout_s
         self._timer = timer
+        # Timeout is set on the client options AND per request on purpose (T019 asserts both).
         self._sdk = None if sdk is None else sdk.with_options(max_retries=0, timeout=timeout_s)
 
     def __repr__(self) -> str:
@@ -150,11 +152,24 @@ class OpenAIModelClient:
         )
 
 
+class CachedReadAmbiguous(Exception):
+    """More than one committed read matches; pass `model` and `prompt_version` to narrow it.
+
+    Deliberately not a `LookupError`, so callers catching a miss (`KeyError`) never swallow it.
+    """
+
+
 class ReplayModelClient:
     """Offline client: answers from committed `Extraction` files (research R10).
 
     Files are `{sha256}.{variant}.{model}.{prompt_version}.json`; `model` / `prompt_version`
-    narrow the match when given. An image with no committed read raises `KeyError`.
+    narrow the match when given (matched literally, glob characters escaped).
+
+    Raises:
+        KeyError: no committed read for this image and variant (a cache miss).
+        CachedReadAmbiguous: more than one file matches.
+        ValueError: the matched file's `page_sha256` / `read_variant` disagree with the request,
+            or it has no `result`; the message names the file.
     """
 
     def __init__(
@@ -176,14 +191,26 @@ class ReplayModelClient:
     ) -> RawRead:
         self.calls += 1
         sha = hashlib.sha256(image).hexdigest()
-        pattern = f"{sha}.{variant.value}.{self.model or '*'}.{self.prompt_version or '*'}.json"
+        model = glob.escape(self.model) if self.model else "*"
+        prompt_version = glob.escape(self.prompt_version) if self.prompt_version else "*"
+        # TODO(T029): derive the pattern from extract.cache_file_name
+        pattern = f"{sha}.{variant.value}.{model}.{prompt_version}.json"
         matches = sorted(self.cache_dir.glob(pattern))
         if not matches:
             raise KeyError(f"no cached read for {sha[:12]} variant {variant.value}")
         if len(matches) > 1:
             names = ", ".join(path.name for path in matches)
-            raise LookupError(f"ambiguous cached reads ({names}); pass model and prompt_version")
-        record = json.loads(matches[0].read_text(encoding="utf-8"))
+            raise CachedReadAmbiguous(
+                f"ambiguous cached reads ({names}); pass model and prompt_version"
+            )
+        path = matches[0]
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("page_sha256") != sha:
+            raise ValueError(f"cached read {path.name}: page_sha256 does not match the image")
+        if record.get("read_variant") != variant.value:
+            raise ValueError(f"cached read {path.name}: read_variant is not {variant.value}")
+        if not isinstance(record.get("result"), dict):
+            raise ValueError(f"cached read {path.name}: missing result object")
         return RawRead(
             payload=record["result"],
             input_tokens=int(record["input_tokens"]),

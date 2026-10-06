@@ -4,10 +4,12 @@ import base64
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx2
 import openai
 import pytest
 
@@ -15,6 +17,8 @@ from app.core.config import EXTRACT_TIMEOUT_S, Settings
 from app.core.errors import InvalidReadOutput
 from app.domain.enums import Fault, ReadVariant
 from app.pipeline.model_client import (
+    USER_TEXT,
+    CachedReadAmbiguous,
     FaultModelClient,
     OpenAIModelClient,
     RawRead,
@@ -35,10 +39,7 @@ class FakeResponses:
 
     def create(self, **kwargs: Any) -> Any:
         self.owner.create_calls.append(kwargs)
-        return SimpleNamespace(
-            output_text=self.owner.output_text,
-            usage=SimpleNamespace(input_tokens=1234, output_tokens=567),
-        )
+        return SimpleNamespace(output_text=self.owner.output_text, usage=self.owner.usage)
 
 
 class FakeSDK:
@@ -46,6 +47,7 @@ class FakeSDK:
 
     def __init__(self, output_text: str = json.dumps(PAYLOAD)) -> None:
         self.output_text = output_text
+        self.usage: Any = SimpleNamespace(input_tokens=1234, output_tokens=567)
         self.options: dict[str, Any] = {}
         self.create_calls: list[dict[str, Any]] = []
         self.responses = FakeResponses(self)
@@ -98,6 +100,8 @@ def test_F03_R1_openai_request_shape() -> None:
     }
     (message,) = call["input"]
     assert message["role"] == "user"
+    texts = [part["text"] for part in message["content"] if part["type"] == "input_text"]
+    assert texts == [USER_TEXT]
     images = [part for part in message["content"] if part["type"] == "input_image"]
     (image,) = images
     assert image["detail"] == "high"
@@ -131,6 +135,15 @@ def test_F03_R1_returns_payload_tokens_and_monotonic_latency() -> None:
         image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema=_schema()
     )
     assert read == RawRead(payload=PAYLOAD, input_tokens=1234, output_tokens=567, latency_ms=250)
+
+
+def test_F03_R1_missing_usage_yields_zero_tokens() -> None:
+    sdk = FakeSDK()
+    sdk.usage = None
+    read = _client(sdk, timer=_ticks(0, 0)).read_page(
+        image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema={}
+    )
+    assert (read.input_tokens, read.output_tokens) == (0, 0)
 
 
 @pytest.mark.parametrize("text", ["not json at all", "[1, 2]", ""])
@@ -219,7 +232,13 @@ def test_F03_logs_contain_no_key_or_image_bytes(caplog: pytest.LogCaptureFixture
 # --- ReplayModelClient -----------------------------------------------------------------------
 
 
-def _write_record(directory: Path, image: bytes, variant: ReadVariant, model: str = "m") -> None:
+def _write_record(
+    directory: Path,
+    image: bytes,
+    variant: ReadVariant,
+    model: str = "m",
+    **overrides: Any,
+) -> Path:
     sha = hashlib.sha256(image).hexdigest()
     record: dict[str, Any] = {
         "id": "00000000-0000-0000-0000-000000000001",
@@ -233,9 +252,14 @@ def _write_record(directory: Path, image: bytes, variant: ReadVariant, model: st
         "latency_ms": 30,
         "created_at": "2026-10-01T09:00:00+05:00",
     }
-    (directory / f"{sha}.{variant.value}.{model}.v1.json").write_text(
-        json.dumps(record), encoding="utf-8"
-    )
+    record.update(overrides)
+    record = {key: value for key, value in record.items() if value is not _DROP}
+    path = directory / f"{sha}.{variant.value}.{model}.v1.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return path
+
+
+_DROP = object()
 
 
 def test_F03_replay_hit_returns_committed_read(tmp_path: Path) -> None:
@@ -270,15 +294,42 @@ def test_F03_replay_miss_raises_key_error(tmp_path: Path) -> None:
 def test_F03_replay_filters_by_model_when_ambiguous(tmp_path: Path) -> None:
     _write_record(tmp_path, JPEG, ReadVariant.A, model="m1")
     _write_record(tmp_path, JPEG, ReadVariant.A, model="m2")
-    with pytest.raises(LookupError, match="ambiguous"):
+    with pytest.raises(CachedReadAmbiguous, match="ambiguous") as caught:
         ReplayModelClient(tmp_path).read_page(
             image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema={}
         )
+    assert not isinstance(caught.value, LookupError)  # distinguishable from a miss
     client = ReplayModelClient(tmp_path, model="m2", prompt_version="v1")
     read = client.read_page(
         image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema={}
     )
     assert read.input_tokens == 10
+
+
+def test_F03_replay_escapes_glob_metacharacters(tmp_path: Path) -> None:
+    _write_record(tmp_path, JPEG, ReadVariant.A, model="m1")
+    _write_record(tmp_path, JPEG, ReadVariant.A, model="m[1]")
+    client = ReplayModelClient(tmp_path, model="m[1]", prompt_version="v1")
+    client.read_page(
+        image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema={}
+    )
+    with pytest.raises(KeyError):
+        ReplayModelClient(tmp_path, model="m?", prompt_version="v1").read_page(
+            image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema={}
+        )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"page_sha256": "0" * 64}, {"read_variant": "B"}, {"result": _DROP}],
+    ids=["sha-mismatch", "variant-mismatch", "missing-result"],
+)
+def test_F03_replay_rejects_inconsistent_record(tmp_path: Path, overrides: dict[str, Any]) -> None:
+    path = _write_record(tmp_path, JPEG, ReadVariant.A, **overrides)
+    with pytest.raises(ValueError, match=re.escape(path.name)):
+        ReplayModelClient(tmp_path).read_page(
+            image=JPEG, mime="image/jpeg", variant=ReadVariant.A, instructions="x", schema={}
+        )
 
 
 # --- FaultModelClient ------------------------------------------------------------------------
@@ -320,6 +371,4 @@ def test_F03_fault_client_rejects_non_extract_fault() -> None:
 
 
 def _request() -> Any:
-    import httpx2
-
     return httpx2.Request("POST", "https://api.openai.com/v1/responses")
