@@ -20,8 +20,13 @@ def test_allowed_transitions_match_blueprint_section9() -> None:
         # retry returns to the status the failed stage started from (never the transient
         # RECONCILED, never FINALISED)
         S.FAILED: {
-            S.CREATED, S.UPLOADED, S.VALIDATED, S.EXTRACTING, S.EXTRACTED,
-            S.AWAITING_REVIEW, S.READY,
+            S.CREATED,
+            S.UPLOADED,
+            S.VALIDATED,
+            S.EXTRACTING,
+            S.EXTRACTED,
+            S.AWAITING_REVIEW,
+            S.READY,
         },
     }
     assert set(ALLOWED_TRANSITIONS) == set(S)

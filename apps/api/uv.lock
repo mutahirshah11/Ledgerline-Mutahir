@@ -465,7 +465,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
-    { name = "pydantic", specifier = ">=2" },
+    { name = "pydantic", specifier = ">=2.11" },
     { name = "pydantic-settings" },
     { name = "supabase", specifier = ">=2.32.0" },
     { name = "tzdata", specifier = ">=2026.5" },

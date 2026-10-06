@@ -17,7 +17,10 @@ NON_CLEAR = {(2, 5, "qty"), (2, 14, "qty")}
 
 
 def _raw(ground_truth_dir: Path, page: int) -> dict[str, Any]:
-    return json.loads((ground_truth_dir / f"register_p{page}.json").read_text(encoding="utf-8"))
+    data: dict[str, Any] = json.loads(
+        (ground_truth_dir / f"register_p{page}.json").read_text(encoding="utf-8")
+    )
+    return data
 
 
 @pytest.fixture(scope="module")
@@ -142,7 +145,8 @@ def _resolve(schema: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
     ref = node.get("$ref")
     if ref is None:
         return node
-    return schema["$defs"][ref.rsplit("/", 1)[-1]]
+    resolved: dict[str, Any] = schema["$defs"][ref.rsplit("/", 1)[-1]]
+    return resolved
 
 
 def test_json_schema_matches_model(ground_truth_dir: Path) -> None:

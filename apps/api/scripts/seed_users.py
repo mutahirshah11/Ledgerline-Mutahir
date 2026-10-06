@@ -59,8 +59,7 @@ def parse_seed_sql(path: Path = SEED_SQL_PATH) -> list[SeedUser]:
         raise ValueError(f"no 'insert into allowed_users (...) values (...)' statement in {path}")
     values_block = insert_match.group(1)
     rows = [
-        SeedUser(email=m[0], display_name=m[1], role=m[2])
-        for m in _ROW_RE.findall(values_block)
+        SeedUser(email=m[0], display_name=m[1], role=m[2]) for m in _ROW_RE.findall(values_block)
     ]
     if not rows:
         raise ValueError(f"no value tuples parsed from {path}")
@@ -81,9 +80,7 @@ def validate_email(raw: str) -> str:
 def build_rows(demo_users: list[SeedUser], builder_email: str) -> list[dict[str, str]]:
     """The demo users plus `builder_email` as CONTROLLER (skipped if it matches a demo user)."""
     email = validate_email(builder_email)
-    rows = [
-        {"email": u.email, "display_name": u.display_name, "role": u.role} for u in demo_users
-    ]
+    rows = [{"email": u.email, "display_name": u.display_name, "role": u.role} for u in demo_users]
     if email not in {u.email for u in demo_users}:
         rows.append({"email": email, "display_name": "Builder (CONTROLLER)", "role": "CONTROLLER"})
     return rows
@@ -117,9 +114,7 @@ def get_client(settings: Settings) -> _SupabaseClient:
 
     return cast(
         "_SupabaseClient",
-        create_client(
-            settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY.get_secret_value()
-        ),
+        create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY.get_secret_value()),
     )
 
 

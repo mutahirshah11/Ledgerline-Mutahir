@@ -5,7 +5,7 @@ description = "Ledgerline reconciliation API (FastAPI)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
-    "pydantic>=2",
+    "pydantic>=2.11",
     "pydantic-settings",
     "supabase>=2.32.0",
     "tzdata>=2026.5",
@@ -44,6 +44,7 @@ select = ["E", "F", "I", "B", "UP", "DTZ", "TID"]
 strict = true
 python_version = "3.11"
 plugins = ["pydantic.mypy"]
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

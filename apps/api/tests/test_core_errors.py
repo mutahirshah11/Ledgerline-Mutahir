@@ -34,8 +34,13 @@ def test_upstream_failed_carries_service_and_detail() -> None:
 
 @pytest.mark.parametrize(
     "err",
-    [NotFound("a", "b"), UniqueViolation("c"), StateConflict(None),
-     AppendOnlyViolation("audit_log"), UpstreamFailed("s", "d")],
+    [
+        NotFound("a", "b"),
+        UniqueViolation("c"),
+        StateConflict(None),
+        AppendOnlyViolation("audit_log"),
+        UpstreamFailed("s", "d"),
+    ],
 )
 def test_all_errors_share_base(err: Exception) -> None:
     assert isinstance(err, LedgerlineError)

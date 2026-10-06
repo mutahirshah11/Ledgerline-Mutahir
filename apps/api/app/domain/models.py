@@ -81,8 +81,9 @@ class DomainModel(BaseModel):
 class AliasedModel(DomainModel):
     """For blueprint keys that are Python keywords (`in`, `pass`)."""
 
-    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True,
-                              serialize_by_alias=True)
+    model_config = ConfigDict(
+        validate_by_name=True, validate_by_alias=True, serialize_by_alias=True
+    )
 
 
 # --- 4.1 Register reads and ground truth -------------------------------------------------
@@ -318,8 +319,12 @@ ReviewContext = (
 )
 
 _CELL_REASONS = frozenset(
-    {ReviewReason.ILLEGIBLE, ReviewReason.CORRECTED, ReviewReason.UNCLEAR,
-     ReviewReason.READS_DISAGREE}
+    {
+        ReviewReason.ILLEGIBLE,
+        ReviewReason.CORRECTED,
+        ReviewReason.UNCLEAR,
+        ReviewReason.READS_DISAGREE,
+    }
 )
 # Reason codes per kind: blueprint Section 20 "Where review items come from".
 _REASONS_BY_KIND: dict[ReviewKind, frozenset[ReviewReason]] = {

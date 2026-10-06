@@ -49,8 +49,12 @@ def row(index: int) -> m.RowRead:
 
 def page(**overrides: Any) -> m.PageRead:
     fields: dict[str, Any] = {
-        "month_written": "Sep 2026", "page_no_written": "2", "table_top": 0.2,
-        "table_bottom": 0.9, "blank_row_slots": 14, "rows": [row(1), row(2)],
+        "month_written": "Sep 2026",
+        "page_no_written": "2",
+        "table_top": 0.2,
+        "table_bottom": 0.9,
+        "blank_row_slots": 14,
+        "rows": [row(1), row(2)],
     }
     fields.update(overrides)
     return m.PageRead(**fields)
@@ -58,13 +62,26 @@ def page(**overrides: Any) -> m.PageRead:
 
 def canonical(**overrides: Any) -> m.CanonicalRow:
     fields: dict[str, Any] = {
-        "id": OTHER_ID, "run_id": RUN_ID, "source": Source.ERP, "source_row_id": "ERP-0027",
-        "row_kind": RowKind.RECEIPT, "grn_no": 4425, "date": dt.date(2026, 9, 3),
-        "supplier_code": "S-102", "item": "Denim", "lot_no": "L2609-002", "qty": "1200",
-        "uom": "YD", "qty_base": "1097.28", "base_uom": "M",
-        "cell_status": {"qty": CellStatus.CLEAR}, "raw": {"Qty": "1200"},
+        "id": OTHER_ID,
+        "run_id": RUN_ID,
+        "source": Source.ERP,
+        "source_row_id": "ERP-0027",
+        "row_kind": RowKind.RECEIPT,
+        "grn_no": 4425,
+        "date": dt.date(2026, 9, 3),
+        "supplier_code": "S-102",
+        "item": "Denim",
+        "lot_no": "L2609-002",
+        "qty": "1200",
+        "uom": "YD",
+        "qty_base": "1097.28",
+        "base_uom": "M",
+        "cell_status": {"qty": CellStatus.CLEAR},
+        "raw": {"Qty": "1200"},
         "meta": m.RowMeta(entered_by="store.clerk", entered_at=AT),
-        "duplicate_of": None, "group_id": None, "outcome": None,
+        "duplicate_of": None,
+        "group_id": None,
+        "outcome": None,
     }
     fields.update(overrides)
     return m.CanonicalRow(**fields)
@@ -72,9 +89,14 @@ def canonical(**overrides: Any) -> m.CanonicalRow:
 
 def group(**overrides: Any) -> m.Group:
     fields: dict[str, Any] = {
-        "id": OTHER_ID, "run_id": RUN_ID, "group_key": "GRN:4425", "grn_no": 4425,
-        "row_ids": {Source.ERP: ["ERP-0027"]}, "outcome": Outcome.MISSING,
-        "missing_from": [Source.REGISTER, Source.SHEET], "diffs": [],
+        "id": OTHER_ID,
+        "run_id": RUN_ID,
+        "group_key": "GRN:4425",
+        "grn_no": 4425,
+        "row_ids": {Source.ERP: ["ERP-0027"]},
+        "outcome": Outcome.MISSING,
+        "missing_from": [Source.REGISTER, Source.SHEET],
+        "diffs": [],
     }
     fields.update(overrides)
     return m.Group(**fields)
@@ -82,9 +104,16 @@ def group(**overrides: Any) -> m.Group:
 
 def review_item(**overrides: Any) -> m.ReviewItem:
     fields: dict[str, Any] = {
-        "id": OTHER_ID, "run_id": RUN_ID, "kind": ReviewKind.CELL,
-        "item_key": "CELL:REG-p2-r14:qty", "grn_no": 4425, "source_row_id": "REG-p2-r14",
-        "field": "qty", "reason": ReviewReason.UNCLEAR, "read_a": None, "read_b": None,
+        "id": OTHER_ID,
+        "run_id": RUN_ID,
+        "kind": ReviewKind.CELL,
+        "item_key": "CELL:REG-p2-r14:qty",
+        "grn_no": 4425,
+        "source_row_id": "REG-p2-r14",
+        "field": "qty",
+        "reason": ReviewReason.UNCLEAR,
+        "read_a": None,
+        "read_b": None,
         "context": m.CellContext(page_no=2, row_index=14, candidates=["120", "126"]),
     }
     fields.update(overrides)
@@ -138,17 +167,24 @@ def test_cell_invariants() -> None:
         ({"value": "12", "status": CellStatus.CLEAR, "struck": "11"}, struck_rule),
         ({"value": "12", "status": CellStatus.ILLEGIBLE}, "ILLEGIBLE cell has no value"),
         ({"value": None, "status": CellStatus.ILLEGIBLE, "candidates": ["1"]}, candidates_rule),
-        ({"value": None, "status": CellStatus.CORRECTED, "struck": "120"},
-         "CORRECTED cell needs value and struck"),
-        ({"value": "126", "status": CellStatus.CORRECTED},
-         "CORRECTED cell needs value and struck"),
-        ({"value": "126", "status": CellStatus.CORRECTED, "struck": "120", "candidates": ["1"]},
-         candidates_rule),
-        ({"value": "120", "status": CellStatus.UNCLEAR, "candidates": ["120"]},
-         "UNCLEAR cell has no value"),
+        (
+            {"value": None, "status": CellStatus.CORRECTED, "struck": "120"},
+            "CORRECTED cell needs value and struck",
+        ),
+        ({"value": "126", "status": CellStatus.CORRECTED}, "CORRECTED cell needs value and struck"),
+        (
+            {"value": "126", "status": CellStatus.CORRECTED, "struck": "120", "candidates": ["1"]},
+            candidates_rule,
+        ),
+        (
+            {"value": "120", "status": CellStatus.UNCLEAR, "candidates": ["120"]},
+            "UNCLEAR cell has no value",
+        ),
         ({"value": None, "status": CellStatus.UNCLEAR}, "UNCLEAR cell has no value"),
-        ({"value": None, "status": CellStatus.UNCLEAR, "candidates": ["1"], "struck": "2"},
-         struck_rule),
+        (
+            {"value": None, "status": CellStatus.UNCLEAR, "candidates": ["1"], "struck": "2"},
+            struck_rule,
+        ),
     ]
     for fields, rule in bad:
         with pytest.raises(ValidationError, match=rule):
@@ -207,9 +243,13 @@ def test_ground_truth_page_is_a_page_read() -> None:
 def test_merged_row_holds_merged_cells() -> None:
     cell = clear("12")
     merged = m.MergedRow(
-        page_no=2, row_index=14,
-        cells={RegisterField.QTY: m.MergedCell(merged=cell, read_a=cell, read_b=None,
-                                               review_reason=ReviewReason.ROW_IN_ONE_READ)},
+        page_no=2,
+        row_index=14,
+        cells={
+            RegisterField.QTY: m.MergedCell(
+                merged=cell, read_a=cell, read_b=None, review_reason=ReviewReason.ROW_IN_ONE_READ
+            )
+        },
     )
     assert merged.cells[RegisterField.QTY].read_b is None
 
@@ -242,8 +282,7 @@ def test_diff_shape() -> None:
     diff = m.Diff(
         field="qty",
         values={Source.REGISTER: "1200 YD", Source.ERP: "1097.28 M", Source.SHEET: "1200 M"},
-        compared={Source.REGISTER: "1097.28 M", Source.ERP: "1097.28 M",
-                  Source.SHEET: "1200.00 M"},
+        compared={Source.REGISTER: "1097.28 M", Source.ERP: "1097.28 M", Source.SHEET: "1200.00 M"},
         outlier=Source.SHEET,
     )
     assert diff.model_dump(mode="json")["outlier"] == "SHEET"
@@ -252,12 +291,26 @@ def test_diff_shape() -> None:
 
 
 def test_reconciliation_payload() -> None:
-    flag = m.ControlFlag(id=OTHER_ID, run_id=RUN_ID, flag=FlagType.BACKDATED_ENTRY, grn_no=4425,
-                         source_row_id="ERP-0027", detail={"usual": "store.clerk"})
-    log = m.NormLogEntry(id=OTHER_ID, run_id=RUN_ID, source_row_id="ERP-0027", field="uom",
-                         code="UNIT_MAPPED", before="yds", after="YD")
-    payload = m.ReconciliationPayload(rows=[canonical()], groups=[group()], flags=[flag],
-                                      norm_log=[log])
+    flag = m.ControlFlag(
+        id=OTHER_ID,
+        run_id=RUN_ID,
+        flag=FlagType.BACKDATED_ENTRY,
+        grn_no=4425,
+        source_row_id="ERP-0027",
+        detail={"usual": "store.clerk"},
+    )
+    log = m.NormLogEntry(
+        id=OTHER_ID,
+        run_id=RUN_ID,
+        source_row_id="ERP-0027",
+        field="uom",
+        code="UNIT_MAPPED",
+        before="yds",
+        after="YD",
+    )
+    payload = m.ReconciliationPayload(
+        rows=[canonical()], groups=[group()], flags=[flag], norm_log=[log]
+    )
     assert payload.norm_log[0].code == "UNIT_MAPPED"
 
 
@@ -277,10 +330,12 @@ def test_review_item_cannot_determine_requires_note() -> None:
 
 
 def test_review_context_matches_kind_and_reason() -> None:
-    row_ctx = m.RowInOneReadContext(page_no=2, row_index=14, read=ReadVariant.A,
-                                    cells={RegisterField.QTY: clear("12")})
+    row_ctx = m.RowInOneReadContext(
+        page_no=2, row_index=14, read=ReadVariant.A, cells={RegisterField.QTY: clear("12")}
+    )
     page_ctx = m.PageLabelMismatchContext(
-        page_no=2, run_month="2026-09",
+        page_no=2,
+        run_month="2026-09",
         month_written={ReadVariant.A: "Aug 2026", ReadVariant.B: "Aug 2026"},
         page_no_written={ReadVariant.A: "2", ReadVariant.B: "2"},
     )
@@ -289,10 +344,12 @@ def test_review_context_matches_kind_and_reason() -> None:
     flag_ctx = m.FlagAckContext(flag=FlagType.SEQUENCE_GAP, detail={"gap": "4427"})
     review_item(reason=ReviewReason.ROW_IN_ONE_READ, context=row_ctx)
     review_item(reason=ReviewReason.PAGE_LABEL_MISMATCH, context=page_ctx)
-    review_item(kind=ReviewKind.UNKNOWN_MAPPING, reason=ReviewReason.UNKNOWN_SUPPLIER,
-                context=map_ctx)
-    review_item(kind=ReviewKind.UNMATCHED_ROW, reason=ReviewReason.UNMATCHED_NO_KEY,
-                context=row_unmatched)
+    review_item(
+        kind=ReviewKind.UNKNOWN_MAPPING, reason=ReviewReason.UNKNOWN_SUPPLIER, context=map_ctx
+    )
+    review_item(
+        kind=ReviewKind.UNMATCHED_ROW, reason=ReviewReason.UNMATCHED_NO_KEY, context=row_unmatched
+    )
     review_item(kind=ReviewKind.FLAG_ACK, reason=ReviewReason.SEQUENCE_GAP, context=flag_ctx)
     with pytest.raises(ValidationError):
         review_item(reason=ReviewReason.UNCLEAR, context=row_ctx)
@@ -305,8 +362,11 @@ def test_review_reason_fits_kind() -> None:
     map_ctx = m.UnknownMappingContext(source=Source.ERP, raw="S-999")
     unmatched = m.UnmatchedRowContext(group_key="LOT:L2609-002|S-102", other_rows=[])
     flag_ctx = m.FlagAckContext(flag=FlagType.BACKDATED_ENTRY, detail={})
-    for reason in (ReviewReason.UNKNOWN_SUPPLIER, ReviewReason.UNKNOWN_UNIT,
-                   ReviewReason.UNPARSEABLE_DATE):
+    for reason in (
+        ReviewReason.UNKNOWN_SUPPLIER,
+        ReviewReason.UNKNOWN_UNIT,
+        ReviewReason.UNPARSEABLE_DATE,
+    ):
         review_item(kind=ReviewKind.UNKNOWN_MAPPING, reason=reason, context=map_ctx)
     for reason in (ReviewReason.UNMATCHED_NO_KEY, ReviewReason.CONFLICTING_ROWS_IN_SOURCE):
         review_item(kind=ReviewKind.UNMATCHED_ROW, reason=reason, context=unmatched)
@@ -328,14 +388,24 @@ def test_page_no_must_be_positive() -> None:
     builders: list[Any] = [
         lambda p: m.MergedRow(page_no=p, row_index=1, cells={}),
         lambda p: m.CellContext(page_no=p, row_index=1),
-        lambda p: m.RowInOneReadContext(page_no=p, row_index=1, read=ReadVariant.A,
-                                        cells={RegisterField.QTY: cell}),
-        lambda p: m.PageManifestEntry(sha256=SHA, month="2026-09", page_no=p,
-                                      first_seen_run_id=RUN_ID, first_seen_at=AT),
+        lambda p: m.RowInOneReadContext(
+            page_no=p, row_index=1, read=ReadVariant.A, cells={RegisterField.QTY: cell}
+        ),
+        lambda p: m.PageManifestEntry(
+            sha256=SHA, month="2026-09", page_no=p, first_seen_run_id=RUN_ID, first_seen_at=AT
+        ),
         lambda p: m.GroundTruthPage(**page().model_dump(), page_no=p, source="ground_truth"),
-        lambda p: m.SourceFile(id=OTHER_ID, run_id=RUN_ID, source=Source.REGISTER,
-                               filename="p.jpg", storage_path="x", sha256=SHA, size_bytes=1,
-                               page_no=p, confirmed_at=None),
+        lambda p: m.SourceFile(
+            id=OTHER_ID,
+            run_id=RUN_ID,
+            source=Source.REGISTER,
+            filename="p.jpg",
+            storage_path="x",
+            sha256=SHA,
+            size_bytes=1,
+            page_no=p,
+            confirmed_at=None,
+        ),
     ]
     for build in builders:
         build(1)
@@ -345,8 +415,11 @@ def test_page_no_must_be_positive() -> None:
 
 
 def test_review_item_round_trips_through_json() -> None:
-    item = review_item(kind=ReviewKind.UNKNOWN_MAPPING, reason=ReviewReason.UNKNOWN_UNIT,
-                       context=m.UnknownMappingContext(source=Source.SHEET, raw="yrds"))
+    item = review_item(
+        kind=ReviewKind.UNKNOWN_MAPPING,
+        reason=ReviewReason.UNKNOWN_UNIT,
+        context=m.UnknownMappingContext(source=Source.SHEET, raw="yrds"),
+    )
     again = m.ReviewItem.model_validate_json(item.model_dump_json())
     assert again == item
     assert isinstance(again.context, m.UnknownMappingContext)
@@ -357,13 +430,18 @@ def test_review_item_round_trips_through_json() -> None:
 
 def proof() -> m.Proof:
     return m.Proof(
-        run_id=RUN_ID, status=ProofStatus.PASS, computed_at=AT,
+        run_id=RUN_ID,
+        status=ProofStatus.PASS,
+        computed_at=AT,
         checks=m.ProofChecks(
             C1=m.CheckC1(pass_=True, per_source={Source.ERP: m.SourceCount(in_=3, placed=3)}),
             C2=m.CheckC2(pass_=True, rows=3, unplaced=[], placed_twice=[]),
             C3=m.CheckC3(pass_=True, per_source={Source.ERP: 3}),
-            C4=m.CheckC4(pass_=True, qty_unknown=[],
-                         by_source_unit={"ERP|M": m.QtyBalance(in_="1097.28", placed="1097.28")}),
+            C4=m.CheckC4(
+                pass_=True,
+                qty_unknown=[],
+                by_source_unit={"ERP|M": m.QtyBalance(in_="1097.28", placed="1097.28")},
+            ),
             C5=m.CheckC5(pass_=True, grns=3, gaps=[]),
         ),
     )
@@ -372,8 +450,10 @@ def proof() -> m.Proof:
 def test_proof_checks_use_blueprint_keys() -> None:
     dumped = proof().model_dump(mode="json")
     assert dumped["checks"]["C1"] == {"pass": True, "per_source": {"ERP": {"in": 3, "placed": 3}}}
-    assert dumped["checks"]["C4"]["by_source_unit"]["ERP|M"] == {"in": "1097.28",
-                                                                 "placed": "1097.28"}
+    assert dumped["checks"]["C4"]["by_source_unit"]["ERP|M"] == {
+        "in": "1097.28",
+        "placed": "1097.28",
+    }
     assert m.Proof.model_validate(json.loads(proof().model_dump_json())) == proof()
 
 
@@ -397,9 +477,16 @@ def test_proof_c4_rejects_float() -> None:
 
 def run(**overrides: Any) -> m.Run:
     fields: dict[str, Any] = {
-        "id": RUN_ID, "month": "2026-09", "status": RunStatus.CREATED, "run_key": None,
-        "failed_stage": None, "error_message": None, "scenario_now": AT,
-        "created_by": "controller@example.com", "created_at": AT, "finalised_at": None,
+        "id": RUN_ID,
+        "month": "2026-09",
+        "status": RunStatus.CREATED,
+        "run_key": None,
+        "failed_stage": None,
+        "error_message": None,
+        "scenario_now": AT,
+        "created_by": "controller@example.com",
+        "created_at": AT,
+        "finalised_at": None,
         "finalised_by": None,
     }
     fields.update(overrides)
@@ -422,8 +509,13 @@ def test_datetimes_must_be_timezone_aware() -> None:
 
 def test_source_file_page_no_only_for_register() -> None:
     base: dict[str, Any] = {
-        "id": OTHER_ID, "run_id": RUN_ID, "filename": "p2.jpg", "storage_path": "x",
-        "sha256": SHA, "size_bytes": 10, "confirmed_at": None,
+        "id": OTHER_ID,
+        "run_id": RUN_ID,
+        "filename": "p2.jpg",
+        "storage_path": "x",
+        "sha256": SHA,
+        "size_bytes": 10,
+        "confirmed_at": None,
     }
     m.SourceFile(**base, source=Source.REGISTER, page_no=2)
     m.SourceFile(**base, source=Source.ERP, page_no=None)
@@ -434,11 +526,21 @@ def test_source_file_page_no_only_for_register() -> None:
 
 
 def test_page_manifest_and_extraction() -> None:
-    m.PageManifestEntry(sha256=SHA, month="2026-09", page_no=2, first_seen_run_id=RUN_ID,
-                        first_seen_at=AT)
-    ext = m.Extraction(id=OTHER_ID, page_sha256=SHA, read_variant=ReadVariant.B, model="m",
-                       prompt_version="v1", result=page(), input_tokens=1, output_tokens=2,
-                       latency_ms=3, created_at=AT)
+    m.PageManifestEntry(
+        sha256=SHA, month="2026-09", page_no=2, first_seen_run_id=RUN_ID, first_seen_at=AT
+    )
+    ext = m.Extraction(
+        id=OTHER_ID,
+        page_sha256=SHA,
+        read_variant=ReadVariant.B,
+        model="m",
+        prompt_version="v1",
+        result=page(),
+        input_tokens=1,
+        output_tokens=2,
+        latency_ms=3,
+        created_at=AT,
+    )
     assert ext.result.rows[0].row_index == 1
 
 
@@ -449,15 +551,39 @@ def test_allowed_user_email_lower_case() -> None:
 
 
 def test_notification_event_and_audit() -> None:
-    n = m.Notification(id=OTHER_ID, run_id=RUN_ID, kind=NotificationKind.SUMMARY,
-                       idempotency_key="SUMMARY:k", status=NotificationStatus.PENDING,
-                       last_error=None, telegram_message_id=None, sent_at=None, updated_at=AT)
+    n = m.Notification(
+        id=OTHER_ID,
+        run_id=RUN_ID,
+        kind=NotificationKind.SUMMARY,
+        idempotency_key="SUMMARY:k",
+        status=NotificationStatus.PENDING,
+        last_error=None,
+        telegram_message_id=None,
+        sent_at=None,
+        updated_at=AT,
+    )
     assert n.attempts == 0
-    m.RunEvent(id=OTHER_ID, run_id=RUN_ID, stage=Stage.PROOF, status=RunEventStatus.FAILED,
-               at=AT, duration_ms=None, detail={"check": "C1"})
-    m.AuditEntry(id=1, at=AT, actor="system", action=AuditAction.RUN_CREATED, entity="run",
-                 entity_id=str(RUN_ID), run_id=RUN_ID, before=None, after={"status": "CREATED"},
-                 channel=AuditChannel.SYSTEM)
+    m.RunEvent(
+        id=OTHER_ID,
+        run_id=RUN_ID,
+        stage=Stage.PROOF,
+        status=RunEventStatus.FAILED,
+        at=AT,
+        duration_ms=None,
+        detail={"check": "C1"},
+    )
+    m.AuditEntry(
+        id=1,
+        at=AT,
+        actor="system",
+        action=AuditAction.RUN_CREATED,
+        entity="run",
+        entity_id=str(RUN_ID),
+        run_id=RUN_ID,
+        before=None,
+        after={"status": "CREATED"},
+        channel=AuditChannel.SYSTEM,
+    )
 
 
 def test_models_are_frozen() -> None:

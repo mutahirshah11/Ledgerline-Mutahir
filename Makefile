@@ -20,7 +20,8 @@ test:
 
 lint:
 	cd $(API) && uv run ruff check
-	cd $(API) && uv run mypy app
+	cd $(API) && uv run ruff format --check
+	cd $(API) && uv run mypy app scripts tests
 	cd $(WEB) && pnpm lint
 	cd $(WEB) && pnpm exec tsc --noEmit
 

@@ -24,15 +24,27 @@ def test_enum_row_kind() -> None:
 
 def test_enum_outcome() -> None:
     assert values(e.Outcome) == [
-        "MATCHED", "MATCHED_AFTER_CONVERSION", "MISMATCHED", "MISSING", "NEEDS_REVIEW",
-        "UNMATCHED_NO_KEY", "DUPLICATE", "NON_RECEIPT",
+        "MATCHED",
+        "MATCHED_AFTER_CONVERSION",
+        "MISMATCHED",
+        "MISSING",
+        "NEEDS_REVIEW",
+        "UNMATCHED_NO_KEY",
+        "DUPLICATE",
+        "NON_RECEIPT",
     ]
 
 
 def test_enum_flag_type() -> None:
     assert values(e.FlagType) == [
-        "SEQUENCE_GAP", "BACKDATED_ENTRY", "UNUSUAL_USER", "SUNDAY_DATE", "OUT_OF_ORDER",
-        "DATE_OUT_OF_PERIOD", "UNKNOWN_SUPPLIER", "UNKNOWN_UNIT",
+        "SEQUENCE_GAP",
+        "BACKDATED_ENTRY",
+        "UNUSUAL_USER",
+        "SUNDAY_DATE",
+        "OUT_OF_ORDER",
+        "DATE_OUT_OF_PERIOD",
+        "UNKNOWN_SUPPLIER",
+        "UNKNOWN_UNIT",
     ]
 
 
@@ -46,8 +58,16 @@ def test_enum_review_status() -> None:
 
 def test_enum_run_status() -> None:
     assert values(e.RunStatus) == [
-        "CREATED", "UPLOADED", "VALIDATED", "EXTRACTING", "EXTRACTED", "RECONCILED",
-        "AWAITING_REVIEW", "READY", "FINALISED", "FAILED",
+        "CREATED",
+        "UPLOADED",
+        "VALIDATED",
+        "EXTRACTING",
+        "EXTRACTED",
+        "RECONCILED",
+        "AWAITING_REVIEW",
+        "READY",
+        "FINALISED",
+        "FAILED",
     ]
 
 
@@ -65,8 +85,14 @@ def test_enum_notification_status() -> None:
 
 def test_enum_norm_code() -> None:
     assert values(e.NormCode) == [
-        "GRN_PREFIX_STRIPPED", "DATE_SERIAL_PARSED", "DATE_TEXT_PARSED", "DATE_YEAR_FROM_HEADER",
-        "SUPPLIER_MAPPED", "UNIT_MAPPED", "UNIT_CONVERTED", "TEXT_TRIMMED",
+        "GRN_PREFIX_STRIPPED",
+        "DATE_SERIAL_PARSED",
+        "DATE_TEXT_PARSED",
+        "DATE_YEAR_FROM_HEADER",
+        "SUPPLIER_MAPPED",
+        "UNIT_MAPPED",
+        "UNIT_CONVERTED",
+        "TEXT_TRIMMED",
     ]
 
 
@@ -88,40 +114,79 @@ def test_enum_read_variant() -> None:
 
 def test_enum_review_action() -> None:
     assert values(e.ReviewAction) == [
-        "ACCEPT_READ", "ENTER_VALUE", "CANNOT_DETERMINE", "ACKNOWLEDGE",
+        "ACCEPT_READ",
+        "ENTER_VALUE",
+        "CANNOT_DETERMINE",
+        "ACKNOWLEDGE",
     ]
 
 
 def test_enum_review_reason() -> None:
     assert values(e.ReviewReason) == [
-        "ILLEGIBLE", "CORRECTED", "UNCLEAR", "READS_DISAGREE", "ROW_IN_ONE_READ",
-        "PAGE_LABEL_MISMATCH", "UNKNOWN_SUPPLIER", "UNKNOWN_UNIT", "UNPARSEABLE_DATE",
-        "UNMATCHED_NO_KEY", "CONFLICTING_ROWS_IN_SOURCE", "SEQUENCE_GAP", "BACKDATED_ENTRY",
+        "ILLEGIBLE",
+        "CORRECTED",
+        "UNCLEAR",
+        "READS_DISAGREE",
+        "ROW_IN_ONE_READ",
+        "PAGE_LABEL_MISMATCH",
+        "UNKNOWN_SUPPLIER",
+        "UNKNOWN_UNIT",
+        "UNPARSEABLE_DATE",
+        "UNMATCHED_NO_KEY",
+        "CONFLICTING_ROWS_IN_SOURCE",
+        "SEQUENCE_GAP",
+        "BACKDATED_ENTRY",
         "DATE_OUT_OF_PERIOD",
     ]
 
 
 def test_enum_audit_action() -> None:
     assert values(e.AuditAction) == [
-        "RUN_CREATED", "FILE_UPLOADED", "RUN_VALIDATED", "PAGE_EXTRACTED", "RECONCILED",
-        "REVIEW_RESOLVED", "RUN_FINALISED", "SUMMARY_SENT", "SUMMARY_FAILED", "ALERT_SENT",
+        "RUN_CREATED",
+        "FILE_UPLOADED",
+        "RUN_VALIDATED",
+        "PAGE_EXTRACTED",
+        "RECONCILED",
+        "REVIEW_RESOLVED",
+        "RUN_FINALISED",
+        "SUMMARY_SENT",
+        "SUMMARY_FAILED",
+        "ALERT_SENT",
     ]
 
 
 def test_enum_problem_code() -> None:
     assert values(e.ProblemCode) == [
-        "ENCODING", "MISSING_COLUMN", "NO_DATA_ROWS", "BAD_NUMBER", "BAD_DATE",
-        "MISSING_WORKSHEET", "MISSING_HEADER", "IMAGE_UNREADABLE", "IMAGE_TOO_SMALL",
+        "ENCODING",
+        "MISSING_COLUMN",
+        "NO_DATA_ROWS",
+        "BAD_NUMBER",
+        "BAD_DATE",
+        "MISSING_WORKSHEET",
+        "MISSING_HEADER",
+        "IMAGE_UNREADABLE",
+        "IMAGE_TOO_SMALL",
         "TOO_MANY_PAGES",
     ]
 
 
 def test_enum_error_code() -> None:
     assert values(e.ErrorCode) == [
-        "BAD_MONTH", "MISSING_SOURCE", "BAD_REQUEST", "CONFIRM_REQUIRED", "UNAUTHENTICATED",
-        "NOT_ALLOWED", "NOT_FOUND", "RUN_STATE_CONFLICT", "DUPLICATE_RUN", "PROOF_NOT_PASSED",
-        "ITEM_ALREADY_RESOLVED", "CONTRACT_VIOLATION", "INVALID_REVIEW_ACTION",
-        "UPSTREAM_FAILED", "INTERNAL_ERROR",
+        "BAD_MONTH",
+        "MISSING_SOURCE",
+        "BAD_REQUEST",
+        "CONFIRM_REQUIRED",
+        "UNAUTHENTICATED",
+        "NOT_ALLOWED",
+        "NOT_FOUND",
+        "RUN_STATE_CONFLICT",
+        "DUPLICATE_RUN",
+        "PROOF_NOT_PASSED",
+        "ITEM_ALREADY_RESOLVED",
+        "CONTRACT_VIOLATION",
+        "INVALID_REVIEW_ACTION",
+        "UPSTREAM_FAILED",
+        "INTERNAL_ERROR",
     ]
 
 
@@ -131,13 +196,27 @@ def test_enum_upload_problem() -> None:
 
 def test_enum_stage_lowercase() -> None:
     assert values(e.Stage) == [
-        "upload", "validate", "extract", "reconcile", "proof", "review", "finalise", "notify",
+        "upload",
+        "validate",
+        "extract",
+        "reconcile",
+        "proof",
+        "review",
+        "finalise",
+        "notify",
     ]
 
 
 def test_enum_register_field() -> None:
     assert values(e.RegisterField) == [
-        "date", "grn_no", "supplier", "item", "lot_no", "qty", "unit", "recd_by",
+        "date",
+        "grn_no",
+        "supplier",
+        "item",
+        "lot_no",
+        "qty",
+        "unit",
+        "recd_by",
     ]
 
 
@@ -156,7 +235,8 @@ def test_constants() -> None:
 def test_all_values_upper_snake_except_stage_and_fields() -> None:
     lower = {e.Stage, e.RegisterField, e.ComparedField}
     all_enums = [
-        obj for obj in vars(e).values()
+        obj
+        for obj in vars(e).values()
         if isinstance(obj, type) and issubclass(obj, StrEnum) and obj is not StrEnum
     ]
     assert len(all_enums) == 25

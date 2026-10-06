@@ -53,10 +53,7 @@ def test_review_item_keys() -> None:
 
 def test_summary_and_alert_keys() -> None:
     assert ids.summary_key("abc123") == "SUMMARY:abc123"
-    assert (
-        ids.alert_key(RUN_ID, Stage.EXTRACT, 1)
-        == f"ALERT:{RUN_ID}:extract:1"
-    )
+    assert ids.alert_key(RUN_ID, Stage.EXTRACT, 1) == f"ALERT:{RUN_ID}:extract:1"
 
 
 def test_run_key_is_order_independent() -> None:

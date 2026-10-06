@@ -1,2 +1,4 @@
 # Pack files are evidence: never convert line endings
 data/** -text
+# Shell scripts run in Git Bash and on Linux CI: always LF
+*.sh text eol=lf
