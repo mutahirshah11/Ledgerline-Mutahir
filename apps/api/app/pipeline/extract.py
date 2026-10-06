@@ -14,10 +14,19 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import openai
 from pydantic import ValidationError
+from tenacity import (
+    RetryCallState,
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_chain,
+    wait_fixed,
+)
 
 from app.core import clock
-from app.core.config import Settings
+from app.core.config import EXTRACT_ATTEMPTS, EXTRACT_WAITS_S, Settings
 from app.core.db import Repo
 from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
 from app.domain.enums import (
@@ -450,25 +459,76 @@ def _read_with_retries(
     on_retry: Callable[[RetryInfo], None] | None,
     sleep: Callable[[float], None],
 ) -> _ReadOutcome:
-    """One read: call the model and validate the answer (single attempt)."""
+    """One read with bounded retries (contract §4, research R5): an attempt is a model call
+    plus validation; retryable failures wait 2 s then 8 s (`sleep`), reporting each retry to
+    `on_retry` first. Never raises: the last error is returned in the outcome."""
     outcome = _ReadOutcome()
-    try:
+
+    def attempt() -> tuple[PageRead, RawRead]:
         outcome.attempts += 1
         answer = client.read_page(
             image=image, mime=mime, variant=variant, instructions=instructions, schema=schema
         )
-        outcome.read, outcome.raw = parse_read(answer.payload), answer
+        return parse_read(answer.payload), answer
+
+    def before_sleep(state: RetryCallState) -> None:
+        error = state.outcome.exception() if state.outcome is not None else None
+        cause = retry_cause(error) or "unknown"
+        info = RetryInfo(page_no, variant, state.attempt_number + 1, cause)
+        logger.warning(
+            "extract page=%d read=%s attempt %d failed (%s); retrying",
+            page_no,
+            variant.value,
+            state.attempt_number,
+            cause,
+        )
+        if on_retry is not None:
+            on_retry(info)
+
+    retrying = Retrying(
+        stop=stop_after_attempt(EXTRACT_ATTEMPTS),
+        wait=wait_chain(*(wait_fixed(s) for s in EXTRACT_WAITS_S)),
+        retry=retry_if_exception(lambda e: retry_cause(e) is not None),
+        before_sleep=before_sleep,
+        sleep=sleep,
+        reraise=True,
+    )
+    try:
+        outcome.read, outcome.raw = retrying(attempt)
     except Exception as exc:
         outcome.error = exc
     return outcome
 
 
-def _upstream_failed(error: BaseException, attempts: int, page_no: int) -> UpstreamFailed:
-    """Contract §4 cause table."""
+def retry_cause(error: BaseException | None) -> str | None:
+    """The contract §4 cause of a retryable failure, or None when it must not be retried."""
+    if isinstance(error, openai.APITimeoutError):  # before its base, APIConnectionError
+        return "timeout"
+    if isinstance(error, openai.APIConnectionError):
+        return "connection error"
+    if isinstance(error, openai.RateLimitError):
+        return "rate limited"
+    if isinstance(error, openai.InternalServerError):
+        return "server error"
+    if isinstance(error, openai.APIStatusError):
+        if error.status_code == 429:
+            return "rate limited"
+        if error.status_code >= 500:
+            return "server error"
     if isinstance(error, InvalidReadOutput):
-        detail = f"invalid output after {attempts} attempts"
+        return "invalid output"
+    return None
+
+
+def _final_error(error: BaseException, attempts: int, page_no: int) -> BaseException:
+    """Contract §4 final detail; errors outside the table (bugs) are returned unchanged."""
+    cause = retry_cause(error)
+    if cause is not None:
+        detail = f"{cause} after {attempts} attempts"
+    elif isinstance(error, openai.APIStatusError):
+        detail = f"rejected: HTTP {error.status_code}"
     else:
-        detail = f"{type(error).__name__} after {attempts} attempts"
+        return error
     return UpstreamFailed("openai", detail, stage="extract", page_no=page_no)
 
 
@@ -571,15 +631,20 @@ def extract_page(
                 for v in missing
             }
             outcomes = {v: f.result() for v, f in futures.items()}
-        failure: UpstreamFailed | None = None
+        failure: BaseException | None = None
         for variant, outcome in outcomes.items():  # store every success first (US3 sc. 5)
             calls_made += outcome.attempts
             if outcome.error is None:
                 reads[variant] = _store(repo, sha, variant, settings, outcome)
             elif failure is None:
-                failure = _upstream_failed(outcome.error, outcome.attempts, page_no)
+                failure = _final_error(outcome.error, outcome.attempts, page_no)
         if failure is not None:
-            logger.warning("extract page=%d sha=%s failed: %s", page_no, sha[:12], failure.detail)
+            logger.warning(
+                "extract page=%d sha=%s failed: %s",
+                page_no,
+                sha[:12],
+                failure.detail if isinstance(failure, UpstreamFailed) else type(failure).__name__,
+            )
             raise failure
 
     read_a, read_b = reads[ReadVariant.A], reads[ReadVariant.B]

@@ -10,21 +10,30 @@ import hashlib
 import logging
 import shutil
 import threading
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+import httpx2
+import openai
 import pytest
 
-from app.core.config import Settings
-from app.core.errors import UpstreamFailed
+from app.core.config import EXTRACT_ATTEMPTS, EXTRACT_TIMEOUT_S, EXTRACT_WAITS_S, Settings
+from app.core.errors import PageUnreadable, UpstreamFailed
 from app.core.memory_repo import MemoryRepo
-from app.domain.enums import ReadVariant, ReviewReason, RunStatus
+from app.domain.enums import Fault, ReadVariant, ReviewReason, RunStatus
 from app.domain.models import Extraction, PageRead
 from app.pipeline import extract
-from app.pipeline.extract import extract_page, load_prompt, load_read_schema, merge_reads
-from app.pipeline.model_client import RawRead
+from app.pipeline.extract import (
+    RetryInfo,
+    extract_page,
+    load_prompt,
+    load_read_schema,
+    merge_reads,
+)
+from app.pipeline.model_client import FaultModelClient, RawRead
 from tests.factories import make_audit, make_event, make_run
 from tests.fakes.model_clients import Answer, ScriptedModelClient
 
@@ -89,11 +98,35 @@ def repo(frozen_clock: datetime) -> MemoryRepo:
     return memory
 
 
+_RETRYING = threading.local()
+"""The variant whose retry the current worker thread last reported (set by `RetryLog`)."""
+
+
 class Sleeps(list[float]):
-    """An injected `sleep` that records waits instead of sleeping (thread-safe append)."""
+    """An injected `sleep` that records waits instead of sleeping (list.append is atomic)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.variants: list[ReadVariant | None] = []
 
     def __call__(self, seconds: float) -> None:
+        self.variants.append(getattr(_RETRYING, "variant", None))
         self.append(seconds)
+
+    def per_read(self) -> dict[ReadVariant | None, list[float]]:
+        """The waits of each read, in order (needs a `RetryLog` as `on_retry`)."""
+        grouped: dict[ReadVariant | None, list[float]] = {}
+        for variant, seconds in zip(self.variants, self, strict=True):
+            grouped.setdefault(variant, []).append(seconds)
+        return grouped
+
+
+class RetryLog(list[RetryInfo]):
+    """An `on_retry` observer that records what it hears."""
+
+    def __call__(self, info: RetryInfo) -> None:
+        _RETRYING.variant = info.variant  # on_retry runs on the read's thread, just before sleep
+        self.append(info)
 
 
 def run(
@@ -356,21 +389,177 @@ def test_F03_logs_contain_no_key_or_image_bytes(
 # --- T023: failures and retries (US3) ------------------------------------------------------
 
 
-def _request() -> Any:
-    import httpx2
-
+def _request() -> httpx2.Request:
     return httpx2.Request("POST", "https://api.openai.com/v1/responses")
 
 
 def _timeout() -> Exception:
-    import openai
-
     return openai.APITimeoutError(request=_request())
 
 
-def _status(cls: Any, code: int) -> Exception:
-    import httpx2
+def _status(cls: type[openai.APIStatusError], code: int) -> Exception:
+    return cls(f"HTTP {code}", response=httpx2.Response(code, request=_request()), body=None)
 
-    response = httpx2.Response(code, request=_request())
-    error: Exception = cls(f"HTTP {code}", response=response, body=None)
-    return error
+
+BAD = {"rows": "not a list"}
+
+
+def _fails(repo: MemoryRepo, client: Any, **kw: Any) -> UpstreamFailed:
+    with pytest.raises(UpstreamFailed) as info:
+        run(repo, client, **kw)
+    return info.value
+
+
+def _by_variant(client: ScriptedModelClient) -> Counter[ReadVariant]:
+    return Counter(r.variant for r in client.requests)
+
+
+def test_F03_AC7_timeout_three_attempts_upstream_failed(repo: MemoryRepo) -> None:
+    client = ScriptedModelClient({A: [_timeout() for _ in range(3)], B: [_timeout()] * 3})
+    sleeps, retries = Sleeps(), RetryLog()
+    error = _fails(repo, client, sleep=sleeps, on_retry=retries)
+
+    assert _by_variant(client) == {A: 3, B: 3}  # 3 attempts per read
+    assert sleeps.per_read() == {A: [2, 8], B: [2, 8]}  # 2 s then 8 s, per read
+    assert (error.service, error.stage, error.page_no) == ("openai", "extract", PAGE_NO)
+    assert error.detail == "timeout after 3 attempts"
+    assert stored(repo, A) is None and stored(repo, B) is None  # cache empty
+    assert repo.list_review_items(RUN_ID) == []
+    assert sorted((r.variant, r.attempt) for r in retries) == [(A, 2), (A, 3), (B, 2), (B, 3)]
+
+
+def test_F03_R5_retry_then_success(repo: MemoryRepo) -> None:
+    client = ScriptedModelClient({A: [_timeout(), raw(payload())], B: [raw(payload())]})
+    sleeps, retries = Sleeps(), RetryLog()
+    result = run(repo, client, sleep=sleeps, on_retry=retries)
+    assert list(retries) == [RetryInfo(page_no=PAGE_NO, variant=A, attempt=2, cause="timeout")]
+    assert list(sleeps) == [2]
+    assert stored(repo, A) is not None  # the read that needed a retry is cached
+    assert result.calls_made == 3 and result.cached is False
+
+
+def test_F03_FM05_invalid_output_three_attempts(repo: MemoryRepo) -> None:
+    client = ScriptedModelClient({A: [BAD, BAD, BAD], B: [raw(payload())]})
+    retries = RetryLog()
+    error = _fails(repo, client, on_retry=retries)
+    assert error.detail == "invalid output after 3 attempts"
+    assert _by_variant(client)[A] == 3
+    assert [r.cause for r in retries] == ["invalid output", "invalid output"]
+
+
+@pytest.mark.parametrize(
+    ("error", "cause"),
+    [
+        (openai.APIConnectionError(request=_request()), "connection error"),
+        (_status(openai.RateLimitError, 429), "rate limited"),
+        (_status(openai.InternalServerError, 500), "server error"),
+        (_status(openai.InternalServerError, 503), "server error"),
+    ],
+    ids=["connection", "429", "500", "503"],
+)
+def test_F03_R5_each_retryable_error_class(repo: MemoryRepo, error: Exception, cause: str) -> None:
+    client = ScriptedModelClient({A: [error, raw(payload())], B: [raw(payload())]})
+    retries = RetryLog()
+    result = run(repo, client, on_retry=retries)
+    assert _by_variant(client)[A] == 2
+    assert list(retries) == [RetryInfo(page_no=PAGE_NO, variant=A, attempt=2, cause=cause)]
+    assert result.page.page_no == PAGE_NO
+
+
+@pytest.mark.parametrize(
+    "error_cls, code",
+    [(openai.AuthenticationError, 401), (openai.BadRequestError, 400)],
+    ids=["401", "400"],
+)
+def test_F03_R5_auth_error_not_retried(
+    repo: MemoryRepo, error_cls: type[openai.APIStatusError], code: int
+) -> None:
+    client = ScriptedModelClient({A: [_status(error_cls, code)], B: [raw(payload())]})
+    sleeps, retries = Sleeps(), RetryLog()
+    error = _fails(repo, client, sleep=sleeps, on_retry=retries)
+    assert _by_variant(client)[A] == 1  # one attempt, no retry
+    assert list(sleeps) == [] and list(retries) == []
+    assert error.detail == f"rejected: HTTP {code}"
+    assert (error.service, error.stage, error.page_no) == ("openai", "extract", PAGE_NO)
+
+
+def test_F03_R5_one_read_fails_other_cached(repo: MemoryRepo) -> None:
+    failing = ScriptedModelClient({A: [_timeout()] * 3, B: [raw(payload())]})
+    _fails(repo, failing)
+    assert stored(repo, A) is None
+    assert stored(repo, B) is not None  # spec US3 scenario 5
+    assert repo.list_review_items(RUN_ID) == []  # no partial page result
+
+    later = ScriptedModelClient({A: [raw(payload())]})
+    result = run(repo, later)
+    assert later.calls == 1 and [r.variant for r in later.requests] == [A]
+    assert result.calls_made == 1
+
+
+def test_F03_R5_unexpected_error_propagates_unchanged(repo: MemoryRepo) -> None:
+    """Errors outside the §4 table (e.g. a replay cache miss) are bugs, not upstream trouble."""
+    client = ScriptedModelClient({A: [KeyError("no cached read")], B: [raw(payload())]})
+    with pytest.raises(KeyError):
+        run(repo, client)
+    assert _by_variant(client)[A] == 1
+    assert stored(repo, B) is not None
+
+
+def test_F03_R5_worst_case_budget() -> None:
+    worst = EXTRACT_ATTEMPTS * EXTRACT_TIMEOUT_S + sum(EXTRACT_WAITS_S)
+    assert (EXTRACT_ATTEMPTS, EXTRACT_TIMEOUT_S, EXTRACT_WAITS_S) == (3, 60, (2, 8))
+    assert worst == 190 <= 200  # FR-014, NFR-03 (reads run in parallel: per page too)
+
+
+def test_F03_FM06_unreadable_page_raises_and_queues_nothing(repo: MemoryRepo) -> None:
+    blot = _cell(None, "ILLEGIBLE")
+    unreadable = payload(
+        rows=[
+            _row(1, **{f: blot for f in ("date", "grn_no", "supplier", "item", "lot_no")}),
+            _row(2, **{f: blot for f in ("qty", "unit", "recd_by", "item")}),
+        ]
+    )  # 9 of 16 merged cells illegible
+    with pytest.raises(PageUnreadable) as info:
+        run(repo, healthy(a=raw(unreadable), b=raw(payload())))
+    assert (info.value.page_no, info.value.illegible, info.value.total) == (PAGE_NO, 9, 16)
+    assert repo.list_review_items(RUN_ID) == []
+
+
+def test_F03_FM06_half_illegible_is_readable(repo: MemoryRepo) -> None:
+    blot = _cell(None, "ILLEGIBLE")
+    half = payload(
+        rows=[
+            _row(1, **{f: blot for f in ("date", "grn_no", "supplier", "item")}),
+            _row(2, **{f: blot for f in ("qty", "unit", "recd_by", "item")}),
+        ]
+    )
+    result = run(repo, healthy(a=raw(half), b=raw(payload())))
+    assert result.review_cells > 0
+
+
+@pytest.mark.parametrize(
+    ("fault", "detail"),
+    [
+        (Fault.EXTRACT_TIMEOUT, "timeout after 3 attempts"),
+        (Fault.EXTRACT_BAD_JSON, "invalid output after 3 attempts"),
+    ],
+)
+def test_F03_R5_fault_client_timeout_and_bad_json(
+    repo: MemoryRepo, fault: Fault, detail: str
+) -> None:
+    sleeps = Sleeps()
+    error = _fails(repo, FaultModelClient(ScriptedModelClient(), fault), sleep=sleeps)
+    assert error.detail == detail
+    assert sorted(sleeps) == [2, 2, 8, 8]
+    assert stored(repo, A) is None and stored(repo, B) is None
+
+
+def test_F03_R5_retry_logs_cause_without_secrets(
+    repo: MemoryRepo, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    client = ScriptedModelClient({A: [_timeout(), raw(payload())], B: [raw(payload())]})
+    run(repo, client, cfg=settings(OPENAI_API_KEY=API_KEY))
+    assert "timeout" in caplog.text
+    assert API_KEY not in caplog.text
+    assert "register-page-two" not in caplog.text
