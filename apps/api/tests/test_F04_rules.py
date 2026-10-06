@@ -17,6 +17,7 @@ from app.domain.enums import (
     RowKind,
     Source,
 )
+from app.domain.ids import stable_id
 from app.domain.models import CANONICAL_CELL_FIELDS, UnknownMappingContext
 from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import NormaliseResult, RawRow, read_erp, read_sheet
@@ -433,3 +434,16 @@ def test_F04_erp_meta_trimmed(inputs: EngineInputs, erp: list[RawRow]) -> None:
     assert meta.entered_at.isoformat() == "2026-10-02T18:47:00+05:00"
     blank = normalise_pack(inputs, erp=with_values(erp, "ERP-0028", entered_by="  "))
     assert row_by_id(blank, "ERP-0028").meta.entered_by is None
+
+
+def test_F04_stable_ids_follow_research_R8(inputs: EngineInputs, sheet: list[RawRow]) -> None:
+    """Research R8: rows `source_row_id`; log `source_row_id|field|code`; flags
+    `flag|source_row_id` (the scheme controls.py uses, so the engine's flag list has one)."""
+    changed = normalise_pack(inputs, sheet=with_values(sheet, "XLS-r2", UOM="boxes"))
+
+    for row in changed.rows:
+        assert row.id == stable_id(PACK_RUN_ID, row.source_row_id)
+    for entry in changed.norm_log:
+        assert entry.id == stable_id(PACK_RUN_ID, entry.source_row_id, entry.field, entry.code)
+    (flag,) = changed.flags
+    assert flag.id == stable_id(PACK_RUN_ID, FlagType.UNKNOWN_UNIT, "XLS-r2")

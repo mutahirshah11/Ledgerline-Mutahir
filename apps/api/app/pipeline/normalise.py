@@ -401,7 +401,7 @@ class _RowNormaliser:
         run_id = self.out.run_id
         self.out.norm_log.append(
             NormLogEntry(
-                id=stable_id(run_id, "NORM", self.row_id, name),
+                id=stable_id(run_id, self.row_id, name, code.value),
                 run_id=run_id,
                 source_row_id=self.row_id,
                 field=name,
@@ -421,7 +421,7 @@ class _RowNormaliser:
         if flag is not None:
             self.out.flags.append(
                 ControlFlag(
-                    id=stable_id(run_id, "FLAG", flag.value, self.row_id),
+                    id=stable_id(run_id, flag.value, self.row_id),
                     run_id=run_id,
                     flag=flag,
                     grn_no=self.grn_no,
@@ -599,7 +599,7 @@ class _RowNormaliser:
         unit = self.unit()
         qty_base = self.qty_base(qty, unit)
         return CanonicalRow(
-            id=stable_id(self.out.run_id, "ROW", self.row_id),
+            id=stable_id(self.out.run_id, self.row_id),
             run_id=self.out.run_id,
             source=self.source,
             source_row_id=self.row_id,
