@@ -1,0 +1,16 @@
+alias,unit,base,factor
+pcs,PCS,PCS,1
+bags,BAG,BAG,1
+bag,BAG,BAG,1
+cones,CONE,CONE,1
+cone,CONE,CONE,1
+drums,DRUM,DRUM,1
+drum,DRUM,DRUM,1
+rolls,ROLL,ROLL,1
+roll,ROLL,ROLL,1
+ctns,CTN,CTN,1
+ctn,CTN,CTN,1
+bdl,BDL,BDL,1
+m,M,M,1
+yds,YD,M,0.9144
+yd,YD,M,0.9144

@@ -27,6 +27,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.models import (
+    CANONICAL_CELL_FIELDS,
     AllowedUser,
     AuditEntry,
     CanonicalRow,
@@ -158,7 +159,7 @@ def make_row(run_id: UUID, source_row_id: str, **over: Any) -> CanonicalRow:
         uom="KG",
         qty_base=None,
         base_uom=None,
-        cell_status={},
+        cell_status=dict.fromkeys(CANONICAL_CELL_FIELDS, CellStatus.CLEAR),
         raw={"qty": "1.50"},
         meta=RowMeta(),
         duplicate_of=None,

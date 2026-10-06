@@ -166,6 +166,28 @@ class MergedRow(DomainModel):
     cells: dict[RegisterField, MergedCell]
 
 
+class RegisterPageInput(DomainModel):
+    """Per-page engine input (data-model.md Section 1, E1): merged rows plus header and read
+    counts, for F-04.R4 (year) and F-07.R3 (C3)."""
+
+    page_no: PageNo
+    page_sha256: Sha256Hex | None = None
+    month_written: str | None
+    row_count_a: Annotated[int, Field(ge=0, le=PRINTED_ROW_SLOTS)]
+    row_count_b: Annotated[int, Field(ge=0, le=PRINTED_ROW_SLOTS)]
+    blank_slots_a: Annotated[int, Field(ge=0, le=PRINTED_ROW_SLOTS)]
+    blank_slots_b: Annotated[int, Field(ge=0, le=PRINTED_ROW_SLOTS)]
+    rows: list[MergedRow]
+
+    @field_validator("rows")
+    @classmethod
+    def _sorted_unique(cls, rows: list[MergedRow]) -> list[MergedRow]:
+        indexes = [r.row_index for r in rows]
+        if len(set(indexes)) != len(indexes):
+            raise ValueError("row_index must be unique within a page")
+        return sorted(rows, key=lambda r: r.row_index)
+
+
 # --- 4.2 Canonical rows and reconciliation -----------------------------------------------
 
 
@@ -176,6 +198,12 @@ class RowMeta(DomainModel):
     entered_by: str | None = None
     entered_at: AwareDatetime | None = None
     remarks: str | None = None
+
+
+CANONICAL_CELL_FIELDS: frozenset[str] = frozenset(
+    {"date", "grn_no", "supplier_code", "item", "lot_no", "qty", "uom", "received_by"}
+)
+"""Canonical field names of `CanonicalRow.cell_status` (data-model.md Section 1, E4)."""
 
 
 class CanonicalRow(DomainModel):
@@ -199,6 +227,15 @@ class CanonicalRow(DomainModel):
     duplicate_of: str | None
     group_id: UUID | None
     outcome: Outcome | None
+
+    @model_validator(mode="after")
+    def _cell_status_keys(self) -> Self:
+        """E4: ERP and SHEET rows carry every canonical key in cell_status."""
+        if self.source in (Source.ERP, Source.SHEET) and set(self.cell_status) != (
+            CANONICAL_CELL_FIELDS
+        ):
+            raise ValueError(f"cell_status must have keys {sorted(CANONICAL_CELL_FIELDS)}")
+        return self
 
 
 class Diff(DomainModel):

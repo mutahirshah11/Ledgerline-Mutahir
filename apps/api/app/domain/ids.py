@@ -3,7 +3,7 @@
 import hashlib
 import re
 from collections.abc import Iterable
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from app.domain.enums import PRINTED_ROW_SLOTS, FlagType, ReviewKind, Stage
 
@@ -73,6 +73,15 @@ def review_item_key(
     if grn_no is None:
         raise ValueError("row_id or grn_no is required")
     return f"FLAG:{flag.value}:{_int_at_least('grn_no', grn_no, 1)}"
+
+
+def stable_id(run_id: UUID, *parts: str) -> UUID:
+    """Deterministic id for canonical rows, groups, flags, log entries and review items (E2).
+
+    `uuid5(run_id, "|".join(parts))`: same run + same parts always give the same id; a
+    different run or different parts give a different one (F-05.R11, AC8).
+    """
+    return uuid5(run_id, "|".join(parts))
 
 
 def summary_key(run_key: str) -> str:
