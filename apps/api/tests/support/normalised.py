@@ -9,9 +9,9 @@ from app.domain.models import CanonicalRow, RegisterPageInput, ReviewItem, Unkno
 from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import NormaliseResult, RawRow, normalise_all, read_erp, read_sheet
 from tests.factories import T0
+from tests.support.pack import PACK_RUN_ID
 
-PACK_RUN_ID = UUID("00000000-0000-4000-8000-000000002609")
-"""Same fixed run id as `tests/conftest.py`, so stable ids match across tests."""
+__all__ = ["PACK_RUN_ID", "map_decision", "normalise_pack", "row_by_id", "with_values"]
 
 
 def normalise_pack(

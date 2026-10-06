@@ -6,7 +6,14 @@ from uuid import UUID
 
 import pytest
 
-from app.domain.enums import CellStatus, RegisterField, ReviewKind, ReviewReason, ReviewStatus
+from app.domain.enums import (
+    CellStatus,
+    RegisterField,
+    ReviewKind,
+    ReviewReason,
+    ReviewStatus,
+    RunStatus,
+)
 from app.domain.models import Run
 from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import load_mappings
@@ -66,10 +73,25 @@ def test_resolved_cell_is_a_resolved_cell_item() -> None:
         "qty",
     )
     assert item == resolved_cell(RUN_ID, "REG-p2-r14", "qty", "70")
+    assert item.reason is ReviewReason.ILLEGIBLE
+
+
+def test_resolved_cell_reason_keyword() -> None:
+    item = resolved_cell(RUN_ID, "REG-p2-r05", "qty", "66", reason=ReviewReason.CORRECTED)
+    assert item.reason is ReviewReason.CORRECTED
+
+
+def test_pack_run_id_is_shared() -> None:
+    """One fixed pack run id, defined in tests/support/pack.py and reused everywhere."""
+    from tests import conftest
+    from tests.support import normalised, pack
+
+    assert normalised.PACK_RUN_ID is pack.PACK_RUN_ID
+    assert conftest.PACK_RUN_ID is pack.PACK_RUN_ID
 
 
 def test_extracted_run_shares_engine_inputs_run_id(
     extracted_run: Run, engine_inputs: EngineInputs
 ) -> None:
-    assert extracted_run.status == "EXTRACTED"
+    assert extracted_run.status is RunStatus.EXTRACTED
     assert engine_inputs.run_id == extracted_run.id

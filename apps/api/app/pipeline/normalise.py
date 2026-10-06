@@ -43,7 +43,8 @@ MAPPINGS_DIR = Path(__file__).resolve().parents[1] / "mappings"
 
 _SUPPLIER_HEADER = ["alias", "code"]
 _UNIT_HEADER = ["alias", "unit", "base", "factor"]
-_SUPPLIER_CODE = re.compile(r"S-10[1-7]")
+SUPPLIER_CODES = frozenset(f"S-{n}" for n in range(101, 108))
+"""The only valid supplier codes, S-101..S-107 (Section 16; research R5)."""
 
 V = TypeVar("V")
 
@@ -69,6 +70,14 @@ class MappingTables:
     codes: frozenset[str]
     units: Mapping[str, UnitDef]
 
+    def supplier_code(self, text: str) -> str | None:
+        """The code for a supplier alias (research R5 key), or None."""
+        return self.suppliers.get(_alias_key(text))
+
+    def unit_def(self, text: str) -> UnitDef | None:
+        """The unit for a unit alias (research R5 key), or None."""
+        return self.units.get(_alias_key(text))
+
 
 def _alias_key(value: str) -> str:
     """Research R5 lookup key: trim, collapse inner whitespace, casefold."""
@@ -77,7 +86,7 @@ def _alias_key(value: str) -> str:
 
 def _read_rows(path: Path, header: list[str]) -> list[tuple[int, list[str]]]:
     """(line number, cells) per data line; ValueError on a header other than `header`."""
-    with path.open(encoding="utf-8", newline="") as f:
+    with path.open(encoding="utf-8-sig", newline="") as f:
         lines = list(csv.reader(f))
     if not lines or [h.strip() for h in lines[0]] != header:
         raise ValueError(f"{path.name}: header must be {','.join(header)}")
@@ -104,13 +113,15 @@ def load_mappings(dir: Path = MAPPINGS_DIR) -> MappingTables:
     """Read `supplier_map.csv` (alias,code) and `unit_map.csv` (alias,unit,base,factor).
 
     ValueError on a duplicate alias, an unknown header, a code outside S-101..S-107, a factor
-    that is not a positive Decimal, or a base unit not defined as a unit (contracts/normalise.md).
+    that is not a positive Decimal, a base unit not defined as a unit (contracts/normalise.md),
+    aliases of one unit with different base or factor, or a base unit with factor other than 1.
+    `codes` is always the fixed list S-101..S-107.
     """
     suppliers: dict[str, str] = {}
     path = dir / "supplier_map.csv"
     for line_no, (alias, code) in _read_rows(path, _SUPPLIER_HEADER):
         where = f"{path.name} line {line_no}"
-        if not _SUPPLIER_CODE.fullmatch(code):
+        if code not in SUPPLIER_CODES:
             raise ValueError(f"{where}: code {code!r} is not one of S-101..S-107")
         _add_alias(suppliers, alias, code, where)
 
@@ -124,7 +135,13 @@ def load_mappings(dir: Path = MAPPINGS_DIR) -> MappingTables:
             raise ValueError(f"{where}: factor {factor_text!r} is not a decimal") from None
         if not factor.is_finite() or factor <= 0 or not unit or not base:
             raise ValueError(f"{where}: need unit, base and a positive factor")
-        _add_alias(units, alias, UnitDef(unit=unit, base=base, factor=factor), where)
+        unit_def = UnitDef(unit=unit, base=base, factor=factor)
+        if unit == base and factor != 1:
+            raise ValueError(f"{where}: base unit {base} needs factor 1")
+        known = next((u for u in units.values() if u.unit == unit), None)
+        if known is not None and known != unit_def:
+            raise ValueError(f"{where}: aliases of {unit} disagree on base or factor")
+        _add_alias(units, alias, unit_def, where)
 
     undefined = sorted({u.base for u in units.values()} - {u.unit for u in units.values()})
     if undefined:
@@ -132,7 +149,7 @@ def load_mappings(dir: Path = MAPPINGS_DIR) -> MappingTables:
 
     return MappingTables(
         suppliers=MappingProxyType(suppliers),
-        codes=frozenset(suppliers.values()),
+        codes=SUPPLIER_CODES,
         units=MappingProxyType(units),
     )
 
@@ -521,7 +538,7 @@ class _RowNormaliser:
             code = exact_code
             log_code = NormCode.TEXT_TRIMMED
         else:
-            code = mappings.suppliers.get(_alias_key(text))
+            code = mappings.supplier_code(text)
             if code is None and "supplier_code" in self.overridden:
                 code = exact_code
             log_code = NormCode.SUPPLIER_MAPPED
@@ -542,7 +559,7 @@ class _RowNormaliser:
         if not self._readable("uom"):
             return None
         text = _text(self.cells["uom"].value) or ""
-        unit = self.out.mappings.units.get(_alias_key(text))
+        unit = self.out.mappings.unit_def(text)
         if unit is None:
             self._unknown("uom", "unit", ReviewReason.UNKNOWN_UNIT, FlagType.UNKNOWN_UNIT)
             return None

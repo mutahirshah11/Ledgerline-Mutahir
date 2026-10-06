@@ -4,7 +4,6 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 import pytest
 
@@ -89,8 +88,7 @@ def memory_blobs() -> "MemoryBlobStore":
 
 # --- Engine inputs (Phase 1, tests/support/pack.py) --------------------------------------
 
-PACK_RUN_ID = UUID("00000000-0000-4000-8000-000000002609")
-"""Fixed run id of the pack run, so stable ids (F-05.R11) are the same in every test."""
+from tests.support.pack import PACK_RUN_ID  # noqa: E402
 
 
 @pytest.fixture

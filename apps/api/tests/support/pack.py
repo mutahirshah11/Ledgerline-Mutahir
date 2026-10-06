@@ -20,6 +20,8 @@ from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import load_mappings
 from tests.factories import T0
 
+PACK_RUN_ID = UUID("00000000-0000-4000-8000-000000002609")
+"""Fixed run id of the pack run, so stable ids (F-05.R11) are the same in every test."""
 PACK_MONTH = "2026-09"
 PAGES = (1, 2)
 ERP_FILE = "t4_erp_grn.csv"
@@ -76,9 +78,16 @@ def build_engine_inputs(
     )
 
 
-def resolved_cell(run_id: UUID, row_id: str, field: str, value: str) -> ReviewItem:
+def resolved_cell(
+    run_id: UUID,
+    row_id: str,
+    field: str,
+    value: str,
+    *,
+    reason: ReviewReason = ReviewReason.ILLEGIBLE,
+) -> ReviewItem:
     """A `RESOLVED` CELL decision (F-04.R2) on register row `row_id` (`REG-p{p}-r{rr}`) and
-    register field `field`, with deterministic id and timestamp."""
+    register field `field`, raised for `reason`, with deterministic id and timestamp."""
     page_text, row_text = row_id.removeprefix("REG-p").split("-r")
     page_no, row_index = int(page_text), int(row_text)
     if register_row_id(page_no, row_index) != row_id:
@@ -92,7 +101,7 @@ def resolved_cell(run_id: UUID, row_id: str, field: str, value: str) -> ReviewIt
         grn_no=None,
         source_row_id=row_id,
         field=field,
-        reason=ReviewReason.ILLEGIBLE,
+        reason=reason,
         read_a=None,
         read_b=None,
         context=CellContext(page_no=page_no, row_index=row_index),
