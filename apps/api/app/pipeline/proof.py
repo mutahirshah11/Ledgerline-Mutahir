@@ -366,15 +366,44 @@ def check_c4(
 def check_c5(
     rows: Sequence[CanonicalRow], groups: Sequence[Group], flags: Sequence[ControlFlag]
 ) -> CheckC5:
-    """GRNs of receipt rows == GRNs of groups; every missing number in range has a gap flag."""
-    row_grns = {r.grn_no for r in rows if r.row_kind is RowKind.RECEIPT and r.grn_no is not None}
+    """GRNs of receipt rows == GRNs of groups; every GRN missing from [min, max] of all rows'
+    GRNs (any kind: the SEQUENCE_GAP rule's set) lies in some gap flag's [low, high]."""
+    receipt_grns = {
+        r.grn_no for r in rows if r.row_kind is RowKind.RECEIPT and r.grn_no is not None
+    }
     group_grns = {g.grn_no for g in groups if g.grn_no is not None}
-    gaps = (
-        sorted(set(range(min(group_grns), max(group_grns) + 1)) - group_grns) if group_grns else []
+    all_grns = sorted({r.grn_no for r in rows if r.grn_no is not None})
+    missing = [
+        (before + 1, after - 1)
+        for before, after in zip(all_grns, all_grns[1:], strict=False)
+        if after - before > 1
+    ]
+    covered = _merged_ranges(_gap_range(f) for f in flags if f.flag is FlagType.SEQUENCE_GAP)
+    ok = receipt_grns == group_grns and all(
+        any(lo <= low and high <= hi for lo, hi in covered) for low, high in missing
     )
-    flagged = {f.grn_no for f in flags if f.flag is FlagType.SEQUENCE_GAP}
-    ok = row_grns == group_grns and all(g in flagged for g in gaps)
+    gaps = [grn for low, high in missing for grn in range(low, high + 1)]
     return CheckC5(pass_=ok, grns=len(group_grns), gaps=gaps)
+
+
+def _gap_range(flag: ControlFlag) -> tuple[int, int]:
+    """A gap flag's [low, high]; a flag without a readable range covers its own GRN only."""
+    try:
+        return int(flag.detail["low"]), int(flag.detail["high"])
+    except (KeyError, ValueError):
+        grn = flag.grn_no if flag.grn_no is not None else 0
+        return grn, grn
+
+
+def _merged_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Union of inclusive integer ranges, adjacent ones joined, sorted."""
+    out: list[tuple[int, int]] = []
+    for low, high in sorted(ranges):
+        if out and low <= out[-1][1] + 1:
+            out[-1] = (out[-1][0], max(out[-1][1], high))
+        else:
+            out.append((low, high))
+    return out
 
 
 # --- Proof (F-07.R6) ------------------------------------------------------------------------

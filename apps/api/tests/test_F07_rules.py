@@ -25,6 +25,7 @@ from app.domain.enums import (
 from app.domain.models import (
     CanonicalRow,
     Cell,
+    ControlFlag,
     Group,
     MergedCell,
     MergedRow,
@@ -317,22 +318,52 @@ def test_F07_C3_row_in_one_read_covered_passes() -> None:
 # --- C5 -------------------------------------------------------------------------------------
 
 
-def test_F07_C5_unflagged_gap_fails() -> None:
+def _receipts_and_groups(*grns: int) -> tuple[list[CanonicalRow], list[Group]]:
     rows = [
-        make_row(RUN, "ERP-0001", grn_no=1, row_kind=RowKind.RECEIPT, outcome=Outcome.MISSING),
-        make_row(RUN, "ERP-0002", grn_no=3, row_kind=RowKind.RECEIPT, outcome=Outcome.MISSING),
+        make_row(RUN, f"ERP-{n:04}", grn_no=n, row_kind=RowKind.RECEIPT, outcome=Outcome.MISSING)
+        for n in grns
     ]
     groups = [
         make_group(RUN, f"GRN:{n}", grn_no=n, outcome=Outcome.MISSING, missing_from=[Source.SHEET])
-        for n in (1, 3)
+        for n in grns
     ]
-    gap_flag = make_flag(RUN, flag=FlagType.SEQUENCE_GAP, grn_no=2, detail={"low": "1"})
+    return rows, groups
+
+
+def _gap(low: int, high: int) -> ControlFlag:
+    detail = {"low": str(low), "high": str(high)}
+    return make_flag(RUN, flag=FlagType.SEQUENCE_GAP, grn_no=low, detail=detail)
+
+
+def test_F07_C5_unflagged_gap_fails() -> None:
+    rows, groups = _receipts_and_groups(1, 3)
 
     c5 = proof.check_c5(rows, groups, [])
     assert not c5.pass_
     assert (c5.grns, c5.gaps) == (2, [2])
 
-    assert proof.check_c5(rows, groups, [gap_flag]).pass_
+    assert proof.check_c5(rows, groups, [_gap(2, 2)]).pass_
+
+
+def test_F07_C5_range_flag_covers_every_missing_grn() -> None:
+    rows, groups = _receipts_and_groups(1, 5)
+
+    c5 = proof.check_c5(rows, groups, [_gap(2, 4)])
+    assert c5.pass_
+    assert c5.gaps == [2, 3, 4]
+
+    assert not proof.check_c5(rows, groups, [_gap(2, 3)]).pass_  # 4 is not covered
+    assert proof.check_c5(rows, groups, [_gap(2, 2), _gap(3, 4)]).pass_
+
+
+def test_F07_C5_non_receipt_grn_is_not_a_gap() -> None:
+    """C5 uses the SEQUENCE_GAP rule's GRN set: all rows, any kind (user decision 2026-10-07)."""
+    rows, groups = _receipts_and_groups(1, 3)
+    rows.append(make_row(RUN, "XLS-r2", grn_no=2, row_kind=RowKind.NON_RECEIPT))
+
+    c5 = proof.check_c5(rows, groups, [])
+    assert c5.pass_
+    assert c5.gaps == []
 
 
 # --- Independence (F-07.R3) -----------------------------------------------------------------
