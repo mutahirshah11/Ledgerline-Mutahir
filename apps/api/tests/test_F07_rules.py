@@ -272,6 +272,11 @@ def test_F07_C3_slot_mismatch_fails() -> None:
     c3 = proof.check_c3(inputs, {Source.REGISTER: 1, Source.ERP: 0, Source.SHEET: 0}, [])
 
     assert not c3.pass_
+    assert c3.problems == [
+        "page 1 read A: 1 rows + 14 blank != 16",
+        "page 1 read B: 1 rows + 14 blank != 16",
+        "page 1: 1 merged rows + 14 blank != 16",
+    ]
 
 
 def test_F07_C3_reads_disagree_fails() -> None:

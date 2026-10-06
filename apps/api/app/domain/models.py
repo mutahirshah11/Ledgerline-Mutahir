@@ -456,6 +456,7 @@ class CheckC2(AliasedCheck):
 
 class CheckC3(AliasedCheck):
     per_source: dict[Source, int]
+    problems: list[str] = []  # human-readable reasons C3 failed (slots, one-read rows)
 
 
 class CheckC4(AliasedCheck):

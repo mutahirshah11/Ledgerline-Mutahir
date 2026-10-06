@@ -191,7 +191,7 @@ def _one_read_covered(inputs: "EngineInputs", groups: Sequence[Group]) -> list[s
             items[(ctx.page_no, ctx.row_index)] = decision
     outcome_of = {i: g.outcome for g in groups for i in g.row_ids.get(Source.REGISTER, [])}
     problems = []
-    for page in inputs.register_pages:
+    for page in sorted(inputs.register_pages, key=lambda p: p.page_no):
         for row in _one_read_rows(page):
             row_id = register_row_id(page.page_no, row.row_index)
             item = items.get((page.page_no, row.row_index))
@@ -208,7 +208,8 @@ def _one_read_covered(inputs: "EngineInputs", groups: Sequence[Group]) -> list[s
 def check_c3(
     inputs: "EngineInputs", rows_in: Mapping[Source, int], groups: Sequence[Group]
 ) -> CheckC3:
-    """Independent row counts equal F-04's rows in, per source; register slots add up (R9)."""
+    """Independent row counts equal F-04's rows in, per source; register slots add up (R9).
+    `problems`: slot and one-read reasons, page order then one-read rows (deterministic)."""
     register, problems = register_counts(inputs.register_pages)
     problems += _one_read_covered(inputs, groups)
     per_source = {
@@ -217,7 +218,7 @@ def check_c3(
         Source.SHEET: count_sheet_rows(inputs.sheet_bytes, inputs.month),
     }
     agree = all(per_source[s] == rows_in.get(s, 0) for s in Source)
-    return CheckC3(pass_=agree and not problems, per_source=per_source)
+    return CheckC3(pass_=agree and not problems, per_source=per_source, problems=problems)
 
 
 # --- C4 (F-07.R4, P1-B2 / C23; research R10) ------------------------------------------------
