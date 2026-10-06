@@ -17,7 +17,9 @@ export const metadata: Metadata = {
   description: "GRN reconciliation across register, ERP and store sheet",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="en"
