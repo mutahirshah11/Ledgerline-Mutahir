@@ -1,16 +1,25 @@
 """F-03 extraction service (contracts/extract-service.md). Pure functions make no I/O except
 reading the shipped prompt and schema files."""
 
+import hashlib
 import json
+import logging
 import re
+import time
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from app.core.errors import InvalidReadOutput, PageUnreadable
+from app.core import clock
+from app.core.config import Settings
+from app.core.db import Repo
+from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
 from app.domain.enums import (
     REVIEWABLE_REGISTER_FIELDS,
     CellStatus,
@@ -30,14 +39,17 @@ from app.domain.ids import (
 from app.domain.models import (
     Cell,
     CellContext,
+    Extraction,
     MergedCell,
     MergedPage,
     MergedRow,
+    PageExtractionResult,
     PageLabelMismatchContext,
     PageRead,
     ReviewItem,
     RowInOneReadContext,
 )
+from app.pipeline.model_client import ModelClient, RawRead
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
@@ -392,3 +404,206 @@ def build_review_items(
     for row in page.rows:
         items.extend(_row_items(row, run_id))
     return items
+
+
+# --- service (contract §3, FR-001 to FR-014, FR-027 to FR-029) ---------------------------
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RetryInfo:
+    """What the retry observer hears before each wait (FR-013); `attempt` is the next one."""
+
+    page_no: int
+    variant: ReadVariant
+    attempt: int
+    cause: str
+
+
+def image_mime(image: bytes) -> str:
+    """MIME from magic bytes (research R3); anything else is refused before any call."""
+    if image.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    raise ValueError("page image is not a JPEG or PNG")
+
+
+@dataclass
+class _ReadOutcome:
+    read: PageRead | None = None
+    raw: RawRead | None = None
+    attempts: int = 0
+    error: BaseException | None = None
+
+
+def _read_with_retries(
+    client: ModelClient,
+    *,
+    image: bytes,
+    mime: str,
+    variant: ReadVariant,
+    instructions: str,
+    schema: dict[str, Any],
+    page_no: int,
+    on_retry: Callable[[RetryInfo], None] | None,
+    sleep: Callable[[float], None],
+) -> _ReadOutcome:
+    """One read: call the model and validate the answer (single attempt)."""
+    outcome = _ReadOutcome()
+    try:
+        outcome.attempts += 1
+        answer = client.read_page(
+            image=image, mime=mime, variant=variant, instructions=instructions, schema=schema
+        )
+        outcome.read, outcome.raw = parse_read(answer.payload), answer
+    except Exception as exc:
+        outcome.error = exc
+    return outcome
+
+
+def _upstream_failed(error: BaseException, attempts: int, page_no: int) -> UpstreamFailed:
+    """Contract §4 cause table."""
+    if isinstance(error, InvalidReadOutput):
+        detail = f"invalid output after {attempts} attempts"
+    else:
+        detail = f"{type(error).__name__} after {attempts} attempts"
+    return UpstreamFailed("openai", detail, stage="extract", page_no=page_no)
+
+
+def _cached_read(repo: Repo, sha: str, variant: ReadVariant, settings: Settings) -> PageRead | None:
+    record = repo.get_extraction(sha, variant, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
+    if record is None:
+        return None
+    try:
+        return parse_read(record.result.model_dump(mode="json"))
+    except InvalidReadOutput as exc:
+        raise RuntimeError(
+            f"cache record invalid: {sha[:12]} variant {variant.value} "
+            f"{settings.EXTRACT_MODEL} {settings.PROMPT_VERSION}"
+        ) from exc
+
+
+def _store(
+    repo: Repo, sha: str, variant: ReadVariant, settings: Settings, outcome: _ReadOutcome
+) -> PageRead:
+    """FR-007: store one successful read at once. On a key conflict the first record wins and
+    its read is the one merged, so the page stays re-derivable from the cache (FR-028)."""
+    assert outcome.read is not None and outcome.raw is not None
+    record, _created = repo.put_extraction(
+        Extraction(
+            id=uuid4(),
+            page_sha256=sha,
+            read_variant=variant,
+            model=settings.EXTRACT_MODEL,
+            prompt_version=settings.PROMPT_VERSION,
+            result=outcome.read,
+            input_tokens=outcome.raw.input_tokens,
+            output_tokens=outcome.raw.output_tokens,
+            latency_ms=outcome.raw.latency_ms,
+            created_at=clock.now(),
+        )
+    )
+    return record.result
+
+
+def _disagreements(page: MergedPage) -> int:
+    """Data-model §5: READS_DISAGREE cells (any field) plus rows seen by one read only."""
+    count = 0
+    for row in page.rows:
+        first = next(iter(row.cells.values()))
+        if first.read_a is None or first.read_b is None:
+            count += 1
+            continue
+        count += sum(
+            1 for c in row.cells.values() if c.review_reason is ReviewReason.READS_DISAGREE
+        )
+    return count
+
+
+def extract_page(
+    *,
+    repo: Repo,
+    client: ModelClient,
+    run_id: UUID,
+    run_month: str,
+    page_no: int,
+    image: bytes,
+    settings: Settings,
+    on_retry: Callable[[RetryInfo], None] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> PageExtractionResult:
+    """Read one register page twice (cached per variant), merge, check and queue review items
+    (contract §3). Never changes run status, run events or audit (FR-029); `on_retry` runs on
+    the read's worker thread. Never logs the API key or the image.
+
+    Raises:
+        ValueError: the image is not a JPEG or PNG (before any lookup or call).
+        RuntimeError: a cached record no longer validates ("cache record invalid").
+        UpstreamFailed: a read could not be obtained (service "openai", stage "extract").
+        PageUnreadable: more than half the merged cells are illegible (FM-06); nothing queued.
+    """
+    sha = hashlib.sha256(image).hexdigest()
+    mime = image_mime(image)
+    reads: dict[ReadVariant, PageRead | None] = {
+        v: _cached_read(repo, sha, v, settings) for v in ReadVariant
+    }
+    missing = [v for v, r in reads.items() if r is None]
+    calls_made = 0
+    if missing:
+        schema = load_read_schema(settings.PROMPT_VERSION)
+        prompts = {v: load_prompt(v, settings.PROMPT_VERSION) for v in missing}
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract-read") as pool:
+            futures: dict[ReadVariant, Future[_ReadOutcome]] = {
+                v: pool.submit(
+                    _read_with_retries,
+                    client,
+                    image=image,
+                    mime=mime,
+                    variant=v,
+                    instructions=prompts[v],
+                    schema=schema,
+                    page_no=page_no,
+                    on_retry=on_retry,
+                    sleep=sleep,
+                )
+                for v in missing
+            }
+            outcomes = {v: f.result() for v, f in futures.items()}
+        failure: UpstreamFailed | None = None
+        for variant, outcome in outcomes.items():  # store every success first (US3 sc. 5)
+            calls_made += outcome.attempts
+            if outcome.error is None:
+                reads[variant] = _store(repo, sha, variant, settings, outcome)
+            elif failure is None:
+                failure = _upstream_failed(outcome.error, outcome.attempts, page_no)
+        if failure is not None:
+            logger.warning("extract page=%d sha=%s failed: %s", page_no, sha[:12], failure.detail)
+            raise failure
+
+    read_a, read_b = reads[ReadVariant.A], reads[ReadVariant.B]
+    assert read_a is not None and read_b is not None
+    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=sha)
+    check_readable(page)
+    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)
+    repo.upsert_review_items(run_id, items)
+    result = PageExtractionResult(
+        page_no=page_no,
+        cached=calls_made == 0,
+        page=page,
+        review_items=items,
+        review_cells=len(items),
+        disagreements=_disagreements(page),
+        calls_made=calls_made,
+    )
+    logger.info(
+        "extract page=%d sha=%s cached=%s calls=%d review_cells=%d disagreements=%d",
+        page_no,
+        sha[:12],
+        result.cached,
+        calls_made,
+        result.review_cells,
+        result.disagreements,
+    )
+    return result
