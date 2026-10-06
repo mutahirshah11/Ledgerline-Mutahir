@@ -1,11 +1,12 @@
 """BlobStore contract (contracts/repo-interface.md, BlobStore section) against MemoryBlobStore."""
 
 import re
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
 
-from app.core.errors import NotFound, UniqueViolation
+from app.core.errors import AppendOnlyViolation, NotFound, UniqueViolation
 from app.core.storage import BlobStore, MemoryBlobStore
 from tests.factories import T0
 
@@ -38,12 +39,31 @@ def test_reports_never_overwritten(memory_blobs: MemoryBlobStore) -> None:
     with pytest.raises(UniqueViolation):
         memory_blobs.put("reports", "r1/report.html", b"<p>v2</p>", "text/html")
     assert memory_blobs.get("reports", "r1/report.html") == b"<p>v1</p>"
+    # delete-then-put would be an overwrite, so reports cannot be deleted either
+    with pytest.raises(AppendOnlyViolation):
+        memory_blobs.delete("reports", "r1/report.html")
+    assert memory_blobs.get("reports", "r1/report.html") == b"<p>v1</p>"
+
+
+def test_unknown_bucket_rejected(memory_blobs: MemoryBlobStore) -> None:
+    calls: list[Callable[[], object]] = [
+        lambda: memory_blobs.put("public", "a", b"x", "text/plain"),
+        lambda: memory_blobs.get("public", "a"),
+        lambda: memory_blobs.exists("public", "a"),
+        lambda: memory_blobs.delete("public", "a"),
+        lambda: memory_blobs.signed_upload_url("public", "a"),
+        lambda: memory_blobs.signed_download_url("public", "a"),
+    ]
+    for call in calls:
+        with pytest.raises(ValueError):
+            call()
 
 
 def test_signed_url_shapes(memory_blobs: MemoryBlobStore) -> None:
     exp_up = int((T0 + timedelta(seconds=600)).timestamp())
     assert memory_blobs.signed_upload_url("inputs", "r1/erp.csv") == (
-        f"memory://inputs/r1/erp.csv?exp={exp_up}")
+        f"memory://inputs/r1/erp.csv?exp={exp_up}"
+    )
 
     url, expires_at = memory_blobs.signed_download_url("reports", "r1/report.html")
     assert expires_at == T0 + timedelta(seconds=300)

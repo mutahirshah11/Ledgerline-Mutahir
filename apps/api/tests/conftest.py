@@ -4,7 +4,6 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -80,6 +79,6 @@ def repo(request: pytest.FixtureRequest) -> "Repo":
 def memory_blobs() -> "MemoryBlobStore":
     """MemoryBlobStore whose signed-URL expiry is computed from a fixed instant."""
     from app.core.storage import MemoryBlobStore
+    from tests.factories import T0
 
-    fixed = datetime(2026, 10, 1, 9, 0, tzinfo=ZoneInfo("Asia/Karachi"))
-    return MemoryBlobStore(now=lambda: fixed)
+    return MemoryBlobStore(now=lambda: T0)

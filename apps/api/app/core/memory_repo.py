@@ -1,10 +1,12 @@
 """In-memory `Repo` (contracts/repo-interface.md) for tests and local runs.
 
-Deep copies in and out (G1); dict indexes for unique keys (G5); snapshot-and-restore makes
-`replace_reconciliation` all-or-nothing; the audit log is an append-only tuple.
+Deep copies in and out (G1); dict indexes for unique keys (G5), raising `UniqueViolation`
+with the constraint names of `supabase/migrations/0001_init.sql`. Batch writes
+(`replace_reconciliation`, `upsert_review_items`) validate everything first and write only
+after success, so a failure leaves nothing changed. The audit log is an append-only tuple.
 """
 
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 from uuid import UUID
@@ -49,12 +51,10 @@ _KIND_ORDER = {
     ReviewKind.UNKNOWN_MAPPING: 2,
     ReviewKind.FLAG_ACK: 3,
 }
-_RUN_FIXED_FIELDS = frozenset({"id", "status"})
 _RUN_UPDATABLE_FIELDS = frozenset({"run_key", "error_message", "failed_stage"})
+_RUN_TRANSITION_FIELDS = _RUN_UPDATABLE_FIELDS | {"finalised_at", "finalised_by"}
 _NOTIFICATION_FIXED_FIELDS = frozenset({"id", "run_id", "kind", "idempotency_key"})
-_REVIEW_REFRESHED_FIELDS = (
-    "reason", "read_a", "read_b", "context", "grn_no", "source_row_id", "field",
-)
+_REVIEW_REFRESHED_FIELDS = tuple("reason read_a read_b context grn_no source_row_id field".split())
 
 ExtractionKey = tuple[str, ReadVariant, str, str]
 
@@ -71,7 +71,10 @@ def _updated(model: M, fields: dict[str, Any]) -> M:
 
 
 class _AppendOnlyLog:
-    """Audit storage: an immutable tuple that only grows. Item assignment and deletion raise."""
+    """Audit storage: an immutable tuple that only grows. Item assignment and deletion raise.
+
+    Reads (`__iter__`, `__getitem__`) both hand out deep copies.
+    """
 
     __slots__ = ("_entries",)
 
@@ -82,7 +85,7 @@ class _AppendOnlyLog:
         self._entries = (*self._entries, entry)
 
     def __iter__(self) -> Iterator[AuditEntry]:
-        return iter(self._entries)
+        return (e.model_copy(deep=True) for e in self._entries)
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -106,6 +109,23 @@ class _Reconciliation:
         self.groups: dict[str, Group] = {}  # group_key -> group
         self.flags: list[ControlFlag] = []
         self.norm_log: list[NormLogEntry] = []
+
+
+def _recon_keys(
+    rows: Collection[CanonicalRow],
+    groups: Collection[Group],
+    flags: Collection[ControlFlag],
+    norm_log: Collection[NormLogEntry],
+) -> list[tuple[str, list[object]]]:
+    """Unique keys of reconcile outputs as (constraint, values), in the SQL report order."""
+    return [
+        ("source_rows_run_row_uq", [r.source_row_id for r in rows]),
+        ("source_rows_pkey", [r.id for r in rows]),
+        ("groups_run_group_key_uq", [g.group_key for g in groups]),
+        ("groups_pkey", [g.id for g in groups]),
+        ("control_flags_pkey", [f.id for f in flags]),
+        ("normalisation_log_pkey", [n.id for n in norm_log]),
+    ]
 
 
 class MemoryRepo:
@@ -137,13 +157,22 @@ class MemoryRepo:
         except KeyError:
             raise NotFound("run", run_id) from None
 
+    @staticmethod
+    def _check_failed_stage(run: Run) -> None:
+        """Run invariant: status FAILED <=> failed_stage set."""
+        if (run.status is RunStatus.FAILED) != (run.failed_stage is not None):
+            raise ValueError("failed_stage is set exactly when the run is FAILED")
+
     def _check_finalised_key(self, run: Run) -> None:
         if run.status is not RunStatus.FINALISED or run.run_key is None:
             return
         for other in self._runs.values():
-            if (other.id != run.id and other.status is RunStatus.FINALISED
-                    and other.run_key == run.run_key):
-                raise UniqueViolation("runs_finalised_run_key")
+            if (
+                other.id != run.id
+                and other.status is RunStatus.FINALISED
+                and other.run_key == run.run_key
+            ):
+                raise UniqueViolation("runs_run_key_finalised_uq")
 
     # --- health --------------------------------------------------------------------------
 
@@ -181,18 +210,20 @@ class MemoryRepo:
         self, run_id: UUID, to: RunStatus, *, expected: set[RunStatus], **fields: Any
     ) -> Run:
         current = self._run(run_id)
-        bad = _RUN_FIXED_FIELDS.intersection(fields)
+        bad = set(fields) - _RUN_TRANSITION_FIELDS
         if bad:
             raise ValueError(f"transition_run cannot set {sorted(bad)}")
         if current.status not in expected or not can_transition(current.status, to):
             raise StateConflict(_copy(current))
-        if to is RunStatus.FAILED and fields.get("failed_stage") is None:
-            raise ValueError("a transition to FAILED needs failed_stage")
         updates = dict(fields)
         if current.status is RunStatus.FAILED:
+            passed = {"failed_stage", "error_message"}.intersection(fields)
+            if passed:
+                raise ValueError(f"leaving FAILED clears {sorted(passed)}; do not pass them")
             updates.update(failed_stage=None, error_message=None)
         updates["status"] = to
         new = _updated(current, updates)
+        self._check_failed_stage(new)
         self._check_finalised_key(new)
         self._runs[run_id] = new
         return _copy(new)
@@ -205,6 +236,7 @@ class MemoryRepo:
         if current.status is RunStatus.FINALISED:
             raise StateConflict(_copy(current))
         new = _updated(current, fields)
+        self._check_failed_stage(new)
         self._runs[run_id] = new
         return _copy(new)
 
@@ -222,14 +254,15 @@ class MemoryRepo:
             raise UniqueViolation("source_files_pkey")
         key = (file.run_id, file.sha256)
         if key in self._file_keys:
-            raise UniqueViolation("source_files_run_id_sha256_key")
+            raise UniqueViolation("source_files_run_sha256_uq")
         self._files[file.id] = _copy(file)
         self._file_keys[key] = file.id
         return _copy(file)
 
     def list_source_files(self, run_id: UUID, source: Source | None = None) -> list[SourceFile]:
         return [
-            _copy(f) for f in self._files.values()
+            _copy(f)
+            for f in self._files.values()
             if f.run_id == run_id and (source is None or f.source is source)
         ]
 
@@ -275,8 +308,12 @@ class MemoryRepo:
         return None if found is None else _copy(found)
 
     def put_extraction(self, extraction: Extraction) -> tuple[Extraction, bool]:
-        key = (extraction.page_sha256, extraction.read_variant, extraction.model,
-               extraction.prompt_version)
+        key = (
+            extraction.page_sha256,
+            extraction.read_variant,
+            extraction.model,
+            extraction.prompt_version,
+        )
         existing = self._extractions.get(key)
         if existing is not None:
             return _copy(existing), False
@@ -289,50 +326,54 @@ class MemoryRepo:
     # --- reconciliation ------------------------------------------------------------------
 
     def replace_reconciliation(self, run_id: UUID, payload: ReconciliationPayload) -> None:
-        self._run(run_id)
+        run = self._run(run_id)
+        if run.status is RunStatus.FINALISED:
+            raise StateConflict(_copy(run))
         records: list[CanonicalRow | Group | ControlFlag | NormLogEntry] = [
-            *payload.rows, *payload.groups, *payload.flags, *payload.norm_log,
+            *payload.rows,
+            *payload.groups,
+            *payload.flags,
+            *payload.norm_log,
         ]
         if any(r.run_id != run_id for r in records):
             raise ValueError("every payload record must belong to the run")
         group_ids = {g.id for g in payload.groups}
-        stray = [r.source_row_id for r in payload.rows
-                 if r.group_id is not None and r.group_id not in group_ids]
+        stray = [
+            r.source_row_id
+            for r in payload.rows
+            if r.group_id is not None and r.group_id not in group_ids
+        ]
         if stray:
             raise ValueError(f"rows reference groups not in the payload: {stray}")
 
-        previous = self._recon.get(run_id)
+        keys = _recon_keys(payload.rows, payload.groups, payload.flags, payload.norm_log)
+        for constraint, values in keys:  # repeats inside the payload
+            if len(set(values)) != len(values):
+                raise UniqueViolation(constraint)
+        # primary keys held by other runs (this run's previous outputs are replaced)
+        for other_id, o in self._recon.items():
+            if other_id == run_id:
+                continue
+            held = _recon_keys(o.rows.values(), o.groups.values(), o.flags, o.norm_log)
+            for (constraint, values), (_, taken) in zip(keys, held, strict=True):
+                if constraint.endswith("_pkey") and not set(taken).isdisjoint(values):
+                    raise UniqueViolation(constraint)
+
+        # build the replacement aside; it becomes visible only once complete (atomic)
         fresh = _Reconciliation()
+        fresh.rows.update((r.source_row_id, _copy(r)) for r in payload.rows)
+        fresh.groups.update((g.group_key, _copy(g)) for g in payload.groups)
+        fresh.flags.extend(_copy(f) for f in payload.flags)
+        fresh.norm_log.extend(_copy(n) for n in payload.norm_log)
         self._recon[run_id] = fresh
-        try:
-            row_ids: set[UUID] = set()
-            for row in payload.rows:
-                if row.source_row_id in fresh.rows or row.id in row_ids:
-                    raise UniqueViolation("source_rows_run_id_source_row_id_key")
-                row_ids.add(row.id)
-                fresh.rows[row.source_row_id] = _copy(row)
-            seen_group_ids: set[UUID] = set()
-            for group in payload.groups:
-                if group.group_key in fresh.groups or group.id in seen_group_ids:
-                    raise UniqueViolation("groups_run_id_group_key_key")
-                seen_group_ids.add(group.id)
-                fresh.groups[group.group_key] = _copy(group)
-            fresh.flags.extend(_copy(f) for f in payload.flags)
-            fresh.norm_log.extend(_copy(n) for n in payload.norm_log)
-        except BaseException:
-            # restore the snapshot: stored models are immutable, so the old container is intact
-            if previous is None:
-                del self._recon[run_id]
-            else:
-                self._recon[run_id] = previous
-            raise
 
     def _recon_of(self, run_id: UUID) -> _Reconciliation:
         return self._recon.get(run_id) or _Reconciliation()
 
     def list_source_rows(self, run_id: UUID, source: Source | None = None) -> list[CanonicalRow]:
-        rows = [r for r in self._recon_of(run_id).rows.values()
-                if source is None or r.source is source]
+        rows = [
+            r for r in self._recon_of(run_id).rows.values() if source is None or r.source is source
+        ]
         rows.sort(key=lambda r: (_SOURCE_ORDER[r.source], r.source_row_id))
         return [_copy(r) for r in rows]
 
@@ -343,8 +384,11 @@ class MemoryRepo:
         return _copy(row)
 
     def list_groups(self, run_id: UUID, outcome: Outcome | None = None) -> list[Group]:
-        groups = [g for g in self._recon_of(run_id).groups.values()
-                  if outcome is None or g.outcome is outcome]
+        groups = [
+            g
+            for g in self._recon_of(run_id).groups.values()
+            if outcome is None or g.outcome is outcome
+        ]
         groups.sort(key=lambda g: (g.grn_no is None, g.grn_no or 0, g.group_key))
         return [_copy(g) for g in groups]
 
@@ -357,11 +401,10 @@ class MemoryRepo:
     def list_flags(self, run_id: UUID) -> list[ControlFlag]:
         return [_copy(f) for f in self._recon_of(run_id).flags]
 
-    def list_norm_log(
-        self, run_id: UUID, source_row_id: str | None = None
-    ) -> list[NormLogEntry]:
+    def list_norm_log(self, run_id: UUID, source_row_id: str | None = None) -> list[NormLogEntry]:
         return [
-            _copy(n) for n in self._recon_of(run_id).norm_log
+            _copy(n)
+            for n in self._recon_of(run_id).norm_log
             if source_row_id is None or n.source_row_id == source_row_id
         ]
 
@@ -382,29 +425,50 @@ class MemoryRepo:
         self._run(run_id)
         if any(i.run_id != run_id for i in items):
             raise ValueError("every review item must belong to the run")
-        stored: list[ReviewItem] = []
+        # validate the whole batch before writing anything (atomic)
+        batch_keys: set[str] = set()
+        new_ids: set[UUID] = set()
+        for item in items:
+            if item.item_key in batch_keys:
+                raise UniqueViolation("review_items_run_item_key_uq")
+            batch_keys.add(item.item_key)
+            if (run_id, item.item_key) not in self._review_keys:
+                if item.id in self._reviews or item.id in new_ids:
+                    raise UniqueViolation("review_items_pkey")
+                new_ids.add(item.id)
+
+        staged: list[ReviewItem] = []
         for item in items:
             existing_id = self._review_keys.get((run_id, item.item_key))
             if existing_id is None:
-                if item.id in self._reviews:
-                    raise UniqueViolation("review_items_pkey")
-                new = _updated(item, {
-                    "status": ReviewStatus.OPEN, "resolved_value": None, "resolved_by": None,
-                    "resolved_at": None, "note": None,
-                })
-                self._review_keys[(run_id, item.item_key)] = item.id
+                staged.append(
+                    _updated(
+                        item,
+                        {
+                            "status": ReviewStatus.OPEN,
+                            "resolved_value": None,
+                            "resolved_by": None,
+                            "resolved_at": None,
+                            "note": None,
+                        },
+                    )
+                )
             else:
                 refreshed = {name: getattr(item, name) for name in _REVIEW_REFRESHED_FIELDS}
-                new = _updated(self._reviews[existing_id], refreshed)
+                staged.append(_updated(self._reviews[existing_id], refreshed))
+        for new in staged:
             self._reviews[new.id] = new
-            stored.append(_copy(new))
-        return stored
+            self._review_keys[(run_id, new.item_key)] = new.id
+        return [_copy(n) for n in staged]
 
     def list_review_items(
         self, run_id: UUID, status: ReviewStatus | None = None
     ) -> list[ReviewItem]:
-        items = [i for i in self._reviews.values()
-                 if i.run_id == run_id and (status is None or i.status is status)]
+        items = [
+            i
+            for i in self._reviews.values()
+            if i.run_id == run_id and (status is None or i.status is status)
+        ]
         items.sort(key=_review_sort_key)
         return [_copy(i) for i in items]
 
@@ -433,10 +497,16 @@ class MemoryRepo:
             raise ValueError("CANNOT_DETERMINE needs a non-empty note")
         if current.status is not ReviewStatus.OPEN:
             raise StateConflict(_copy(current))
-        new = _updated(current, {
-            "status": status, "resolved_value": resolved_value, "resolved_by": resolved_by,
-            "resolved_at": resolved_at, "note": note,
-        })
+        new = _updated(
+            current,
+            {
+                "status": status,
+                "resolved_value": resolved_value,
+                "resolved_by": resolved_by,
+                "resolved_at": resolved_at,
+                "note": note,
+            },
+        )
         self._reviews[item_id] = new
         return _copy(new)
 
@@ -479,7 +549,8 @@ class MemoryRepo:
 
     def list_stale_sending(self, older_than: datetime) -> list[Notification]:
         return [
-            _copy(n) for n in self._notifications.values()
+            _copy(n)
+            for n in self._notifications.values()
             if n.status is NotificationStatus.SENDING and n.updated_at < older_than
         ]
 
@@ -505,23 +576,21 @@ class MemoryRepo:
         self._audit.append(stored)
         return _copy(stored)
 
-    def list_audit(
-        self, run_id: UUID | None = None, actor: str | None = None
-    ) -> list[AuditEntry]:
-        entries = [
-            e for e in self._audit
+    def list_audit(self, run_id: UUID | None = None, actor: str | None = None) -> list[AuditEntry]:
+        entries = [  # iterating the log already yields copies
+            e
+            for e in self._audit
             if (run_id is None or e.run_id == run_id) and (actor is None or e.actor == actor)
         ]
         entries.sort(key=lambda e: (e.at, e.id), reverse=True)
-        return [_copy(e) for e in entries]
+        return entries
 
 
 def _review_sort_key(item: ReviewItem) -> tuple[int, bool, int, bool, int, str]:
     """F-08.R2: kind order, then page/row from context (missing last), then item_key."""
     page = getattr(item.context, "page_no", None)
     row = getattr(item.context, "row_index", None)
-    return (_KIND_ORDER[item.kind], page is None, page or 0, row is None, row or 0,
-            item.item_key)
+    return (_KIND_ORDER[item.kind], page is None, page or 0, row is None, row or 0, item.item_key)
 
 
 if TYPE_CHECKING:

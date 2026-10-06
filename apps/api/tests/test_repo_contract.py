@@ -1,6 +1,7 @@
 """Shared Repo contract suite (contracts/repo-interface.md), parametrised over implementations
 by the `repo` fixture in conftest.py (MemoryRepo now; SupabaseRepo in Phase 3)."""
 
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -49,20 +50,45 @@ from tests.factories import (
 S = RunStatus
 
 REPO_METHODS = {
-    "ping", "get_allowed_user", "upsert_allowed_user",
-    "create_run", "get_run", "list_runs", "transition_run", "update_run_fields",
+    "ping",
+    "get_allowed_user",
+    "upsert_allowed_user",
+    "create_run",
+    "get_run",
+    "list_runs",
+    "transition_run",
+    "update_run_fields",
     "find_finalised_run_by_key",
-    "add_source_file", "list_source_files", "confirm_source_file", "delete_source_file",
-    "get_page", "add_page_if_new",
-    "get_extraction", "put_extraction",
-    "replace_reconciliation", "list_source_rows", "get_source_row", "list_groups", "get_group",
-    "list_flags", "list_norm_log",
-    "save_proof", "get_proof",
-    "upsert_review_items", "list_review_items", "get_review_item", "resolve_review_item",
-    "insert_notification", "get_notification_by_key", "update_notification",
-    "list_notifications", "list_stale_sending",
-    "add_run_event", "list_run_events",
-    "append_audit", "list_audit",
+    "add_source_file",
+    "list_source_files",
+    "confirm_source_file",
+    "delete_source_file",
+    "get_page",
+    "add_page_if_new",
+    "get_extraction",
+    "put_extraction",
+    "replace_reconciliation",
+    "list_source_rows",
+    "get_source_row",
+    "list_groups",
+    "get_group",
+    "list_flags",
+    "list_norm_log",
+    "save_proof",
+    "get_proof",
+    "upsert_review_items",
+    "list_review_items",
+    "get_review_item",
+    "resolve_review_item",
+    "insert_notification",
+    "get_notification_by_key",
+    "update_notification",
+    "list_notifications",
+    "list_stale_sending",
+    "add_run_event",
+    "list_run_events",
+    "append_audit",
+    "list_audit",
 }  # data-model.md Section 7: 39 methods
 
 
@@ -79,10 +105,16 @@ def _walk(repo: Repo, run: Run, *path: RunStatus) -> Run:
 
 def _finalise(repo: Repo, run: Run, run_key: str) -> Run:
     run = repo.update_run_fields(run.id, run_key=run_key)
-    run = _walk(repo, run, S.UPLOADED, S.VALIDATED, S.EXTRACTING, S.EXTRACTED, S.RECONCILED,
-                S.READY)
-    return repo.transition_run(run.id, S.FINALISED, expected={S.READY},
-                               finalised_at=at(60), finalised_by="controller@example.com")
+    run = _walk(
+        repo, run, S.UPLOADED, S.VALIDATED, S.EXTRACTING, S.EXTRACTED, S.RECONCILED, S.READY
+    )
+    return repo.transition_run(
+        run.id,
+        S.FINALISED,
+        expected={S.READY},
+        finalised_at=at(60),
+        finalised_by="controller@example.com",
+    )
 
 
 # --- protocol shape and health -------------------------------------------------------------
@@ -138,7 +170,7 @@ def test_not_found(repo: Repo) -> None:
     """G4: unknown ids raise NotFound."""
     run = _new_run(repo)
     missing = uuid4()
-    calls = [
+    calls: list[Callable[[], object]] = [
         lambda: repo.get_run(missing),
         lambda: repo.transition_run(missing, S.UPLOADED, expected={S.CREATED}),
         lambda: repo.update_run_fields(missing, run_key="k"),
@@ -147,13 +179,24 @@ def test_not_found(repo: Repo) -> None:
         lambda: repo.get_source_row(run.id, "ERP-0001"),
         lambda: repo.get_group(run.id, "GRN:1"),
         lambda: repo.get_review_item(missing),
-        lambda: repo.resolve_review_item(missing, status=ReviewStatus.RESOLVED,
-                                         resolved_value="1", resolved_by="r@example.com",
-                                         resolved_at=at(1), note=None),
-        lambda: repo.update_notification(missing, expected={NotificationStatus.PENDING},
-                                         updated_at=at(1)),
+        lambda: repo.resolve_review_item(
+            missing,
+            status=ReviewStatus.RESOLVED,
+            resolved_value="1",
+            resolved_by="r@example.com",
+            resolved_at=at(1),
+            note=None,
+        ),
+        lambda: repo.update_notification(
+            missing, expected={NotificationStatus.PENDING}, updated_at=at(1)
+        ),
         lambda: repo.add_source_file(make_file(missing)),
         lambda: repo.replace_reconciliation(missing, make_payload(missing)),
+        lambda: repo.add_page_if_new(make_page(missing)),
+        lambda: repo.insert_notification(make_notification(missing)),
+        lambda: repo.save_proof(make_proof(missing)),
+        lambda: repo.add_run_event(make_event(missing)),
+        lambda: repo.upsert_review_items(missing, [make_review(missing, "CELL:REG-p1-r01:qty")]),
     ]
     for call in calls:
         with pytest.raises(NotFound):
@@ -167,8 +210,9 @@ def test_create_and_get_run(repo: Repo) -> None:
     run = make_run()
     assert repo.create_run(run) == run
     assert repo.get_run(run.id) == run
-    with pytest.raises(UniqueViolation):
+    with pytest.raises(UniqueViolation) as exc:
         repo.create_run(run)
+    assert exc.value.constraint == "runs_pkey"
 
 
 def test_transition_enforces_lifecycle(repo: Repo) -> None:
@@ -184,11 +228,18 @@ def test_transition_enforces_lifecycle(repo: Repo) -> None:
     # FAILED requires failed_stage
     with pytest.raises(ValueError):
         repo.transition_run(run.id, S.FAILED, expected={S.CREATED})
-    failed = repo.transition_run(run.id, S.FAILED, expected={S.CREATED},
-                                 failed_stage=Stage.UPLOAD, error_message="boom")
+    failed = repo.transition_run(
+        run.id, S.FAILED, expected={S.CREATED}, failed_stage=Stage.UPLOAD, error_message="boom"
+    )
     assert failed.status is S.FAILED
     assert failed.failed_stage is Stage.UPLOAD
     assert failed.error_message == "boom"
+
+    # leaving FAILED must not be handed a failed_stage or error_message
+    for bad in ({"failed_stage": Stage.UPLOAD}, {"error_message": "x"}):
+        with pytest.raises(ValueError):
+            repo.transition_run(run.id, S.CREATED, expected={S.FAILED}, **bad)
+    assert repo.get_run(run.id) == failed
 
     # leaving FAILED clears failed_stage and error_message
     retried = repo.transition_run(run.id, S.CREATED, expected={S.FAILED})
@@ -196,6 +247,31 @@ def test_transition_enforces_lifecycle(repo: Repo) -> None:
     assert retried.failed_stage is None
     assert retried.error_message is None
     assert repo.get_run(run.id) == retried
+
+
+def test_transition_field_allow_list(repo: Repo) -> None:
+    """Only run_key, error_message, failed_stage, finalised_at, finalised_by may ride along;
+    FAILED <=> failed_stage set."""
+    run = _new_run(repo)
+    bad_fields: list[dict[str, Any]] = [
+        {"id": uuid4()},
+        {"status": S.READY},
+        {"month": "2026-08"},
+        {"created_by": "x@example.com"},
+        {"created_at": at(9)},
+        {"scenario_now": at(9)},
+        {"unknown": 1},
+    ]
+    for bad in bad_fields:
+        with pytest.raises(ValueError):
+            repo.transition_run(run.id, S.UPLOADED, expected={S.CREATED}, **bad)
+    with pytest.raises(ValueError):  # failed_stage only on a transition to FAILED
+        repo.transition_run(run.id, S.UPLOADED, expected={S.CREATED}, failed_stage=Stage.UPLOAD)
+    assert repo.get_run(run.id) == run
+    moved = repo.transition_run(
+        run.id, S.UPLOADED, expected={S.CREATED}, run_key="k", error_message="note"
+    )
+    assert (moved.run_key, moved.error_message) == ("k", "note")
 
 
 def test_transition_compare_and_set(repo: Repo) -> None:
@@ -214,8 +290,23 @@ def test_update_run_fields(repo: Repo) -> None:
     assert updated.error_message == "note"
     assert updated.status is S.CREATED
     assert repo.get_run(run.id) == updated
-    with pytest.raises(ValueError):
-        repo.update_run_fields(run.id, status=S.READY)
+    bad_fields: list[dict[str, Any]] = [
+        {"status": S.READY},
+        {"finalised_by": "x@example.com"},
+        {"id": uuid4()},
+    ]
+    for bad in bad_fields:
+        with pytest.raises(ValueError):
+            repo.update_run_fields(run.id, **bad)
+    with pytest.raises(ValueError):  # failed_stage is set only on a FAILED run
+        repo.update_run_fields(run.id, failed_stage=Stage.UPLOAD)
+
+    failed = repo.transition_run(run.id, S.FAILED, expected={S.CREATED}, failed_stage=Stage.UPLOAD)
+    with pytest.raises(ValueError):  # a FAILED run always has a failed_stage
+        repo.update_run_fields(run.id, failed_stage=None)
+    assert repo.get_run(run.id) == failed
+    moved = repo.update_run_fields(run.id, failed_stage=Stage.VALIDATE)
+    assert moved.failed_stage is Stage.VALIDATE
 
 
 def test_finalised_is_read_only(repo: Repo) -> None:
@@ -233,8 +324,11 @@ def test_finalised_is_read_only(repo: Repo) -> None:
 
 def test_finalised_run_key_unique(repo: Repo) -> None:
     _finalise(repo, _new_run(repo), "same-key")
-    with pytest.raises(UniqueViolation):
-        _finalise(repo, _new_run(repo), "same-key")
+    loser = _new_run(repo)
+    with pytest.raises(UniqueViolation) as exc:
+        _finalise(repo, loser, "same-key")
+    assert exc.value.constraint == "runs_run_key_finalised_uq"
+    assert repo.get_run(loser.id).status is S.READY
 
 
 def test_list_runs_newest_first(repo: Repo) -> None:
@@ -262,9 +356,13 @@ def test_find_finalised_by_key_ignores_unfinalised(repo: Repo) -> None:
 def test_source_file_unique_run_sha(repo: Repo) -> None:
     run = _new_run(repo)
     other = _new_run(repo)
-    repo.add_source_file(make_file(run.id, sha256=sha(1)))
-    with pytest.raises(UniqueViolation):
+    first = repo.add_source_file(make_file(run.id, sha256=sha(1)))
+    with pytest.raises(UniqueViolation) as exc:
         repo.add_source_file(make_file(run.id, sha256=sha(1)))
+    assert exc.value.constraint == "source_files_run_sha256_uq"
+    with pytest.raises(UniqueViolation) as exc:
+        repo.add_source_file(make_file(run.id, id=first.id, sha256=sha(2)))
+    assert exc.value.constraint == "source_files_pkey"
     repo.add_source_file(make_file(other.id, sha256=sha(1)))  # other run: allowed
     assert len(repo.list_source_files(run.id)) == 1
 
@@ -272,8 +370,9 @@ def test_source_file_unique_run_sha(repo: Repo) -> None:
 def test_source_files_list_confirm_delete(repo: Repo) -> None:
     run = _new_run(repo)
     erp = repo.add_source_file(make_file(run.id, sha256=sha(1)))
-    reg = repo.add_source_file(make_file(run.id, source=Source.REGISTER, sha256=sha(2),
-                                         page_no=1, filename="p1.jpg"))
+    reg = repo.add_source_file(
+        make_file(run.id, source=Source.REGISTER, sha256=sha(2), page_no=1, filename="p1.jpg")
+    )
     assert [f.id for f in repo.list_source_files(run.id)] == [erp.id, reg.id]
     assert [f.id for f in repo.list_source_files(run.id, Source.REGISTER)] == [reg.id]
 
@@ -320,6 +419,11 @@ def test_put_extraction_never_overwrites(repo: Repo) -> None:
     assert created3 is True
     assert repo.get_extraction(sha(7), ReadVariant.B, "model-x", "v1") is not None
     assert repo.get_extraction(sha(7), ReadVariant.A, "model-x", "v2") is None
+    # the same id under a new key collides on the primary key
+    with pytest.raises(UniqueViolation) as exc:
+        repo.put_extraction(make_extraction(id=first.id, prompt_version="v9"))
+    assert exc.value.constraint == "extractions_pkey"
+    assert repo.get_extraction(sha(7), ReadVariant.A, "model-x", "v9") is None
 
 
 # --- reconciliation ----------------------------------------------------------------------
@@ -327,9 +431,11 @@ def test_put_extraction_never_overwrites(repo: Repo) -> None:
 
 def _assert_state(repo: Repo, rid: UUID, payload: ReconciliationPayload) -> None:
     assert sorted(repo.list_source_rows(rid), key=lambda r: r.source_row_id) == sorted(
-        payload.rows, key=lambda r: r.source_row_id)
+        payload.rows, key=lambda r: r.source_row_id
+    )
     assert sorted(repo.list_groups(rid), key=lambda g: g.group_key) == sorted(
-        payload.groups, key=lambda g: g.group_key)
+        payload.groups, key=lambda g: g.group_key
+    )
     assert repo.list_flags(rid) == payload.flags
     assert repo.list_norm_log(rid) == payload.norm_log
 
@@ -337,17 +443,18 @@ def _assert_state(repo: Repo, rid: UUID, payload: ReconciliationPayload) -> None
 def test_replace_reconciliation_replaces_exactly(repo: Repo) -> None:
     run = _new_run(repo)
     other = _new_run(repo)
-    other_payload = make_payload(other.id, "zz")
+    other_payload = make_payload(other.id, 3)
     repo.replace_reconciliation(other.id, other_payload)
 
-    first = make_payload(run.id, "a")
+    first = make_payload(run.id, 1)
     repo.replace_reconciliation(run.id, first)
     _assert_state(repo, run.id, first)
 
-    second = make_payload(run.id, "bb")
+    second = make_payload(run.id, 2)
     # keep one row id across reconciles (upsert on run_id, source_row_id)
-    second = second.model_copy(update={"rows": [*second.rows, first.rows[1].model_copy(
-        update={"item": "changed"})]})
+    second = second.model_copy(
+        update={"rows": [*second.rows, first.rows[1].model_copy(update={"item": "changed"})]}
+    )
     second = ReconciliationPayload.model_validate(second.model_dump())
     repo.replace_reconciliation(run.id, second)
     _assert_state(repo, run.id, second)
@@ -363,7 +470,7 @@ def test_replace_reconciliation_replaces_exactly(repo: Repo) -> None:
 
 def test_replace_reconciliation_atomic_on_failure(repo: Repo) -> None:
     run = _new_run(repo)
-    before = make_payload(run.id, "a")
+    before = make_payload(run.id, 1)
     repo.replace_reconciliation(run.id, before)
 
     good = make_group(run.id, "GRN:7", grn_no=7)
@@ -374,17 +481,129 @@ def test_replace_reconciliation_atomic_on_failure(repo: Repo) -> None:
         flags=[make_flag(run.id)],
         norm_log=[make_norm(run.id, "ERP-0007")],
     )
-    with pytest.raises(UniqueViolation):
+    with pytest.raises(UniqueViolation) as exc:
         repo.replace_reconciliation(run.id, bad)
+    assert exc.value.constraint == "groups_run_group_key_uq"
     _assert_state(repo, run.id, before)
 
     dup_rows = ReconciliationPayload(
         rows=[make_row(run.id, "ERP-0007"), make_row(run.id, "ERP-0007")],
-        groups=[], flags=[], norm_log=[],
+        groups=[],
+        flags=[],
+        norm_log=[],
     )
-    with pytest.raises(UniqueViolation):
+    with pytest.raises(UniqueViolation) as exc:
         repo.replace_reconciliation(run.id, dup_rows)
+    assert exc.value.constraint == "source_rows_run_row_uq"
     _assert_state(repo, run.id, before)
+
+    row = make_row(run.id, "ERP-0007")
+    dup_row_ids = ReconciliationPayload(
+        rows=[row, make_row(run.id, "ERP-0008", id=row.id)],
+        groups=[],
+        flags=[],
+        norm_log=[],
+    )
+    with pytest.raises(UniqueViolation) as exc:
+        repo.replace_reconciliation(run.id, dup_row_ids)
+    assert exc.value.constraint == "source_rows_pkey"
+
+    dup_group_ids = ReconciliationPayload(
+        rows=[],
+        groups=[good, make_group(run.id, "GRN:8", grn_no=8, id=good.id)],
+        flags=[],
+        norm_log=[],
+    )
+    with pytest.raises(UniqueViolation) as exc:
+        repo.replace_reconciliation(run.id, dup_group_ids)
+    assert exc.value.constraint == "groups_pkey"
+    _assert_state(repo, run.id, before)
+
+
+def test_replace_reconciliation_rejects_finalised_run(repo: Repo) -> None:
+    run = _new_run(repo)
+    before = make_payload(run.id, 1)
+    repo.replace_reconciliation(run.id, before)
+    final = _finalise(repo, repo.get_run(run.id), "k-final")
+    with pytest.raises(StateConflict) as exc:
+        repo.replace_reconciliation(run.id, make_payload(run.id, 2))
+    assert exc.value.current == final
+    _assert_state(repo, run.id, before)
+
+
+def test_replace_reconciliation_rejects_duplicate_ids(repo: Repo) -> None:
+    """Flag and norm-log ids are primary keys: no repeats in the payload, nor ids held by
+    another run's reconcile outputs. Nothing is written on failure."""
+    run = _new_run(repo)
+    other = _new_run(repo)
+    theirs = make_payload(other.id, 3)
+    repo.replace_reconciliation(other.id, theirs)
+    before = make_payload(run.id, 1)
+    repo.replace_reconciliation(run.id, before)
+
+    flag = make_flag(run.id)
+    norm = make_norm(run.id, "ERP-0007")
+    empty = ReconciliationPayload(rows=[], groups=[], flags=[], norm_log=[])
+    cases: list[tuple[ReconciliationPayload, str]] = [
+        (
+            empty.model_copy(update={"flags": [flag, make_flag(run.id, id=flag.id)]}),
+            "control_flags_pkey",
+        ),
+        (
+            empty.model_copy(
+                update={"norm_log": [norm, make_norm(run.id, "ERP-0008", id=norm.id)]}
+            ),
+            "normalisation_log_pkey",
+        ),
+        # ids already used by another run
+        (
+            empty.model_copy(update={"flags": [make_flag(run.id, id=theirs.flags[0].id)]}),
+            "control_flags_pkey",
+        ),
+        (
+            empty.model_copy(
+                update={"norm_log": [make_norm(run.id, "ERP-0007", id=theirs.norm_log[0].id)]}
+            ),
+            "normalisation_log_pkey",
+        ),
+        (
+            empty.model_copy(update={"rows": [make_row(run.id, "ERP-0007", id=theirs.rows[0].id)]}),
+            "source_rows_pkey",
+        ),
+        (
+            empty.model_copy(
+                update={"groups": [make_group(run.id, "GRN:7", grn_no=7, id=theirs.groups[0].id)]}
+            ),
+            "groups_pkey",
+        ),
+    ]
+    for payload, constraint in cases:
+        with pytest.raises(UniqueViolation) as exc:
+            repo.replace_reconciliation(run.id, payload)
+        assert exc.value.constraint == constraint
+        _assert_state(repo, run.id, before)
+    _assert_state(repo, other.id, theirs)
+
+    # the run's own previous ids are free again: the old outputs are replaced
+    repo.replace_reconciliation(run.id, before)
+    _assert_state(repo, run.id, before)
+
+
+def test_replace_reconciliation_duplicate_precedence(repo: Repo) -> None:
+    """Like the SQL, the first broken key in this order is reported: source_row_id, row id,
+    group_key, group id, flag id, norm-log id."""
+    run = _new_run(repo)
+    row = make_row(run.id, "ERP-0007")
+    flag = make_flag(run.id)
+    payload = ReconciliationPayload(
+        rows=[row, make_row(run.id, "ERP-0008", id=row.id)],
+        groups=[],
+        flags=[flag, make_flag(run.id, id=flag.id)],
+        norm_log=[],
+    )
+    with pytest.raises(UniqueViolation) as exc:
+        repo.replace_reconciliation(run.id, payload)
+    assert exc.value.constraint == "source_rows_pkey"
 
 
 def test_replace_never_touches_review_items(repo: Repo) -> None:
@@ -395,14 +614,20 @@ def test_replace_never_touches_review_items(repo: Repo) -> None:
     repo.add_run_event(make_event(run.id))
     repo.append_audit(make_audit(run_id=run.id))
     snapshot = (
-        repo.list_review_items(run.id), repo.get_proof(run.id), repo.list_notifications(run.id),
-        repo.list_run_events(run.id), repo.list_audit(run.id),
+        repo.list_review_items(run.id),
+        repo.get_proof(run.id),
+        repo.list_notifications(run.id),
+        repo.list_run_events(run.id),
+        repo.list_audit(run.id),
     )
-    repo.replace_reconciliation(run.id, make_payload(run.id, "a"))
-    repo.replace_reconciliation(run.id, make_payload(run.id, "bb"))
+    repo.replace_reconciliation(run.id, make_payload(run.id, 1))
+    repo.replace_reconciliation(run.id, make_payload(run.id, 2))
     assert (
-        repo.list_review_items(run.id), repo.get_proof(run.id), repo.list_notifications(run.id),
-        repo.list_run_events(run.id), repo.list_audit(run.id),
+        repo.list_review_items(run.id),
+        repo.get_proof(run.id),
+        repo.list_notifications(run.id),
+        repo.list_run_events(run.id),
+        repo.list_audit(run.id),
     ) == snapshot
 
 
@@ -415,17 +640,32 @@ def test_rows_and_groups_sorted(repo: Repo) -> None:
         make_group(rid, "LOT:a|S1", outcome=Outcome.MISSING, missing_from=[Source.ERP]),
         make_group(rid, "GRN:9", grn_no=9),
     ]
-    rows = [make_row(rid, i) for i in ("XLS-r3", "ERP-0002", "REG-p1-r02", "XLS-r2",
-                                       "ERP-0001", "REG-p1-r01")]
-    repo.replace_reconciliation(rid, ReconciliationPayload(rows=rows, groups=groups, flags=[],
-                                                           norm_log=[]))
+    rows = [
+        make_row(rid, i)
+        for i in ("XLS-r3", "ERP-0002", "REG-p1-r02", "XLS-r2", "ERP-0001", "REG-p1-r01")
+    ]
+    repo.replace_reconciliation(
+        rid, ReconciliationPayload(rows=rows, groups=groups, flags=[], norm_log=[])
+    )
     assert [g.group_key for g in repo.list_groups(rid)] == [
-        "GRN:9", "GRN:10", "LOT:a|S1", "LOT:b|S1"]
+        "GRN:9",
+        "GRN:10",
+        "LOT:a|S1",
+        "LOT:b|S1",
+    ]
     assert [g.group_key for g in repo.list_groups(rid, Outcome.MISSING)] == ["LOT:a|S1"]
     assert [r.source_row_id for r in repo.list_source_rows(rid)] == [
-        "REG-p1-r01", "REG-p1-r02", "ERP-0001", "ERP-0002", "XLS-r2", "XLS-r3"]
+        "REG-p1-r01",
+        "REG-p1-r02",
+        "ERP-0001",
+        "ERP-0002",
+        "XLS-r2",
+        "XLS-r3",
+    ]
     assert [r.source_row_id for r in repo.list_source_rows(rid, Source.SHEET)] == [
-        "XLS-r2", "XLS-r3"]
+        "XLS-r2",
+        "XLS-r3",
+    ]
 
 
 def test_flags_and_norm_log_filters(repo: Repo) -> None:
@@ -433,8 +673,9 @@ def test_flags_and_norm_log_filters(repo: Repo) -> None:
     rid = run.id
     flags = [make_flag(rid, detail={"i": "2"}), make_flag(rid, detail={"i": "1"})]
     norms = [make_norm(rid, "ERP-0002"), make_norm(rid, "ERP-0001"), make_norm(rid, "ERP-0002")]
-    repo.replace_reconciliation(rid, ReconciliationPayload(rows=[], groups=[], flags=flags,
-                                                           norm_log=norms))
+    repo.replace_reconciliation(
+        rid, ReconciliationPayload(rows=[], groups=[], flags=flags, norm_log=norms)
+    )
     assert repo.list_flags(rid) == flags  # insertion (payload) order
     assert repo.list_norm_log(rid) == norms
     assert repo.list_norm_log(rid, "ERP-0002") == [norms[0], norms[2]]
@@ -442,24 +683,29 @@ def test_flags_and_norm_log_filters(repo: Repo) -> None:
 
 def test_payload_with_unknown_group_rejected(repo: Repo) -> None:
     run = _new_run(repo)
-    before = make_payload(run.id, "a")
+    before = make_payload(run.id, 1)
     repo.replace_reconciliation(run.id, before)
     stray = ReconciliationPayload(
         rows=[make_row(run.id, "ERP-0009", group_id=uuid4())],
-        groups=[make_group(run.id, "GRN:9", grn_no=9)], flags=[], norm_log=[],
+        groups=[make_group(run.id, "GRN:9", grn_no=9)],
+        flags=[],
+        norm_log=[],
     )
     with pytest.raises(ValueError):
         repo.replace_reconciliation(run.id, stray)
     # a group from the previous reconcile is not a payload group either
     stale = ReconciliationPayload(
         rows=[make_row(run.id, "ERP-0009", group_id=before.groups[0].id)],
-        groups=[], flags=[], norm_log=[],
+        groups=[],
+        flags=[],
+        norm_log=[],
     )
     with pytest.raises(ValueError):
         repo.replace_reconciliation(run.id, stale)
     other = _new_run(repo)
-    foreign = ReconciliationPayload(rows=[make_row(other.id, "ERP-0009")], groups=[], flags=[],
-                                    norm_log=[])
+    foreign = ReconciliationPayload(
+        rows=[make_row(other.id, "ERP-0009")], groups=[], flags=[], norm_log=[]
+    )
     with pytest.raises(ValueError):  # payload records must belong to the run
         repo.replace_reconciliation(run.id, foreign)
     _assert_state(repo, run.id, before)
@@ -481,9 +727,13 @@ def test_save_proof_overwrites(repo: Repo) -> None:
 
 
 def _resolve(repo: Repo, item_id: UUID, **over: Any) -> ReviewItem:
-    args: dict[str, Any] = dict(status=ReviewStatus.RESOLVED, resolved_value="12",
-                                resolved_by="reviewer@example.com", resolved_at=at(10),
-                                note=None)
+    args: dict[str, Any] = dict(
+        status=ReviewStatus.RESOLVED,
+        resolved_value="12",
+        resolved_by="reviewer@example.com",
+        resolved_at=at(10),
+        note=None,
+    )
     return repo.resolve_review_item(item_id, **(args | over))
 
 
@@ -502,8 +752,14 @@ def test_upsert_keeps_decisions(repo: Repo) -> None:
     [stored] = repo.upsert_review_items(run.id, [make_review(run.id, "CELL:REG-p1-r01:qty")])
     _resolve(repo, stored.id, resolved_value="12", note="seen")
     refreshed_input = make_review(
-        run.id, "CELL:REG-p1-r01:qty", reason=ReviewReason.READS_DISAGREE, read_a=cell("15"),
-        read_b=cell("16"), grn_no=44, source_row_id="REG-p1-r02", field="lot_no",
+        run.id,
+        "CELL:REG-p1-r01:qty",
+        reason=ReviewReason.READS_DISAGREE,
+        read_a=cell("15"),
+        read_b=cell("16"),
+        grn_no=44,
+        source_row_id="REG-p1-r02",
+        field="lot_no",
         context=CellContext(page_no=1, row_index=2, note="refreshed"),
     )
     [refreshed] = repo.upsert_review_items(run.id, [refreshed_input])
@@ -513,12 +769,38 @@ def test_upsert_keeps_decisions(repo: Repo) -> None:
     assert refreshed.read_b == cell("16")
     assert refreshed.context == CellContext(page_no=1, row_index=2, note="refreshed")
     assert (refreshed.grn_no, refreshed.source_row_id, refreshed.field) == (
-        44, "REG-p1-r02", "lot_no")
+        44,
+        "REG-p1-r02",
+        "lot_no",
+    )
     assert refreshed.status is ReviewStatus.RESOLVED
     assert refreshed.resolved_value == "12"
     assert refreshed.resolved_by == "reviewer@example.com"
     assert refreshed.resolved_at == at(10)
     assert refreshed.note == "seen"
+
+
+def test_upsert_is_atomic(repo: Repo) -> None:
+    """The whole batch is validated before anything is written."""
+    run = _new_run(repo)
+    other = _new_run(repo)
+    [kept] = repo.upsert_review_items(run.id, [make_review(run.id, "CELL:REG-p1-r09:qty")])
+    a = make_review(run.id, "CELL:REG-p1-r01:qty")
+    b = make_review(run.id, "CELL:REG-p1-r02:qty", context=CellContext(page_no=1, row_index=2))
+    unique_cases = [
+        (make_review(run.id, a.item_key), "review_items_run_item_key_uq"),
+        (make_review(run.id, "CELL:REG-p1-r03:qty", id=a.id), "review_items_pkey"),
+        (make_review(run.id, "CELL:REG-p1-r04:qty", id=kept.id), "review_items_pkey"),
+    ]
+    for third, constraint in unique_cases:
+        with pytest.raises(UniqueViolation) as exc:
+            repo.upsert_review_items(run.id, [a, b, third])
+        assert exc.value.constraint == constraint
+        assert repo.list_review_items(run.id) == [kept]
+    with pytest.raises(ValueError):  # item from another run
+        repo.upsert_review_items(run.id, [a, b, make_review(other.id, "CELL:REG-p1-r05:qty")])
+    assert repo.list_review_items(run.id) == [kept]
+    assert repo.list_review_items(other.id) == []
 
 
 def test_upsert_never_deletes(repo: Repo) -> None:
@@ -561,11 +843,13 @@ def test_cannot_determine_requires_note(repo: Repo) -> None:
     [item] = repo.upsert_review_items(run.id, [make_review(run.id, "CELL:REG-p1-r01:qty")])
     for note in (None, "", "   "):
         with pytest.raises(ValueError):
-            _resolve(repo, item.id, status=ReviewStatus.CANNOT_DETERMINE, resolved_value=None,
-                     note=note)
+            _resolve(
+                repo, item.id, status=ReviewStatus.CANNOT_DETERMINE, resolved_value=None, note=note
+            )
     assert repo.get_review_item(item.id).status is ReviewStatus.OPEN
-    done = _resolve(repo, item.id, status=ReviewStatus.CANNOT_DETERMINE, resolved_value=None,
-                    note="ink smudge")
+    done = _resolve(
+        repo, item.id, status=ReviewStatus.CANNOT_DETERMINE, resolved_value=None, note="ink smudge"
+    )
     assert done.status is ReviewStatus.CANNOT_DETERMINE
     assert done.note == "ink smudge"
 
@@ -584,8 +868,11 @@ def test_review_list_order(repo: Repo) -> None:
     ]
     repo.upsert_review_items(rid, items)
     assert [i.item_key for i in repo.list_review_items(rid)] == [
-        "CELL:REG-p1-r03:date", "CELL:REG-p1-r03:lot_no", "CELL:REG-p2-r01:qty",
-        "ROW:ERP-0003", "ROW:XLS-r2",
+        "CELL:REG-p1-r03:date",
+        "CELL:REG-p1-r03:lot_no",
+        "CELL:REG-p2-r01:qty",
+        "ROW:ERP-0003",
+        "ROW:XLS-r2",
         "MAP:ERP-0001:supplier_code",
         "FLAG:SEQUENCE_GAP:5",
     ]
@@ -601,8 +888,9 @@ def test_insert_notification_idempotent(repo: Repo) -> None:
     n = make_notification(run.id, idempotency_key="SUMMARY:k")
     stored, created = repo.insert_notification(n)
     assert created is True
-    again, created2 = repo.insert_notification(make_notification(run.id,
-                                                                 idempotency_key="SUMMARY:k"))
+    again, created2 = repo.insert_notification(
+        make_notification(run.id, idempotency_key="SUMMARY:k")
+    )
     assert created2 is False
     assert again == stored
     assert repo.list_notifications(run.id) == [stored]
@@ -613,35 +901,65 @@ def test_insert_notification_idempotent(repo: Repo) -> None:
 def test_update_notification_compare_and_set(repo: Repo) -> None:
     run = _new_run(repo)
     n, _ = repo.insert_notification(make_notification(run.id))
-    sending = repo.update_notification(n.id, expected={NotificationStatus.PENDING},
-                                       status=NotificationStatus.SENDING, attempts=1,
-                                       updated_at=at(5))
+    sending = repo.update_notification(
+        n.id,
+        expected={NotificationStatus.PENDING},
+        status=NotificationStatus.SENDING,
+        attempts=1,
+        updated_at=at(5),
+    )
     assert sending.status is NotificationStatus.SENDING
     assert sending.updated_at == at(5)
     with pytest.raises(StateConflict) as exc:
-        repo.update_notification(n.id, expected={NotificationStatus.PENDING},
-                                 status=NotificationStatus.SENDING, updated_at=at(6))
+        repo.update_notification(
+            n.id,
+            expected={NotificationStatus.PENDING},
+            status=NotificationStatus.SENDING,
+            updated_at=at(6),
+        )
     assert exc.value.current == sending
+    bad_fields: list[dict[str, Any]] = [
+        {"id": uuid4()},
+        {"run_id": uuid4()},
+        {"kind": "ALERT"},
+        {"idempotency_key": "other"},
+    ]
+    for bad in bad_fields:
+        with pytest.raises(ValueError):
+            repo.update_notification(
+                n.id, expected={NotificationStatus.SENDING}, updated_at=at(6), **bad
+            )
+    assert repo.get_notification_by_key(n.idempotency_key) == sending
     with pytest.raises(ValueError):  # updated_at is always set by the caller
-        repo.update_notification(n.id, expected={NotificationStatus.SENDING},
-                                 status=NotificationStatus.SENT)
-    sent = repo.update_notification(n.id, expected={NotificationStatus.SENDING},
-                                    status=NotificationStatus.SENT, telegram_message_id=77,
-                                    sent_at=at(7), updated_at=at(7))
+        repo.update_notification(
+            n.id, expected={NotificationStatus.SENDING}, status=NotificationStatus.SENT
+        )
+    sent = repo.update_notification(
+        n.id,
+        expected={NotificationStatus.SENDING},
+        status=NotificationStatus.SENT,
+        telegram_message_id=77,
+        sent_at=at(7),
+        updated_at=at(7),
+    )
     assert repo.get_notification_by_key(n.idempotency_key) == sent
     assert sent.telegram_message_id == 77
 
 
 def test_list_stale_sending(repo: Repo) -> None:
     run = _new_run(repo)
-    old, _ = repo.insert_notification(make_notification(
-        run.id, status=NotificationStatus.SENDING, updated_at=at(1)))
-    repo.insert_notification(make_notification(run.id, status=NotificationStatus.SENDING,
-                                               updated_at=at(10)))
-    repo.insert_notification(make_notification(run.id, status=NotificationStatus.PENDING,
-                                               updated_at=at(1)))
-    boundary, _ = repo.insert_notification(make_notification(
-        run.id, status=NotificationStatus.SENDING, updated_at=at(5)))
+    old, _ = repo.insert_notification(
+        make_notification(run.id, status=NotificationStatus.SENDING, updated_at=at(1))
+    )
+    repo.insert_notification(
+        make_notification(run.id, status=NotificationStatus.SENDING, updated_at=at(10))
+    )
+    repo.insert_notification(
+        make_notification(run.id, status=NotificationStatus.PENDING, updated_at=at(1))
+    )
+    boundary, _ = repo.insert_notification(
+        make_notification(run.id, status=NotificationStatus.SENDING, updated_at=at(5))
+    )
     assert repo.list_stale_sending(at(5)) == [old]  # strictly older than
     assert repo.list_stale_sending(at(6)) == [old, boundary]
 
@@ -675,7 +993,8 @@ def test_audit_has_no_update_or_delete(repo: Repo) -> None:
     assert entry.after is not None
     entry.after["x"] = 2
     listed = repo.list_audit()
-    listed[0].after["x"] = 3  # type: ignore[index]
+    assert listed[0].after is not None
+    listed[0].after["x"] = 3
     listed.clear()
     assert repo.list_audit()[0].after == {"x": 1}
 
@@ -685,8 +1004,11 @@ def test_list_audit_filters(repo: Repo) -> None:
     other = _new_run(repo)
     a = repo.append_audit(make_audit(at=at(1), run_id=run.id, actor="a@example.com"))
     b = repo.append_audit(make_audit(at=at(2), run_id=run.id, actor="system"))
-    c = repo.append_audit(make_audit(at=at(3), run_id=other.id, actor="a@example.com",
-                                     action=AuditAction.RUN_FINALISED))
+    c = repo.append_audit(
+        make_audit(
+            at=at(3), run_id=other.id, actor="a@example.com", action=AuditAction.RUN_FINALISED
+        )
+    )
     d = repo.append_audit(make_audit(at=at(4), run_id=None, actor="a@example.com"))
     assert [e.id for e in repo.list_audit()] == [d.id, c.id, b.id, a.id]
     assert [e.id for e in repo.list_audit(run_id=run.id)] == [b.id, a.id]
@@ -704,9 +1026,9 @@ def test_memory_audit_log_is_append_only() -> None:
     mem.append_audit(make_audit())
     log = mem._audit  # reaching in on purpose
     with pytest.raises(AppendOnlyViolation):
-        log[0] = make_audit(id=1)  # type: ignore[index]
+        log[0] = make_audit(id=1)
     with pytest.raises(AppendOnlyViolation):
-        del log[0]  # type: ignore[attr-defined]
+        del log[0]
     with pytest.raises(AppendOnlyViolation):
-        log.clear()  # type: ignore[attr-defined]
+        log.clear()
     assert len(mem.list_audit()) == 1

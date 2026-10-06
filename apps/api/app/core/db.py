@@ -57,11 +57,14 @@ class Repo(Protocol):
     def transition_run(
         self, run_id: UUID, to: RunStatus, *, expected: set[RunStatus], **fields: Any
     ) -> Run:
-        """StateConflict; enforces ALLOWED_TRANSITIONS; FAILED needs failed_stage."""
+        """StateConflict; enforces ALLOWED_TRANSITIONS. Extra fields: run_key, error_message,
+        failed_stage, finalised_at, finalised_by (else ValueError). FAILED <=> failed_stage set;
+        leaving FAILED clears failed_stage and error_message (passing either is ValueError)."""
         ...
 
     def update_run_fields(self, run_id: UUID, **fields: Any) -> Run:
-        """run_key, error_message, failed_stage only; StateConflict on a FINALISED run."""
+        """run_key, error_message, failed_stage only (else ValueError); keeps FAILED <=>
+        failed_stage set; StateConflict on a FINALISED run."""
         ...
 
     def find_finalised_run_by_key(self, run_key: str) -> Run | None: ...
@@ -71,9 +74,7 @@ class Repo(Protocol):
         """UniqueViolation on (run_id, sha256)."""
         ...
 
-    def list_source_files(
-        self, run_id: UUID, source: Source | None = None
-    ) -> list[SourceFile]: ...
+    def list_source_files(self, run_id: UUID, source: Source | None = None) -> list[SourceFile]: ...
     def confirm_source_file(self, file_id: UUID, at: datetime) -> SourceFile: ...
     def delete_source_file(self, file_id: UUID) -> None:
         """Only while the run is CREATED (FM-02)."""
@@ -95,7 +96,8 @@ class Repo(Protocol):
 
     # reconciliation (F-04 to F-06)
     def replace_reconciliation(self, run_id: UUID, payload: ReconciliationPayload) -> None:
-        """Atomic: all or nothing."""
+        """Atomic: all or nothing. StateConflict(run) on a FINALISED run; ValueError if a record
+        belongs to another run or a row references a group not in the payload."""
         ...
 
     def list_source_rows(
@@ -127,7 +129,8 @@ class Repo(Protocol):
 
     # review (F-08)
     def upsert_review_items(self, run_id: UUID, items: list[ReviewItem]) -> list[ReviewItem]:
-        """Insert new item_keys as OPEN; refresh existing ones; keep decisions; never delete."""
+        """Insert new item_keys as OPEN; refresh existing ones; keep decisions; never delete.
+        Atomic: the whole batch is validated before anything is written."""
         ...
 
     def list_review_items(
@@ -178,8 +181,6 @@ class Repo(Protocol):
         """id assigned by the store."""
         ...
 
-    def list_audit(
-        self, run_id: UUID | None = None, actor: str | None = None
-    ) -> list[AuditEntry]:
+    def list_audit(self, run_id: UUID | None = None, actor: str | None = None) -> list[AuditEntry]:
         """Newest first; filters are ANDed."""
         ...
