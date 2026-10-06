@@ -16,7 +16,7 @@ dev:
 
 # Same checks as CI (.github/workflows/ci.yml). lint also runs tsc, which CI covers via pnpm build.
 test:
-	cd $(API) && uv run pytest -m "not integration"
+	cd $(API) && uv run pytest -m "not integration and not live"
 
 lint:
 	cd $(API) && uv run ruff check

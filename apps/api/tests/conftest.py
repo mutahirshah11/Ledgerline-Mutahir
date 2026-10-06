@@ -1,5 +1,6 @@
 """Shared fixtures. Pack files are resolved by path, not symlinked (research R15)."""
 
+import os
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
+    from app.core.config import Settings
     from app.core.db import Repo
     from app.core.memory_repo import MemoryRepo
     from app.core.storage import MemoryBlobStore
@@ -28,19 +30,50 @@ def ground_truth_dir() -> Path:
     return API_DIR / "tests" / "ground_truth"
 
 
+def _live_openai_key() -> str | None:
+    """OPENAI_API_KEY from the OS env, else apps/api/.env; empty counts as absent.
+
+    Reads only this one key (never builds `Settings()`), so a malformed .env cannot break
+    collection of the whole suite.
+    """
+    from dotenv import dotenv_values
+
+    key = os.environ.get("OPENAI_API_KEY") or dotenv_values(API_DIR / ".env").get("OPENAI_API_KEY")
+    return key or None
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip `live` tests unless OPENAI_API_KEY is set (OS env or apps/api/.env).
 
-    Read once at collection, before `hermetic_settings` hides env vars from each test.
+    Live tests are also deselected by default (addopts); run them with `pytest -m live`.
     """
-    from app.core.config import Settings
-
-    if Settings().OPENAI_API_KEY is not None:
+    if _live_openai_key() is not None:
         return
     skip_live = pytest.mark.skip(reason="needs OPENAI_API_KEY; skipped otherwise")
     for item in items:
         if "live" in item.keywords:
             item.add_marker(skip_live)
+
+
+@pytest.fixture(scope="session")
+def live_settings() -> "Settings":
+    """The real Settings (OS env + apps/api/.env) for `live` tests; skips without a key.
+
+    Session-scoped, so it is built before the autouse `hermetic_settings` hides env vars
+    and .env from each test. Live fixtures build `OpenAIModelClient` from this object, not
+    from `get_settings()` (which is hermetic inside tests).
+    """
+    from app.core.config import Settings
+
+    if _live_openai_key() is None:
+        pytest.skip("needs OPENAI_API_KEY")
+    try:
+        settings = Settings()
+    except Exception as exc:  # a malformed .env skips live tests, never errors them
+        pytest.skip(f"Settings() failed: {type(exc).__name__}")
+    if settings.OPENAI_API_KEY is None:
+        pytest.skip("needs OPENAI_API_KEY")
+    return settings
 
 
 @pytest.fixture(autouse=True)

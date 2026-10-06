@@ -166,6 +166,14 @@ class MergedRow(DomainModel):
     cells: dict[RegisterField, MergedCell]
 
 
+def _sorted_unique_rows(rows: list[MergedRow]) -> list[MergedRow]:
+    """Rows sorted by row_index; a repeated row_index is a ValueError."""
+    indexes = [r.row_index for r in rows]
+    if len(set(indexes)) != len(indexes):
+        raise ValueError("row_index must be unique within a page")
+    return sorted(rows, key=lambda r: r.row_index)
+
+
 class RegisterPageInput(DomainModel):
     """Per-page engine input (data-model.md Section 1, E1): merged rows plus header and read
     counts, for F-04.R4 (year) and F-07.R3 (C3)."""
@@ -182,10 +190,7 @@ class RegisterPageInput(DomainModel):
     @field_validator("rows")
     @classmethod
     def _sorted_unique(cls, rows: list[MergedRow]) -> list[MergedRow]:
-        indexes = [r.row_index for r in rows]
-        if len(set(indexes)) != len(indexes):
-            raise ValueError("row_index must be unique within a page")
-        return sorted(rows, key=lambda r: r.row_index)
+        return _sorted_unique_rows(rows)
 
 
 # --- 4.2 Canonical rows and reconciliation -----------------------------------------------
@@ -451,16 +456,12 @@ class MergedPage(DomainModel):
     @field_validator("rows")
     @classmethod
     def _sorted_unique(cls, rows: list[MergedRow]) -> list[MergedRow]:
-        indexes = [r.row_index for r in rows]
-        if len(set(indexes)) != len(indexes):
-            raise ValueError("row_index must be unique within a page")
-        return sorted(rows, key=lambda r: r.row_index)
+        return _sorted_unique_rows(rows)
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
-        top, bottom = self.table_top, self.table_bottom
-        if top is not None and bottom is not None and not top < bottom:
-            raise ValueError("table_top must be above table_bottom")
+        # No top < bottom check: merged bounds are averaged per field (data-model §5) and
+        # each PageRead already orders its own.
         if any(r.page_no != self.page_no for r in self.rows):
             raise ValueError("every row must belong to this page")
         return self
@@ -478,9 +479,14 @@ class PageExtractionResult(DomainModel):
     calls_made: Count
 
     @model_validator(mode="after")
-    def _same_page(self) -> Self:
+    def _consistent(self) -> Self:
+        """extract-service.md §3 step 9: review_cells=len(items), cached=(calls_made == 0)."""
         if self.page.page_no != self.page_no:
             raise ValueError("page_no must match page.page_no")
+        if self.review_cells != len(self.review_items):
+            raise ValueError("review_cells must equal len(review_items)")
+        if self.cached != (self.calls_made == 0):
+            raise ValueError("cached must be true exactly when calls_made == 0")
         return self
 
 

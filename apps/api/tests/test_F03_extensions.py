@@ -62,7 +62,7 @@ def test_F03_E1_merged_page_allows_null_header_and_bounds() -> None:
         {"page_no": 0},
         {"page_sha256": "not-a-hash"},
         {"table_top": 1.5},
-        {"table_top": 0.9, "table_bottom": 0.2},
+        {"table_bottom": -0.1},
         {"blank_row_slots_a": -1},
         {"blank_row_slots_b": 17},
         {"row_count_a": -1},
@@ -75,6 +75,13 @@ def test_F03_E1_merged_page_allows_null_header_and_bounds() -> None:
 def test_F03_E1_merged_page_rejects_bad_values(over: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         _page(**over)
+
+
+def test_F03_E1_merged_page_accepts_unordered_bounds() -> None:
+    """Merged bounds are averaged per field (data-model §5); each PageRead orders its own."""
+    page = _page(table_top=0.9, table_bottom=0.2)
+    assert (page.table_top, page.table_bottom) == (0.9, 0.2)
+    assert _page(table_top=0.5, table_bottom=0.5).table_top == 0.5
 
 
 def test_F03_E1_merged_page_is_frozen() -> None:
@@ -103,7 +110,7 @@ def test_F03_E2_page_extraction_result_validates() -> None:
     result = _result()
     assert result.page.rows[0].row_index == 1
     assert len(result.review_items) == 1
-    assert _result(cached=True, calls_made=0, review_items=[]).cached is True
+    assert _result(cached=True, calls_made=0, review_items=[], review_cells=0).cached is True
 
 
 @pytest.mark.parametrize(
@@ -113,6 +120,10 @@ def test_F03_E2_page_extraction_result_validates() -> None:
         {"review_cells": -1},
         {"disagreements": -1},
         {"calls_made": -1},
+        {"review_cells": 0},
+        {"review_cells": 2},
+        {"cached": True},
+        {"calls_made": 0},
         {"extra": 1},
     ],
 )

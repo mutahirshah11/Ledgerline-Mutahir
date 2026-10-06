@@ -53,7 +53,7 @@ explicit_package_bases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-m \"not integration\""
+addopts = "-m \"not integration and not live\""
 markers = [
     "integration: needs a real Supabase project (Phase 6)",
     "live: needs OPENAI_API_KEY; skipped otherwise",

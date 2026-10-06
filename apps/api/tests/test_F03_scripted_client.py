@@ -88,3 +88,8 @@ def test_F03_scripted_client_barrier_breaks_when_calls_are_sequential() -> None:
 
     with pytest.raises(threading.BrokenBarrierError):
         _read(client, ReadVariant.A)
+
+
+def test_F03_scripted_client_rejects_barrier_without_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout"):
+        ScriptedModelClient(barrier=threading.Barrier(2))
