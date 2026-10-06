@@ -1,0 +1,10 @@
+# Default gitleaks rules, plus a narrow allowlist for committed SHA-256 fixtures only.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Hex digests in test fixtures are not secrets"
+paths = [
+  '''apps/api/tests/pack_hashes\.json''',
+  '''apps/api/tests/ground_truth/.*\.json''',
+]

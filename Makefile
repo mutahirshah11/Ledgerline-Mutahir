@@ -8,7 +8,7 @@ WEB := apps/web
 setup:
 	cd $(API) && uv sync
 	cd $(WEB) && pnpm install --frozen-lockfile
-	cd $(API) && uv run pre-commit install --config ../../.pre-commit-config.yaml
+	uv run --project $(API) pre-commit install
 
 dev:
 	cd $(API) && uv run uvicorn app.main:app --reload --port 8000 & \
