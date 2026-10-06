@@ -85,8 +85,11 @@ def load_read_schema(version: str) -> dict[str, Any]:
 def parse_read(payload: object) -> PageRead:
     """Validate one model answer as a `PageRead` (data-model §1, FM-05).
 
-    Accepts the parsed JSON object (or its JSON text). Any failure, including text that is not
-    a JSON object, raises `InvalidReadOutput`; rows come back sorted by `row_index`.
+    Accepts the parsed JSON object (or its JSON text). Validation is strict JSON mode, so no
+    type is coerced (`"3"` is not a row index, `true` is not a count; enum strings are fine).
+    A CORRECTED cell needs a non-blank current value and struck value. Any failure, including
+    text that is not a JSON object, raises `InvalidReadOutput`; rows come back sorted by
+    `row_index`.
     """
     if isinstance(payload, str | bytes):
         try:
@@ -96,19 +99,38 @@ def parse_read(payload: object) -> PageRead:
     if not isinstance(payload, dict):
         raise InvalidReadOutput(f"expected a JSON object, got {type(payload).__name__}")
     try:
-        return PageRead.model_validate(payload)
+        text = json.dumps(payload, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise InvalidReadOutput(f"not a JSON object: {exc}") from exc
+    try:
+        read = PageRead.model_validate_json(text, strict=True)
     except ValidationError as exc:
         raise InvalidReadOutput(str(exc)) from exc
+    for row in read.rows:
+        for field, cell in row.cells.items():
+            if cell.status is CellStatus.CORRECTED and (
+                same_key(cell.value) is None or same_key(cell.struck) is None
+            ):
+                raise InvalidReadOutput(
+                    f"row {row.row_index} {field.value}: CORRECTED needs a non-blank value "
+                    "and struck"
+                )
+    return read
 
 
 # --- merge (data-model §3, FR-015 to FR-021) ---------------------------------------------
 
 
-def _same_key(value: str | None) -> str | None:
+def same_key(value: str | None) -> str | None:
     """FR-015 comparison key: trimmed and case-folded; a blank string counts as null."""
     if value is None or not value.strip():
         return None
     return value.strip().casefold()
+
+
+# Deprecated private alias: scripts/eval_extraction.py still imports `_same_key`; remove once
+# that script is switched to `same_key`.
+_same_key = same_key
 
 
 def _trimmed(value: str | None) -> str | None:
@@ -122,7 +144,7 @@ def _union(*cells: Cell) -> list[str]:
     out: list[str] = []
     for cell in cells:
         for raw in (cell.value, *cell.candidates):
-            text, key = _trimmed(raw), _same_key(raw)
+            text, key = _trimmed(raw), same_key(raw)
             if text is not None and key is not None and key not in seen:
                 seen.add(key)
                 out.append(text)
@@ -131,10 +153,11 @@ def _union(*cells: Cell) -> list[str]:
 
 def _join_notes(*notes: str | None) -> str | None:
     """Non-blank notes joined with " | ", skipping ones the "same" rule says repeat."""
+    # Notes equal under the same-value rule (trimmed, case-folded) are de-duplicated.
     seen: set[str] = set()
     out: list[str] = []
     for note in notes:
-        text, key = _trimmed(note), _same_key(note)
+        text, key = _trimmed(note), same_key(note)
         if text is not None and key is not None and key not in seen:
             seen.add(key)
             out.append(text)
@@ -154,18 +177,24 @@ def _single_read_cell(cell: Cell) -> Cell:
     return _doubt([value] if value is not None else [], _trimmed(cell.note))
 
 
+def _same_present(x: str | None, y: str | None) -> bool:
+    """True when both strings are non-blank and the same under FR-015."""
+    key = same_key(x)
+    return key is not None and key == same_key(y)
+
+
 def merge_cells(a: Cell | None, b: Cell | None) -> MergedCell:
     """Merge one cell pair by the precedence table (data-model §3), first match wins.
 
     `None` stands for a row the other read alone saw (FR-019): the cell becomes UNCLEAR with
     the read's value as the only candidate, or ILLEGIBLE, and carries no review reason.
     """
-    if a is None and b is None:
-        raise ValueError("at least one read cell is required")
-    if a is None or b is None:
-        only = b if a is None else a
-        assert only is not None
-        return MergedCell(merged=_single_read_cell(only), read_a=a, read_b=b, review_reason=None)
+    if a is None:
+        if b is None:
+            raise ValueError("at least one read cell is required")
+        return MergedCell(merged=_single_read_cell(b), read_a=None, read_b=b, review_reason=None)
+    if b is None:
+        return MergedCell(merged=_single_read_cell(a), read_a=a, read_b=None, review_reason=None)
 
     CLEAR, UNCLEAR = CellStatus.CLEAR, CellStatus.UNCLEAR
     CORRECTED, ILLEGIBLE = CellStatus.CORRECTED, CellStatus.ILLEGIBLE
@@ -177,9 +206,9 @@ def merge_cells(a: Cell | None, b: Cell | None) -> MergedCell:
         reason = ReviewReason.ILLEGIBLE
     elif (
         statuses == {CORRECTED}
-        and _same_key(a.value) == _same_key(b.value)
-        and _same_key(a.struck) == _same_key(b.struck)
-    ):  # 2
+        and _same_present(a.value, b.value)
+        and _same_present(a.struck, b.struck)
+    ):  # 2 (a blank key is never "same": it falls through to rule 3)
         merged = Cell(
             value=_trimmed(a.value), status=CORRECTED, struck=_trimmed(a.struck), note=note
         )
@@ -190,12 +219,12 @@ def merge_cells(a: Cell | None, b: Cell | None) -> MergedCell:
     elif UNCLEAR in statuses:  # 4
         merged = _doubt(_union(a, b), note)
         reason = ReviewReason.UNCLEAR
-    elif _same_key(a.value) == _same_key(b.value):  # 5: both CLEAR
+    elif same_key(a.value) == same_key(b.value):  # 5: both CLEAR
         merged = Cell(value=_trimmed(a.value), status=CLEAR, note=note)
         reason = None
     else:  # 6: both CLEAR, different
         blank = [
-            v for v, c in ((ReadVariant.A, a), (ReadVariant.B, b)) if _same_key(c.value) is None
+            v for v, c in ((ReadVariant.A, a), (ReadVariant.B, b)) if same_key(c.value) is None
         ]
         if blank:
             note = _join_notes(note, f"read {blank[0].value} saw the cell blank")
@@ -213,6 +242,16 @@ def _mean_edge(a: float | None, b: float | None) -> float | None:
     return float(mean.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
 
 
+def _merged_edges(read_a: PageRead, read_b: PageRead) -> tuple[float | None, float | None]:
+    """FR-021 table edges; when both are known but top is not above bottom (edges from
+    different reads, or a collapse after rounding), neither is trusted and both are None."""
+    top = _mean_edge(read_a.table_top, read_b.table_top)
+    bottom = _mean_edge(read_a.table_bottom, read_b.table_bottom)
+    if top is not None and bottom is not None and top >= bottom:
+        return None, None
+    return top, bottom
+
+
 def merge_reads(
     read_a: PageRead, read_b: PageRead, *, page_no: int, page_sha256: str
 ) -> MergedPage:
@@ -221,6 +260,7 @@ def merge_reads(
     Rows are sorted by row index and cells keep the fixed field order (FR-020). Month and page
     number as written are read A's, or read B's when A has none.
     """
+    table_top, table_bottom = _merged_edges(read_a, read_b)
     rows_a = {r.row_index: r for r in read_a.rows}
     rows_b = {r.row_index: r for r in read_b.rows}
     rows: list[MergedRow] = []
@@ -243,8 +283,8 @@ def merge_reads(
         page_no_written=read_a.page_no_written
         if read_a.page_no_written is not None
         else read_b.page_no_written,
-        table_top=_mean_edge(read_a.table_top, read_b.table_top),
-        table_bottom=_mean_edge(read_a.table_bottom, read_b.table_bottom),
+        table_top=table_top,
+        table_bottom=table_bottom,
         blank_row_slots_a=read_a.blank_row_slots,
         blank_row_slots_b=read_b.blank_row_slots,
         row_count_a=len(read_a.rows),
@@ -304,6 +344,22 @@ def check_readable(page: MergedPage) -> None:
 # --- review items (data-model §4, FR-019, FR-022, FR-024 to FR-026) ----------------------
 
 
+PAGE_ITEM_FIELD = "page"
+"""`ReviewItem.field` of the page label item; matches the `:page` suffix of `page_review_key`."""
+ROW_ITEM_FIELD = "row"
+"""`ReviewItem.field` of a row-in-one-read item; matches the `:row` suffix of `row_review_key`."""
+
+
+def _single_read_variant(row: MergedRow) -> ReadVariant | None:
+    """FR-019: the read that alone saw this row, or None when both reads saw it."""
+    first = next(iter(row.cells.values()))
+    if first.read_a is None:
+        return ReadVariant.B
+    if first.read_b is None:
+        return ReadVariant.A
+    return None
+
+
 def _grn_of(row: MergedRow) -> int | None:
     """FR-026: the row's merged GRN when CLEAR and all digits, else None."""
     grn = row.cells[RegisterField.GRN_NO].merged
@@ -324,7 +380,7 @@ def _page_item(
         item_key=key,
         grn_no=None,
         source_row_id=None,
-        field="page",
+        field=PAGE_ITEM_FIELD,
         reason=ReviewReason.PAGE_LABEL_MISMATCH,
         read_a=None,
         read_b=None,
@@ -346,11 +402,14 @@ def _page_item(
 def _row_items(row: MergedRow, run_id: UUID) -> list[ReviewItem]:
     row_id = register_row_id(row.page_no, row.row_index)
     grn_no = _grn_of(row)
-    first = next(iter(row.cells.values()))
-    if first.read_a is None or first.read_b is None:  # FR-019: one item for the row
-        variant = ReadVariant.B if first.read_a is None else ReadVariant.A
-        side = "read_b" if variant is ReadVariant.B else "read_a"
-        cells = {f: getattr(c, side) for f, c in row.cells.items()}
+    variant = _single_read_variant(row)
+    if variant is not None:  # FR-019: one item for the row
+        cells: dict[RegisterField, Cell] = {}
+        for f, pair in row.cells.items():
+            seen = pair.read_a if variant is ReadVariant.A else pair.read_b
+            if seen is None:
+                raise ValueError(f"row {row.row_index} {f.value}: read {variant.value} missing")
+            cells[f] = seen
         key = row_review_key(row.page_no, row.row_index)
         return [
             ReviewItem(
@@ -360,7 +419,7 @@ def _row_items(row: MergedRow, run_id: UUID) -> list[ReviewItem]:
                 item_key=key,
                 grn_no=grn_no,
                 source_row_id=row_id,
-                field="row",
+                field=ROW_ITEM_FIELD,
                 reason=ReviewReason.ROW_IN_ONE_READ,
                 read_a=None,
                 read_b=None,
@@ -572,8 +631,7 @@ def _disagreements(page: MergedPage) -> int:
     """Data-model §5: READS_DISAGREE cells (any field) plus rows seen by one read only."""
     count = 0
     for row in page.rows:
-        first = next(iter(row.cells.values()))
-        if first.read_a is None or first.read_b is None:
+        if _single_read_variant(row) is not None:
             count += 1
             continue
         count += sum(

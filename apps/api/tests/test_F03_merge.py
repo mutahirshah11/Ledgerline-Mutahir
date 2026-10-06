@@ -7,8 +7,9 @@ from typing import Any
 import pytest
 
 from app.domain.enums import CellStatus, RegisterField, ReviewReason
-from app.domain.models import Cell, PageRead, RowRead
+from app.domain.models import Cell, GroundTruthPage, PageRead, RowRead
 from app.pipeline.extract import merge_cells, merge_reads, parse_read
+from tests.support.pack import _page_input
 
 GT_DIR = Path(__file__).resolve().parents[1] / "tests" / "ground_truth"
 SHA = "a" * 64
@@ -126,20 +127,46 @@ def test_F03_R7_corrected_differs(b: Cell) -> None:
 
 
 @pytest.mark.parametrize(
-    ("other", "candidates"),
-    [(clear("66"), ["66"]), (clear("60"), ["66", "60"]), (unclear("68", "66"), ["66", "68"])],
+    ("other", "candidates", "reversed_candidates"),
+    [
+        (clear("66"), ["66"], ["66"]),
+        (clear("60"), ["66", "60"], ["60", "66"]),
+        (unclear("68", "66"), ["66", "68"], ["68", "66"]),
+    ],
 )
-def test_F03_R7_corrected_vs_clear_and_unclear(other: Cell, candidates: list[str]) -> None:
+def test_F03_R7_corrected_vs_clear_and_unclear(
+    other: Cell, candidates: list[str], reversed_candidates: list[str]
+) -> None:
     for a, b, expected in (
         (corrected("66", "60"), other, candidates),
-        (other, corrected("66", "60"), None),
+        (other, corrected("66", "60"), reversed_candidates),  # read A's values first
     ):
         m = merge_cells(a, b)
         assert m.merged.status is UNCLEAR
         assert m.merged.value is None
         assert m.review_reason is ReviewReason.READS_DISAGREE  # Clarification 3
-        if expected is not None:
-            assert m.merged.candidates == expected
+        assert m.merged.candidates == expected
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        (
+            Cell(value=" ", status=CORRECTED, struck="60"),
+            Cell(value="", status=CORRECTED, struck="60"),
+        ),
+        (
+            Cell(value="66", status=CORRECTED, struck=" "),
+            Cell(value="66", status=CORRECTED, struck=""),
+        ),
+    ],
+    ids=["blank_value", "blank_struck"],
+)
+def test_F03_R7_corrected_blank_keys_never_same(a: Cell, b: Cell) -> None:
+    """Rule 2 needs real current and struck values; blank keys fall through to rule 3."""
+    m = merge_cells(a, b)
+    assert m.merged.status is not CORRECTED
+    assert m.review_reason is ReviewReason.READS_DISAGREE
 
 
 def test_F03_R7_unclear_union() -> None:
@@ -210,6 +237,27 @@ def test_F03_R8_rows_sorted_fixed_field_order() -> None:
     assert merged.page_no == 2 and merged.page_sha256 == SHA
 
 
+def test_F03_R8_table_edges_crossing_after_merge_are_dropped() -> None:
+    read_a = page(row(1), table_top=0.5, table_bottom=None)
+    read_b = page(row(1), table_top=None, table_bottom=0.4)
+    merged = merge_reads(read_a, read_b, page_no=2, page_sha256=SHA)
+    assert merged.table_top is None and merged.table_bottom is None
+
+
+def test_F03_R8_table_edges_equal_after_rounding_are_dropped() -> None:
+    read_a = page(row(1), table_top=0.4001, table_bottom=None)
+    read_b = page(row(1), table_top=None, table_bottom=0.4004)
+    merged = merge_reads(read_a, read_b, page_no=2, page_sha256=SHA)
+    assert merged.table_top is None and merged.table_bottom is None
+
+
+def test_F03_R8_table_edges_ordered_are_kept() -> None:
+    read_a = page(row(1), table_top=0.1, table_bottom=None)
+    read_b = page(row(1), table_top=0.2, table_bottom=0.9)
+    merged = merge_reads(read_a, read_b, page_no=2, page_sha256=SHA)
+    assert merged.table_top == 0.15 and merged.table_bottom == 0.9
+
+
 def test_F03_R7_deterministic() -> None:
     read_a = page(row(3, qty=unclear("5", "6")), row(1), row(7, grn_no=clear("4401")))
     read_b = page(row(1, supplier=clear("other")), row(3, qty=unclear("6", "8")), row(12))
@@ -222,6 +270,10 @@ def test_F03_R7_deterministic() -> None:
 def test_F03_R7_ground_truth_paired_with_itself_is_unchanged(page_no: int) -> None:
     gt = gt_read(page_no)
     merged = merge_reads(gt, gt, page_no=page_no, page_sha256=SHA)
+    gt_page = GroundTruthPage.model_validate_json(
+        (GT_DIR / f"register_p{page_no}.json").read_text(encoding="utf-8")
+    )
+    assert merged.rows == _page_input(gt_page).rows
     assert [r.row_index for r in merged.rows] == [r.row_index for r in gt.rows]
     for gt_row, m_row in zip(gt.rows, merged.rows, strict=True):
         for field in RegisterField:

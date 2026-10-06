@@ -129,11 +129,19 @@ INVALID: dict[str, Any] = {
     "duplicate_row_index": lambda p: _with(p, lambda q: q["rows"][1].update(row_index=1)),
     "missing_cell_key": lambda p: _with(p, lambda q: q["rows"][0]["cells"].pop("qty")),
     "corrected_without_struck": _cell_case(value="66", status="CORRECTED"),
+    "corrected_blank_value": _cell_case(value="  ", status="CORRECTED", struck="60"),
+    "corrected_blank_struck": _cell_case(value="66", status="CORRECTED", struck=" "),
+    "corrected_empty_value": _cell_case(value="", status="CORRECTED", struck="60"),
     "clear_with_candidates": _cell_case(candidates=["1", "7"]),
     "unclear_without_candidates": _cell_case(value=None, status="UNCLEAR"),
     "illegible_with_value": _cell_case(value="2", status="ILLEGIBLE"),
     "top_not_above_bottom": lambda p: p | {"table_top": 0.9, "table_bottom": 0.9},
     "blank_row_slots_17": lambda p: p | {"blank_row_slots": 17},
+    "row_index_string": lambda p: _with(p, lambda q: q["rows"][0].update(row_index="3")),
+    "blank_row_slots_bool": lambda p: p | {"blank_row_slots": True},
+    "blank_row_slots_string": lambda p: p | {"blank_row_slots": "14"},
+    "table_top_string": lambda p: p | {"table_top": "0.1"},
+    "value_not_a_string": _cell_case(value=1),
     "unknown_key": lambda p: p | {"extra": 1},
     "rows_not_a_list": lambda p: p | {"rows": "not a list"},
     "non_json_text": lambda p: '{"rows": [',
@@ -148,3 +156,12 @@ def test_F03_R4_parse_rejects_invalid(case: str) -> None:
     broken = INVALID[case](_payload())
     with pytest.raises(InvalidReadOutput):
         parse_read(broken)
+
+
+def test_F03_R4_parse_accepts_enum_strings_and_json_text() -> None:
+    read = parse_read(json.dumps(_payload()))
+    cell = read.rows[0].cells[RegisterField.QTY]
+    assert cell.status is CellStatus.CLEAR
+    corrected = _payload()
+    corrected["rows"][0]["cells"]["qty"] = _cell(value="66", status="CORRECTED", struck="60")
+    assert parse_read(corrected).rows[0].cells[RegisterField.QTY].status is CellStatus.CORRECTED
