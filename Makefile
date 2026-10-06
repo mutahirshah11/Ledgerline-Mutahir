@@ -25,4 +25,4 @@ lint:
 	cd $(WEB) && pnpm exec tsc --noEmit
 
 seed:
-	@echo "seed: available after T053 (allowlist seed)"
+	cd $(API) && uv run python -m scripts.seed_users $(BUILDER_EMAIL)
