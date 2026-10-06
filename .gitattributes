@@ -2,3 +2,5 @@
 data/** -text
 # Shell scripts run in Git Bash and on Linux CI: always LF
 *.sh text eol=lf
+# Model prompts are hashed/versioned text: always LF
+apps/api/app/pipeline/prompts/** text eol=lf
