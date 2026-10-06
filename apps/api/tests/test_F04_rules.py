@@ -22,6 +22,7 @@ from app.domain.ids import stable_id
 from app.domain.models import CANONICAL_CELL_FIELDS, UnknownMappingContext
 from app.pipeline.engine import EngineInputs
 from app.pipeline.normalise import MappingTables, NormaliseResult, RawRow, read_erp, read_sheet
+from app.pipeline.reconcile import reconcile
 from tests.support.normalised import (
     PACK_RUN_ID,
     map_decision,
@@ -187,6 +188,23 @@ def test_F04_R3_grn_prefix_and_length(
         assert _log(changed, row_id, "grn_no") == [(NormCode.GRN_PREFIX_STRIPPED, raw, None)]
     assert row_by_id(changed, "ERP-0005").grn_no == 4405
     assert _log(changed, "ERP-0005", "grn_no") == [(NormCode.TEXT_TRIMMED, " 4405 ", "4405")]
+
+
+def test_F04_R3_grn_zero_is_malformed(
+    inputs: EngineInputs, erp: list[RawRow], sheet: list[RawRow]
+) -> None:
+    """F-04.R3: a GRN of zero is malformed (null, logged) like any other bad GRN; reconcile
+    must not crash on it (grn_group_key requires grn_no >= 1)."""
+    erp = with_values(erp, "ERP-0001", grn_no="000")
+    sheet = with_values(sheet, "XLS-r2", GRN="GRN-0000")
+    changed = normalise_pack(inputs, erp=erp, sheet=sheet)
+
+    for row_id, raw in (("ERP-0001", "000"), ("XLS-r2", "GRN-0000")):
+        assert row_by_id(changed, row_id).grn_no is None
+        assert _log(changed, row_id, "grn_no") == [(NormCode.GRN_PREFIX_STRIPPED, raw, None)]
+
+    reconciled = reconcile(PACK_RUN_ID, changed.rows)  # must not raise (grn_no < 1)
+    assert {r.source_row_id for r in reconciled.rows} >= {"ERP-0001", "XLS-r2"}
 
 
 def test_F04_R4_register_year_from_header(inputs: EngineInputs, result: NormaliseResult) -> None:

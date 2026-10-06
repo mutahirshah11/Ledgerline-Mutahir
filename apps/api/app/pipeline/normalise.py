@@ -494,6 +494,10 @@ class _RowNormaliser:
             self._log("grn_no", NormCode.GRN_PREFIX_STRIPPED, text, None)
             return None
         grn_no = int(digits)
+        if grn_no < 1:
+            # F-04.R3: a GRN of zero is malformed, not a valid GRN (grn_group_key requires >= 1).
+            self._log("grn_no", NormCode.GRN_PREFIX_STRIPPED, text, None)
+            return None
         if body.startswith("GRN-"):
             self._log("grn_no", NormCode.GRN_PREFIX_STRIPPED, text, str(grn_no))
         elif digits != text:
@@ -669,7 +673,7 @@ def _register_rows(out: _Out, page: RegisterPageInput, run_year: int) -> list[Ca
     year from `month_written`, else from the run month (research R4)."""
     year = _header_year(page.month_written) or run_year
     rows = []
-    for merged_row in page.rows:
+    for merged_row in sorted(page.rows, key=lambda r: r.row_index):
         row_id = register_row_id(page.page_no, merged_row.row_index)
         cells = {
             REGISTER_TO_CANONICAL[f]: _Cell(c.merged.value, c.merged.status)
