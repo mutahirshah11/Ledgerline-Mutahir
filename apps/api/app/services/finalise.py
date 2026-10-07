@@ -7,9 +7,9 @@ headline, the exception list and the summary notification (C25, FR-020). `finali
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import NoReturn
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 from app.core import clock
@@ -42,23 +42,29 @@ from app.domain.enums import (
 from app.domain.ids import summary_key
 from app.domain.models import (
     AllowedUser,
+    AuditEntry,
     CanonicalRow,
+    ControlFlag,
+    ExceptionItem,
     FinaliseRequest,
     FinaliseResponse,
     Group,
+    NormLogEntry,
     Notification,
     PageProgress,
     Proof,
     ReportLinks,
+    ReviewItem,
     Run,
     RunEvent,
     RunView,
+    SourceFile,
     StageProgress,
     StageProgressView,
     StageState,
 )
 from app.pipeline import report
-from app.pipeline.engine import open_review_count, open_review_items, outcome_counts_of
+from app.pipeline.engine import open_review_state, outcome_counts_of
 from app.services import telegram
 from app.services.alerts import stage_failed_alert
 from app.services.audit import audit
@@ -135,42 +141,102 @@ def stage_progress(repo: Repo, run: Run) -> StageProgressView:
 # --- run view (FR-020) ---------------------------------------------------------------------
 
 
-def current_item_keys(repo: Repo, run_id: UUID) -> frozenset[str]:
-    """The keys of the current OPEN items (the one open-item rule, `engine.open_review_items`),
-    for `report.exception_list` / `build_report_context`."""
-    return frozenset(i.item_key for i in open_review_items(repo, run_id))
+@dataclass(frozen=True)
+class RunData:
+    """One read of what the run view, the report and the summary print (I-7: each is derived
+    from this, not re-read). `open_items`: the one open-item rule (`engine.open_review_state`);
+    `audit`: the run's entries newest first, loaded only for the report (`with_report`)."""
+
+    run: Run
+    rows: list[CanonicalRow]
+    groups: list[Group]
+    flags: list[ControlFlag]
+    items: list[ReviewItem]
+    proof: Proof | None
+    open_items: list[ReviewItem]
+    norm_log: list[NormLogEntry] = field(default_factory=list)
+    files: list[SourceFile] = field(default_factory=list)
+    audit: list[AuditEntry] = field(default_factory=list)
+
+    @property
+    def current_keys(self) -> frozenset[str]:
+        """For `report.exception_list` / `build_report_context`."""
+        return frozenset(i.item_key for i in self.open_items)
+
+    def exceptions(self) -> list[ExceptionItem]:
+        return report.exception_list(
+            self.run,
+            self.groups,
+            self.rows,
+            self.flags,
+            self.items,
+            self.proof,
+            current_keys=self.current_keys,
+        )
+
+    def report_context(self, run: Run | None = None) -> report.ReportContext:
+        """The report of `run` (default: the run as read; pass it with the finalise instant
+        and actor set, research R8)."""
+        return report.build_report_context(
+            run or self.run,
+            self.groups,
+            self.rows,
+            self.flags,
+            self.items,
+            self.proof,
+            self.norm_log,
+            self.files,
+            self.audit,
+            current_keys=self.current_keys,
+        )
+
+
+def load_run_data(repo: Repo, run: Run, *, with_report: bool = False) -> RunData:
+    """`RunData` of `run`: one read per table (the review items once, the audit once for the
+    open-item rule, again only `with_report`)."""
+    items = repo.list_review_items(run.id)
+    open_items, _ = open_review_state(repo, run.id, items)
+    extra: dict[str, Any] = {}
+    if with_report:
+        extra = {
+            "norm_log": repo.list_norm_log(run.id),
+            "files": repo.list_source_files(run.id),
+            "audit": repo.list_audit(run_id=run.id),
+        }
+    return RunData(
+        run=run,
+        rows=repo.list_source_rows(run.id),
+        groups=repo.list_groups(run.id),
+        flags=repo.list_flags(run.id),
+        items=items,
+        proof=repo.get_proof(run.id),
+        open_items=open_items,
+        **extra,
+    )
 
 
 def load_run_view(repo: Repo, run_id: UUID) -> RunView:
     """The flat `RunView` of a run (NotFound for an unknown run). `open_review_items` follows
-    the one open-item rule (`engine.open_review_count`); `summary` is the `SUMMARY:{run_key}`
-    notification of this run (C7: never another run's with the same key), None before
-    finalise."""
-    run = repo.get_run(run_id)
-    rows = repo.list_source_rows(run_id)
-    groups = repo.list_groups(run_id)
-    proof = repo.get_proof(run_id)
-    counts = outcome_counts_of(rows, groups)
-    exceptions = report.exception_list(
-        run,
-        groups,
-        rows,
-        repo.list_flags(run_id),
-        repo.list_review_items(run_id),
-        proof,
-        current_keys=current_item_keys(repo, run_id),
-    )
-    summary = telegram.summary_of(repo, run)
+    the one open-item rule (`engine.open_review_state`, the same list the exceptions use);
+    `summary` is the `SUMMARY:{run_key}` notification of this run (C7: never another run's
+    with the same key), None before finalise."""
+    return run_view(repo, load_run_data(repo, repo.get_run(run_id)))
+
+
+def run_view(repo: Repo, data: RunData) -> RunView:
+    """The `RunView` of `data` (reads only the stage progress and the summary row)."""
+    run = data.run
+    counts = outcome_counts_of(data.rows, data.groups)
     return RunView(
         **run.model_dump(),
         stage_progress=stage_progress(repo, run),
         counts=counts.flat(),
         row_counts={s: {o: counts.rows_by_outcome[o][s] for o in Outcome} for s in Source},
-        proof_status=None if proof is None else proof.status,
-        open_review_items=open_review_count(repo, run_id),
-        headline=report.headline(groups),
-        exceptions=exceptions,
-        summary=summary,
+        proof_status=None if data.proof is None else data.proof.status,
+        open_review_items=len(data.open_items),
+        headline=report.headline(data.groups),
+        exceptions=data.exceptions(),
+        summary=telegram.summary_of(repo, run),
     )
 
 
@@ -190,6 +256,7 @@ def write_report_files(
     actor: str,
     *,
     adopt: bool = False,
+    data: RunData | None = None,
 ) -> tuple[str, str]:
     """Write `outcomes.csv` then `report.html`, each once (F-09.R5, research R9): an existing
     file is kept, never rewritten. The report prints `finalise_at` and `actor` (the email the
@@ -198,50 +265,26 @@ def write_report_files(
     instant it actually finalises with. StateConflict (the caller must not finalise) when
     `report.html` already exists for a run that is not `FINALISED`, unless the caller `adopt`s
     it (its meta tags matched, `_freeze`), or when its write loses a race: the printed instant
-    is then the other caller's."""
+    is then the other caller's. `data`: the run as `_freeze` read it (no second read)."""
     html_path, csv_path = report_paths(run_id)
-    run = repo.get_run(run_id)
+    run = repo.get_run(run_id) if data is None else data.run
     html_exists = store.exists(REPORTS_BUCKET, html_path)
     if html_exists and run.status is not RunStatus.FINALISED and not adopt:
         raise StateConflict(run)
     csv_exists = store.exists(REPORTS_BUCKET, csv_path)
     if html_exists and csv_exists:
         return html_path, csv_path
-    rows = repo.list_source_rows(run_id)
-    groups = repo.list_groups(run_id)
+    if data is None:
+        data = load_run_data(repo, run, with_report=True)
     if not csv_exists:
-        csv_bytes = report.render_outcomes_csv(rows, groups)
+        csv_bytes = report.render_outcomes_csv(data.rows, data.groups)
         _put_once(store, csv_path, csv_bytes, "text/csv; charset=utf-8")
     if not html_exists:
         frozen = run.model_copy(update={"finalised_at": finalise_at, "finalised_by": actor})
-        html = report.render_report_html(_report_context(repo, frozen, rows, groups))
+        html = report.render_report_html(data.report_context(frozen))
         if not _put_once(store, html_path, html, "text/html; charset=utf-8"):
             raise StateConflict(repo.get_run(run_id))
     return html_path, csv_path
-
-
-def _report_context(
-    repo: Repo, run: Run, rows: list[CanonicalRow], groups: list[Group]
-) -> report.ReportContext:
-    return report.build_report_context(
-        run,
-        groups,
-        rows,
-        repo.list_flags(run.id),
-        repo.list_review_items(run.id),
-        repo.get_proof(run.id),
-        repo.list_norm_log(run.id),
-        repo.list_source_files(run.id),
-        repo.list_audit(run_id=run.id),
-        current_keys=current_item_keys(repo, run.id),
-    )
-
-
-def report_fingerprint(repo: Repo, run_id: UUID) -> str:
-    """`report.report_fingerprint` of the run's data as it stands (research R9, I1/I2)."""
-    run = repo.get_run(run_id)
-    ctx = _report_context(repo, run, repo.list_source_rows(run_id), repo.list_groups(run_id))
-    return report.report_fingerprint(ctx)
 
 
 def _put_once(store: BlobStore, path: str, data: bytes, content_type: str) -> bool:
@@ -304,8 +347,9 @@ def finalise(
         )
     run = repo.get_run(run_id)
     text: str | None = None
+    data: RunData | None = None
     if run.status in FINALISABLE:
-        run, text = _freeze(repo, store, notifier, run, actor, channel, proof, settings, now)
+        run, text, data = _freeze(repo, store, notifier, run, actor, channel, proof, settings, now)
     elif run.status is RunStatus.FINALISED:
         _backfill_finalised_audit(repo, run, channel, now)
     else:
@@ -319,9 +363,12 @@ def finalise(
         details = {"status": run.status.value, "summary_status": n.status.value}
         raise ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, message, Stage.NOTIFY, details)
     html_path, _ = report_paths(run.id)
+    if n.status is not NotificationStatus.SENT and n.telegram_message_id is not None:
+        text = ""  # M-5: the message was delivered; the resend sends report.html only
     if n.status is not NotificationStatus.SENT and text is None:
         try:
-            text = summary_text(repo, run.id, proof, settings)
+            data = load_run_data(repo, run)
+            text = summary_text(data, proof, settings)
         except Exception as exc:
             n = telegram.summary_not_built(repo, notifier, run, n, exc, settings=settings, now=now)
     if n.status is not NotificationStatus.SENT and text is not None:
@@ -335,13 +382,45 @@ def finalise(
         except Exception as exc:  # e.g. the repo after a send: the row stays SENDING (R12)
             raise ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error", Stage.NOTIFY) from exc
     report_url, _ = store.signed_download_url(REPORTS_BUCKET, html_path)
-    return FinaliseResponse(run=load_run_view(repo, run.id), report_url=report_url, notification=n)
+    view = load_run_view(repo, run.id) if data is None else run_view(repo, replace(data, run=run))
+    return FinaliseResponse(run=view, report_url=report_url, notification=n)
 
 
-def summary_text(repo: Repo, run_id: UUID, proof: Proof, settings: Settings) -> str:
-    """The rendered summary message of the run as it stands (contracts/telegram-message.md)."""
-    view = load_run_view(repo, run_id)
-    return telegram.build_summary_message(view, settings.APP_BASE_URL, proof).render()
+@dataclass(frozen=True)
+class _SummarySource:
+    """`telegram.SummarySource` from `RunData` (no `RunView` needed, I-7)."""
+
+    id: UUID
+    month: str
+    counts: dict[Outcome, int]
+    exceptions: list[ExceptionItem]
+
+
+def summary_text(
+    data: RunData,
+    proof: Proof,
+    settings: Settings,
+    exceptions: list[ExceptionItem] | None = None,
+) -> str:
+    """The rendered summary message of the run as read (contracts/telegram-message.md);
+    `exceptions`: `data.exceptions()` when the caller already has them."""
+    source = _SummarySource(
+        id=data.run.id,
+        month=data.run.month,
+        counts=outcome_counts_of(data.rows, data.groups).flat(),
+        exceptions=data.exceptions() if exceptions is None else exceptions,
+    )
+    return telegram.build_summary_message(source, settings.APP_BASE_URL, proof).render()
+
+
+_STAMPED = frozenset({AuditAction.REVIEW_RESOLVED, AuditAction.RECONCILED})
+
+
+def _decision_stamp(items: list[ReviewItem], audit: list[AuditEntry]) -> tuple[object, ...]:
+    """Cheap stand-in for the report fingerprint (I-7a): any review decision or re-reconcile
+    changes the review items or adds a `REVIEW_RESOLVED` / `RECONCILED` audit entry (I2)."""
+    stamped = sorted(a.id for a in audit if a.action in _STAMPED)
+    return tuple(i.model_dump_json() for i in items), tuple(stamped)
 
 
 def _freeze(
@@ -354,27 +433,37 @@ def _freeze(
     proof: Proof,
     settings: Settings,
     now: Callable[[], datetime],
-) -> tuple[Run, str]:
+) -> tuple[Run, str, RunData]:
     """F-10.R2, R3: one instant for the report and the run; the summary text (C2), then the
     report files, then `FINALISED` from the status read at the start (I2). A text or report
     failure (FM-10) leaves the run unchanged, writes `finalise FAILED` and alerts ops; so does
     a failed transition after the report was written. A StateConflict (a concurrent finalise
     or decision) is only the 409. An existing report.html (an earlier finalise that never
     transitioned, research R9) is adopted with its own instant and actor when its fingerprint
-    is the run's; otherwise 409 and one ops alert. Returns the frozen run and the text."""
+    is the run's; otherwise 409 and one ops alert, as for a stored outcomes.csv of other data
+    (I-1). The run is read once (`load_run_data`, I-7); the text, fingerprint, CSV and HTML
+    come from that read, and a cheap decision stamp re-checks it before `FINALISED`. Returns
+    the frozen run, the text and the read; an adopted report is audited `adopted: true`."""
     at, by = now(), actor.email
-    open_items = open_review_count(repo, run.id)
+    adopted = False
     try:
         with stage_step(repo, run.id, Stage.FINALISE, now=now):
             try:
-                text = summary_text(repo, run.id, proof, settings)
-                fingerprint = report_fingerprint(repo, run.id)
+                data = load_run_data(repo, run, with_report=True)
+                ctx = data.report_context()
+                fingerprint = report.report_fingerprint(ctx)  # M-1: before the text
+                text = summary_text(data, proof, settings, ctx.exceptions)
                 orphan = _orphan_report(store, run.id)
-                if orphan is not None:
-                    if orphan.meta is None or orphan.meta.fingerprint != fingerprint:
-                        _orphan_mismatch(repo, notifier, run, settings, now)
-                    at, by = orphan.meta.finalised_at, orphan.meta.finalised_by
-                paths = write_report_files(repo, store, run.id, at, by, adopt=orphan is not None)
+                csv_bytes = report.render_outcomes_csv(data.rows, data.groups)
+                stored_csv = _stored(store, report_paths(run.id)[1])
+                if (stored_csv is not None and stored_csv != csv_bytes) or (
+                    orphan is not None
+                    and (orphan.meta is None or orphan.meta.fingerprint != fingerprint)
+                ):
+                    _orphan_mismatch(repo, notifier, run, settings, now)
+                if orphan is not None and orphan.meta is not None:
+                    at, by, adopted = orphan.meta.finalised_at, orphan.meta.finalised_by, True
+                paths = write_report_files(repo, store, run.id, at, by, adopt=adopted, data=data)
             except (StateConflict, ApiError):
                 raise
             except Exception as exc:
@@ -382,7 +471,8 @@ def _freeze(
                     repo, notifier, run, Stage.FINALISE, exc, settings=settings, now=now
                 )
                 raise
-            if report_fingerprint(repo, run.id) != fingerprint:  # a decision meanwhile (I2)
+            stamp = _decision_stamp(repo.list_review_items(run.id), repo.list_audit(run_id=run.id))
+            if stamp != _decision_stamp(data.items, data.audit):  # a decision meanwhile (I2)
                 raise StateConflict(repo.get_run(run.id))
             try:
                 frozen = repo.transition_run(
@@ -406,12 +496,13 @@ def _freeze(
                 "run",
                 str(run.id),
                 run_id=run.id,
-                before={"status": run.status.value, "open_review_items": open_items},
+                before={"status": run.status.value, "open_review_items": len(data.open_items)},
                 after={
                     "status": frozen.status.value,
                     "finalised_by": by,
                     "finalised_at": at.isoformat(),
                     "report_paths": list(paths),
+                    **({"adopted": True} if adopted else {}),
                 },
                 channel=channel,
                 now=lambda: at,
@@ -425,7 +516,12 @@ def _freeze(
         raise ApiError(ErrorCode.DUPLICATE_RUN, 409, message, Stage.FINALISE, details) from exc
     except Exception as exc:
         raise ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error", Stage.FINALISE) from exc
-    return frozen, text
+    return frozen, text, data
+
+
+def _stored(store: BlobStore, path: str) -> bytes | None:
+    """The stored report file at `path`, None if there is none."""
+    return store.get(REPORTS_BUCKET, path) if store.exists(REPORTS_BUCKET, path) else None
 
 
 ORPHAN_GROUP = "orphan-report"
@@ -449,13 +545,14 @@ def _orphan_report(store: BlobStore, run_id: UUID) -> _Orphan | None:
 def _orphan_mismatch(
     repo: Repo, notifier: Notifier, run: Run, settings: Settings, now: Callable[[], datetime]
 ) -> NoReturn:
-    """The orphan report prints other data (or has no meta tags): never frozen as this run's
-    report. One ops alert ever; the controller gets the 409."""
+    """The orphan report.html or the stored outcomes.csv prints other data (or has no meta
+    tags): never frozen as this run's report. One ops alert ever; the controller gets the
+    409."""
     error = ApiError(
         ErrorCode.RUN_STATE_CONFLICT,
         409,
         "An earlier finalise left a report for different data; ops must remove it before "
-        "this run can be finalised",
+        "this run can be finalised: remove report.html and outcomes.csv",
         Stage.FINALISE,
     )
     stage_failed_alert(

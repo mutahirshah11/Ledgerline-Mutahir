@@ -35,7 +35,7 @@ def test_auth_alerts_engine_helpers() -> None:
 
 def test_notifier_sends_text_and_document() -> None:
     for cls in (Notifier, TelegramNotifier):
-        assert _params(cls.send_message) == ["self", "chat_id", "text", "on_retry"]
+        assert _params(cls.send_message) == ["self", "chat_id", "text", "on_retry", "at_most_once"]
         assert _params(cls.send_document)[:5] == [
             "self",
             "chat_id",

@@ -32,7 +32,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.ids import summary_key
-from app.domain.models import ExceptionItem, Notification, Proof, Run, RunView
+from app.domain.models import ExceptionItem, Notification, Proof, Run
 from app.pipeline import report
 from app.pipeline.engine import ROW_ONLY_OUTCOMES
 from app.services.audit import audit
@@ -351,28 +351,30 @@ class SummaryMessage:
         return text
 
 
-def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> SummaryMessage:
-    """`summary_message` of a run overview (EP-05 `RunView`)."""
-    return summary_message(view.id, view.month, view.counts, view.exceptions, app_base_url, proof)
+class SummarySource(Protocol):
+    """What the summary reads: a `RunView`, or finalise's own read of the run (I-7)."""
+
+    @property
+    def id(self) -> UUID: ...
+    @property
+    def month(self) -> str: ...
+    @property
+    def counts(self) -> Mapping[Outcome, int]: ...
+    @property
+    def exceptions(self) -> Sequence[ExceptionItem]: ...
 
 
-def summary_message(
-    run_id: UUID,
-    month: str,
-    counts: Mapping[Outcome, int],
-    exceptions: Sequence[ExceptionItem],
-    app_base_url: str,
-    proof: Proof,
-) -> SummaryMessage:
+def build_summary_message(view: SummarySource, app_base_url: str, proof: Proof) -> SummaryMessage:
     """The summary from the exception list only (F-09.R1, F-10.R8, C4): categories 1 to 3
     numbered (at most 8, then `+N more`), categories 4 and 5 in the "Also:" line, the proof
     line from proof C2 and the link to the run overview (SCR-04). Item texts and the Also
-    line are one line each, capped at `ITEM_MAX` / `ALSO_MAX` (C2). `counts`: the flat
+    line are one line each, capped at `ITEM_MAX` / `ALSO_MAX` (C2). `view.counts`: the flat
     outcome counts (`OutcomeCounts.flat()`)."""
+    counts, exceptions = view.counts, view.exceptions
     groups = sum(n for o, n in counts.items() if o not in ROW_ONLY_OUTCOMES)
     matched = sum(counts.get(o, 0) for o in _MATCH)
     headline = (
-        f"{report.month_label(month)} receiving: {groups} GRNs, {matched} match, "
+        f"{report.month_label(view.month)} receiving: {groups} GRNs, {matched} match, "
         f"{groups - matched} need attention"
     )
     numbered = [e for e in exceptions if e.category in SECTION_TITLES]
@@ -390,7 +392,7 @@ def summary_message(
         more=max(0, len(numbered) - NUMBERED_MAX),
         also=None if also is None else _one_line(also, ALSO_MAX),
         proof_line=f"Proof: {c2.rows - len(c2.unplaced)} of {c2.rows} rows placed once.",
-        link=f"Report: {app_base_url.rstrip('/')}/runs/{run_id}",
+        link=f"Report: {app_base_url.rstrip('/')}/runs/{view.id}",
     )
 
 
