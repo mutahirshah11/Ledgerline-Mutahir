@@ -211,6 +211,22 @@ def test_svc_uploads_again_with_other_file_replaces_stale_record(
     assert len(shas) == 4 and "a" * 64 in shas and specs[3].sha256 not in shas
 
 
+def test_svc_uploads_again_deletes_existing_object_before_new_url(
+    memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
+) -> None:
+    """Signed upload URLs are `upsert=false`: a re-request for a path that already holds an
+    object (a fixed ERP/sheet path, or a kept register file) must clear it first, or the
+    browser's PUT gets a 409. `MemoryBlobStore` does not enforce no-overwrite itself, so this
+    asserts the deletion directly."""
+    specs = [s for s, _ in _pack()]
+    first = request_uploads(memory_repo, blobs, run, specs)
+    erp_slot = next(s for s in first if s.source is Source.ERP)
+    blobs.put(INPUTS_BUCKET, erp_slot.storage_path, ERP, "text/csv")
+    assert blobs.exists(INPUTS_BUCKET, erp_slot.storage_path)
+    request_uploads(memory_repo, blobs, run, specs)
+    assert not blobs.exists(INPUTS_BUCKET, erp_slot.storage_path)
+
+
 def test_svc_uploads_after_created_409(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:

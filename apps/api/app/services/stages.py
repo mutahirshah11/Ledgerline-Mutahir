@@ -242,17 +242,26 @@ def request_uploads(
     stored = [keep.get(w.sha256) or repo.add_source_file(w) for w in wanted]
     StepLog(repo, run.id, Stage.UPLOAD, now).write(RunEventStatus.STARTED, {"files": len(stored)})
     expires = get_settings().UPLOAD_WINDOW_S
-    return [
-        UploadSlot(
-            file_id=f.id,
-            source=f.source,
-            filename=f.filename,
-            page_no=f.page_no,
-            storage_path=f.storage_path,
-            signed_url=blobs.signed_upload_url(INPUTS_BUCKET, f.storage_path, expires_s=expires),
+    slots: list[UploadSlot] = []
+    for f in stored:
+        # Signed upload URLs are `upsert=false`: a path already holding an object (a fixed ERP
+        # or sheet path re-requested, or a kept file re-requested) must be cleared first, or the
+        # browser's upload gets a 409 (research R5).
+        if blobs.exists(INPUTS_BUCKET, f.storage_path):
+            blobs.delete(INPUTS_BUCKET, f.storage_path)
+        slots.append(
+            UploadSlot(
+                file_id=f.id,
+                source=f.source,
+                filename=f.filename,
+                page_no=f.page_no,
+                storage_path=f.storage_path,
+                signed_url=blobs.signed_upload_url(
+                    INPUTS_BUCKET, f.storage_path, expires_s=expires
+                ),
+            )
         )
-        for f in stored
-    ]
+    return slots
 
 
 # --- EP-07 -----------------------------------------------------------------------------
