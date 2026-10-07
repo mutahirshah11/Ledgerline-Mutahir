@@ -67,7 +67,7 @@ export default defineConfig({
     ? {
         webServer: {
           command: `pnpm build && pnpm exec next start -p ${PORT}`,
-          url: APP_BASE_URL,
+          url: `${APP_BASE_URL}/favicon.ico`, // public (proxy matcher skips it), unlike / which redirects to /login
           reuseExistingServer: false,
           timeout: 180_000,
           env: {
