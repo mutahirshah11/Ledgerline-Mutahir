@@ -23,6 +23,7 @@ from app.domain.enums import ErrorCode
 from tests.support.routes import api_routes
 
 CONTRACT_PATH = Path(__file__).parent / "contracts" / "openapi_phase3.yaml"
+PHASE4_CONTRACT_PATH = Path(__file__).parent / "contracts" / "openapi_phase4.yaml"
 
 API_PREFIX = "/api/v1"
 
@@ -61,21 +62,15 @@ def app() -> FastAPI:
     return create_app()
 
 
-PHASE4_PATHS = frozenset(
-    _normalise(API_PREFIX + p)
-    for p in (
-        "/runs/{id}/groups",
-        "/runs/{id}/flags",
-        "/runs/{id}/proof",
-        "/runs/{id}/review-items",
-        "/review-items/{id}/resolve",
-        "/runs/{id}/pages/{page_no}/image",
-        "/runs/{id}/finalise",
-        "/runs/{id}/report",
-    )
-)
-"""EP-11 to EP-18 (specs/005-review-delivery/contracts/openapi.yaml): routed, but not in this
-Phase 3 copy (module docstring); `test_api_phase4_contract.py` covers them."""
+def _phase4_paths() -> frozenset[str]:
+    spec = cast(dict[str, Any], yaml.safe_load(PHASE4_CONTRACT_PATH.read_text(encoding="utf-8")))
+    return frozenset(_normalise(API_PREFIX + p) for p in spec["paths"])
+
+
+PHASE4_PATHS = _phase4_paths()
+"""EP-11 to EP-18 (specs/005-review-delivery/contracts/openapi.yaml, copied to
+`tests/contracts/openapi_phase4.yaml`): routed, but not in this Phase 3 copy (module docstring);
+`test_api_phase4_contract.py` covers them."""
 
 
 def test_paths_match_contract(app: FastAPI) -> None:

@@ -70,6 +70,13 @@ FaultDep = Annotated[Fault | None, Depends(active_fault)]
 PAGE_IMAGE_URL_S = 300
 """EP-16: the page image link is valid 5 minutes (FR-003)."""
 
+_READ_ERRORS: dict[int | str, dict[str, Any]] = {
+    401: {"description": "UNAUTHENTICATED"},
+    403: {"description": "NOT_ALLOWED"},
+    404: {"description": "NOT_FOUND"},
+}
+"""Documented non-2xx status codes shared by EP-14, EP-16 (contracts/openapi.yaml)."""
+
 
 class ReviewCard(BaseModel):
     """EP-14 item: a `ReviewItem` whose `context` carries the view fields (R3, C25)."""
@@ -117,7 +124,7 @@ def _channel(request: Request) -> AuditChannel:
     return AuditChannel.WEB if origin in get_settings().cors_origin_list else AuditChannel.API
 
 
-@router.get("/runs/{id}/review-items", response_model=list[ReviewCard])
+@router.get("/runs/{id}/review-items", response_model=list[ReviewCard], responses=_READ_ERRORS)
 def list_review_items(
     id: UUID, repo: RepoDep, status: Annotated[ReviewStatus | None, Query()] = None
 ) -> list[ReviewCard]:
@@ -130,7 +137,16 @@ def list_review_items(
     ]
 
 
-@_resolve_router.post("/review-items/{item_id}/resolve", response_model=ResolveResponse)
+@_resolve_router.post(
+    "/review-items/{item_id}/resolve",
+    response_model=ResolveResponse,
+    responses={
+        **_READ_ERRORS,
+        409: {"description": "ITEM_ALREADY_RESOLVED or RUN_STATE_CONFLICT"},
+        422: {"description": "INVALID_REVIEW_ACTION"},
+        502: {"description": "UpstreamFailed"},
+    },
+)
 def resolve_review_item(
     item_id: UUID,
     body: ResolveBody,
@@ -150,7 +166,9 @@ def resolve_review_item(
 router.include_router(_resolve_router)
 
 
-@router.get("/runs/{id}/pages/{page_no}/image", response_model=PageImageLink)
+@router.get(
+    "/runs/{id}/pages/{page_no}/image", response_model=PageImageLink, responses=_READ_ERRORS
+)
 def page_image(
     id: UUID, page_no: Annotated[int, Path(ge=1, le=10)], repo: RepoDep, blobs: BlobsDep
 ) -> PageImageLink:

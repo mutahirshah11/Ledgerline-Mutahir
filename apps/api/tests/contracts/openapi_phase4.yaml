@@ -1,0 +1,560 @@
+openapi: 3.1.0
+info:
+  title: Ledgerline API - Phase 4 (review and delivery)
+  version: 1.0.0
+  description: >
+    Contract for EP-11 to EP-18 (blueprint Section 11). All paths are under /api/v1. Every endpoint
+    requires a Supabase access token (Bearer) whose email is on the allowlist (F-12). Quantities are
+    strings (Decimal). Times are ISO-8601 with offset (Asia/Karachi). Errors use the shared shape.
+    Shapes are defined in specs/005-review-delivery/data-model.md and
+    specs/001-foundation/data-model.md.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+
+paths:
+  /runs/{id}/groups:
+    get:
+      operationId: ep11_list_groups
+      summary: EP-11 Every receipt group with each source's canonical values (F-05, F-09)
+      tags: [results]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - name: outcome
+          in: query
+          required: false
+          schema: {$ref: '#/components/schemas/Outcome'}
+      responses:
+        '200':
+          description: Groups in list_groups order (grn_no, then group_key)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/GroupView'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /runs/{id}/flags:
+    get:
+      operationId: ep12_list_flags
+      summary: EP-12 Control flags of the latest reconcile (F-06)
+      tags: [results]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: Flags
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ControlFlag'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /runs/{id}/proof:
+    get:
+      operationId: ep13_get_proof
+      summary: EP-13 Completeness proof (F-07, Section 19 shape)
+      tags: [results]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: Proof
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Proof'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /runs/{id}/review-items:
+    get:
+      operationId: ep14_list_review_items
+      summary: EP-14 Review items in card order (F-08.R2)
+      tags: [review]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - name: status
+          in: query
+          required: false
+          schema: {$ref: '#/components/schemas/ReviewStatus'}
+      responses:
+        '200':
+          description: Items ordered CELL (page, row), UNMATCHED_ROW, UNKNOWN_MAPPING, FLAG_ACK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ReviewItem'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /review-items/{item_id}/resolve:
+    post:
+      operationId: ep15_resolve_review_item
+      summary: EP-15 Decide one review item, then re-reconcile (F-08.R4 to R8)
+      description: >
+        Roles CONTROLLER and REVIEWER only. Allowed actions per kind are in data-model.md 1.1.
+        The decision is recorded only if the item is OPEN (FM-09). After recording, F-04 to F-07
+        re-run for the run; the response carries the updated item and run view.
+      tags: [review]
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResolveRequest'}
+            examples:
+              accept4419: {value: {action: ACCEPT_READ}}
+              enter4428: {value: {action: ENTER_VALUE, value: "250"}}
+              cannot: {value: {action: CANNOT_DETERMINE, note: "Blot covers all digits"}}
+              ack: {value: {action: ACKNOWLEDGE, note: "No void log available"}}
+      responses:
+        '200':
+          description: Decision recorded and run re-reconciled
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ResolveResponse'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: >
+            ITEM_ALREADY_RESOLVED (details.item = the first decision) or RUN_STATE_CONFLICT
+            (run FINALISED, or not AWAITING_REVIEW/READY)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '422':
+          description: INVALID_REVIEW_ACTION (action not allowed for kind, invalid value, missing note, ACCEPT_READ without one read value)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '502': {$ref: '#/components/responses/UpstreamFailed'}
+
+  /runs/{id}/pages/{page_no}/image:
+    get:
+      operationId: ep16_page_image
+      summary: EP-16 Signed link to a register page image, valid 5 minutes (F-08, SCR-06)
+      tags: [review]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - name: page_no
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1, maximum: 10}
+      responses:
+        '200':
+          description: Signed URL and row-band geometry
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PageImageLink'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /runs/{id}/finalise:
+    post:
+      operationId: ep17_finalise
+      summary: EP-17 Freeze the run, write the report, send the summary at most once (F-09, F-10)
+      description: >
+        Role CONTROLLER only. Guards in order: confirm true (400 CONFIRM_REQUIRED); proof PASS
+        (409 PROOF_NOT_PASSED); status AWAITING_REVIEW or READY, or FINALISED with the summary not
+        SENT (resend). Calling again after SENT returns 200 with the same notification and sends
+        nothing.
+      tags: [delivery]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FinaliseRequest'}
+      responses:
+        '200':
+          description: Finalised (notification SENT, or FAILED when Telegram is down; see notification.status)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FinaliseResponse'}
+        '400':
+          description: CONFIRM_REQUIRED
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: PROOF_NOT_PASSED, or RUN_STATE_CONFLICT (wrong status, or summary SENDING)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '502': {$ref: '#/components/responses/UpstreamFailed'}
+
+  /runs/{id}/report:
+    get:
+      operationId: ep18_report_links
+      summary: EP-18 Signed links to report.html and outcomes.csv, valid 5 minutes (F-09)
+      tags: [delivery]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      responses:
+        '200':
+          description: Links
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReportLinks'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: RUN_STATE_CONFLICT (run not FINALISED)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    RunId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+
+  responses:
+    Unauthenticated:
+      description: UNAUTHENTICATED (no or invalid token)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    NotAllowed:
+      description: NOT_ALLOWED (email not on allowlist, or role lacks permission)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    NotFound:
+      description: NOT_FOUND (unknown run, page or item)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    UpstreamFailed:
+      description: UPSTREAM_FAILED (Supabase or storage failed after retries)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [BAD_MONTH, MISSING_SOURCE, UNAUTHENTICATED, NOT_ALLOWED, NOT_FOUND,
+                     RUN_STATE_CONFLICT, DUPLICATE_RUN, CONTRACT_VIOLATION, UPSTREAM_FAILED,
+                     PROOF_NOT_PASSED, INVALID_REVIEW_ACTION, ITEM_ALREADY_RESOLVED,
+                     CONFIRM_REQUIRED]
+            message: {type: string}
+            stage:
+              type: [string, 'null']
+              enum: [upload, validate, extract, reconcile, proof, review, finalise, notify, null]
+            details: {type: object}
+
+    Source: {type: string, enum: [REGISTER, ERP, SHEET]}
+    Outcome:
+      type: string
+      enum: [MATCHED, MATCHED_AFTER_CONVERSION, MISMATCHED, MISSING, NEEDS_REVIEW,
+             UNMATCHED_NO_KEY, DUPLICATE, NON_RECEIPT]
+    CellStatus: {type: string, enum: [CLEAR, UNCLEAR, CORRECTED, ILLEGIBLE]}
+    RowKind: {type: string, enum: [RECEIPT, DUPLICATE, NON_RECEIPT]}
+    FlagType:
+      type: string
+      enum: [SEQUENCE_GAP, BACKDATED_ENTRY, UNUSUAL_USER, SUNDAY_DATE, OUT_OF_ORDER,
+             DATE_OUT_OF_PERIOD, UNKNOWN_SUPPLIER, UNKNOWN_UNIT]
+    ReviewKind: {type: string, enum: [CELL, UNMATCHED_ROW, UNKNOWN_MAPPING, FLAG_ACK]}
+    ReviewStatus: {type: string, enum: [OPEN, RESOLVED, CANNOT_DETERMINE]}
+    ReviewAction: {type: string, enum: [ACCEPT_READ, ENTER_VALUE, CANNOT_DETERMINE, ACKNOWLEDGE]}
+    RunStatus:
+      type: string
+      enum: [CREATED, UPLOADED, VALIDATED, EXTRACTING, EXTRACTED, RECONCILED, AWAITING_REVIEW,
+             READY, FINALISED, FAILED]
+    ProofStatus: {type: string, enum: [PASS, FAIL]}
+    NotificationStatus: {type: string, enum: [PENDING, SENDING, SENT, FAILED]}
+    DecimalString: {type: string, pattern: '^-?\d+(\.\d+)?$'}
+
+    Cell:
+      type: object
+      required: [value, status, struck, candidates, note]
+      properties:
+        value: {type: [string, 'null']}
+        status: {$ref: '#/components/schemas/CellStatus'}
+        struck: {type: [string, 'null']}
+        candidates: {type: array, items: {type: string}}
+        note: {type: [string, 'null']}
+
+    Diff:
+      type: object
+      required: [field, values, compared, outlier]
+      properties:
+        field: {type: string, enum: [date, supplier_code, lot_no, qty, uom]}
+        values: {type: object, additionalProperties: {type: [string, 'null']}}
+        compared: {type: object, additionalProperties: {type: [string, 'null']}}
+        outlier:
+          oneOf:
+            - {$ref: '#/components/schemas/Source'}
+            - {type: 'null'}
+
+    Group:
+      type: object
+      required: [id, run_id, group_key, grn_no, row_ids, outcome, missing_from, diffs]
+      properties:
+        id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        group_key: {type: string, examples: ['GRN:4425']}
+        grn_no: {type: [integer, 'null']}
+        row_ids:
+          type: object
+          additionalProperties: {type: array, items: {type: string}}
+        outcome: {$ref: '#/components/schemas/Outcome'}
+        missing_from: {type: array, items: {$ref: '#/components/schemas/Source'}}
+        diffs: {type: array, items: {$ref: '#/components/schemas/Diff'}}
+
+    GroupRowView:
+      type: object
+      required: [source_row_id, source, row_kind, outcome, cell_status, raw, meta, flags]
+      properties:
+        source_row_id: {type: string}
+        source: {$ref: '#/components/schemas/Source'}
+        row_kind: {$ref: '#/components/schemas/RowKind'}
+        grn_no: {type: [integer, 'null']}
+        date: {type: [string, 'null'], format: date}
+        supplier_code: {type: [string, 'null']}
+        item: {type: [string, 'null']}
+        lot_no: {type: [string, 'null']}
+        qty: {oneOf: [{$ref: '#/components/schemas/DecimalString'}, {type: 'null'}]}
+        uom: {type: [string, 'null']}
+        qty_base: {oneOf: [{$ref: '#/components/schemas/DecimalString'}, {type: 'null'}]}
+        base_uom: {type: [string, 'null']}
+        cell_status: {type: object, additionalProperties: {$ref: '#/components/schemas/CellStatus'}}
+        raw: {type: object, additionalProperties: {type: [string, 'null']}}
+        meta: {type: object}
+        duplicate_of: {type: [string, 'null']}
+        outcome: {oneOf: [{$ref: '#/components/schemas/Outcome'}, {type: 'null'}]}
+        flags: {type: array, items: {$ref: '#/components/schemas/FlagType'}}
+
+    GroupView:
+      type: object
+      required: [group, rows]
+      properties:
+        group: {$ref: '#/components/schemas/Group'}
+        rows:
+          type: object
+          additionalProperties: {type: array, items: {$ref: '#/components/schemas/GroupRowView'}}
+
+    ControlFlag:
+      type: object
+      required: [id, run_id, flag, grn_no, source_row_id, detail]
+      properties:
+        id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        flag: {$ref: '#/components/schemas/FlagType'}
+        grn_no: {type: [integer, 'null']}
+        source_row_id: {type: [string, 'null']}
+        detail: {type: object, additionalProperties: {type: string}}
+
+    Proof:
+      type: object
+      required: [run_id, status, checks, computed_at]
+      properties:
+        run_id: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/ProofStatus'}
+        checks:
+          type: object
+          required: [C1, C2, C3, C4, C5]
+          properties:
+            C1: {type: object}
+            C2: {type: object}
+            C3: {type: object}
+            C4: {type: object}
+            C5: {type: object}
+        computed_at: {type: string, format: date-time}
+
+    ReviewItem:
+      type: object
+      required: [id, run_id, kind, item_key, reason, context, status]
+      properties:
+        id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/ReviewKind'}
+        item_key: {type: string, examples: ['CELL:REG-p2-r14:qty']}
+        grn_no: {type: [integer, 'null']}
+        source_row_id: {type: [string, 'null']}
+        field: {type: [string, 'null']}
+        reason: {type: string}
+        read_a: {oneOf: [{$ref: '#/components/schemas/Cell'}, {type: 'null'}]}
+        read_b: {oneOf: [{$ref: '#/components/schemas/Cell'}, {type: 'null'}]}
+        context:
+          type: object
+          description: >
+            ReviewContext, typed per kind/reason as defined in specs/001-foundation/data-model.md
+            (table "ReviewContext"; blueprint C25, web W8). For CELL cell reasons it holds page_no,
+            row_index, candidates, struck, note, table_top, table_bottom, other_sources {ERP, SHEET}
+            (for reference) and equals_sources after a decision.
+          properties:
+            page_no: {type: [integer, 'null']}
+            row_index: {type: [integer, 'null']}
+            table_top: {type: [number, 'null']}
+            table_bottom: {type: [number, 'null']}
+            candidates: {type: array, items: {type: string}}
+            struck: {type: [string, 'null']}
+            note: {type: [string, 'null']}
+            other_sources:
+              type: object
+              properties:
+                ERP: {type: [string, 'null']}
+                SHEET: {type: [string, 'null']}
+            equals_sources: {type: array, items: {type: string, enum: [REGISTER, ERP, SHEET]}}
+          additionalProperties: true
+        status: {$ref: '#/components/schemas/ReviewStatus'}
+        resolved_value: {type: [string, 'null']}
+        resolved_by: {type: [string, 'null']}
+        resolved_at: {type: [string, 'null'], format: date-time}
+        note: {type: [string, 'null']}
+
+    ResolveRequest:
+      type: object
+      required: [action]
+      additionalProperties: false
+      properties:
+        action: {$ref: '#/components/schemas/ReviewAction'}
+        value: {type: [string, 'null'], maxLength: 64}
+        note: {type: [string, 'null'], maxLength: 500}
+
+    Notification:
+      type: object
+      required: [id, run_id, kind, idempotency_key, status, attempts, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        kind: {type: string, enum: [SUMMARY, ALERT]}
+        idempotency_key: {type: string}
+        status: {$ref: '#/components/schemas/NotificationStatus'}
+        attempts: {type: integer}
+        last_error: {type: [string, 'null']}
+        telegram_message_id: {type: [integer, 'null']}
+        sent_at: {type: [string, 'null'], format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    ExceptionItem:
+      type: object
+      required: [category, kind, text]
+      properties:
+        category: {type: integer, minimum: 1, maximum: 5}
+        kind: {type: string, enum: [MISSING, MISMATCH, REVIEW, UNMATCHED, FLAG, DUPLICATE, NON_RECEIPT]}
+        grn_no: {type: [integer, 'null']}
+        group_key: {type: [string, 'null']}
+        source_row_id: {type: [string, 'null']}
+        field: {type: [string, 'null']}
+        flags: {type: array, items: {$ref: '#/components/schemas/ControlFlag'}}
+        text: {type: string, examples: ['4417 qty: ERP 46 CTN, register + sheet 48 CTN']}
+
+    Run:
+      type: object
+      required: [id, month, status, scenario_now, created_by, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        month: {type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}
+        status: {$ref: '#/components/schemas/RunStatus'}
+        run_key: {type: [string, 'null']}
+        failed_stage: {type: [string, 'null']}
+        error_message: {type: [string, 'null']}
+        scenario_now: {type: string, format: date-time}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        finalised_at: {type: [string, 'null'], format: date-time}
+        finalised_by: {type: [string, 'null']}
+
+    RunView:
+      description: >
+        EP-05 response and the `run` of EP-15/EP-17, flat (blueprint C25): the Phase 3 RunDetail
+        (specs/004-api-backbone/contracts/openapi.yaml: Run fields, stage_progress, counts,
+        proof_status, open_review_items) plus the Phase 4 fields below.
+      allOf:
+        - $ref: '#/components/schemas/Run'
+        - type: object
+          required: [counts, row_counts, open_review_items, proof_status, headline, exceptions, summary]
+          properties:
+            stage_progress: {type: object, description: 'StageProgressView, defined in 004 openapi'}
+            counts: {type: object, additionalProperties: {type: integer}}
+            row_counts:
+              type: object
+              additionalProperties: {type: object, additionalProperties: {type: integer}}
+            open_review_items: {type: integer}
+            proof_status: {oneOf: [{$ref: '#/components/schemas/ProofStatus'}, {type: 'null'}]}
+            headline: {type: string, examples: ['29 receipts: 21 match, 8 need attention']}
+            exceptions: {type: array, items: {$ref: '#/components/schemas/ExceptionItem'}}
+            summary:
+              description: Summary notification status for SCR-04 (web W7); null before finalise
+              oneOf: [{$ref: '#/components/schemas/Notification'}, {type: 'null'}]
+
+    ResolveResponse:
+      type: object
+      required: [item, run]
+      properties:
+        item: {$ref: '#/components/schemas/ReviewItem'}
+        run: {$ref: '#/components/schemas/RunView'}
+
+    PageImageLink:
+      type: object
+      required: [page_no, signed_url, expires_at, slots]
+      properties:
+        page_no: {type: integer}
+        signed_url: {type: string}
+        expires_at: {type: string, format: date-time}
+        table_top: {type: [number, 'null']}
+        table_bottom: {type: [number, 'null']}
+        slots: {type: integer, const: 16}
+
+    FinaliseRequest:
+      type: object
+      required: [confirm]
+      additionalProperties: false
+      properties:
+        confirm: {type: boolean}
+
+    FinaliseResponse:
+      type: object
+      required: [run, report_url, notification]
+      properties:
+        run: {$ref: '#/components/schemas/RunView'}
+        report_url: {type: string}
+        notification: {$ref: '#/components/schemas/Notification'}
+
+    ReportLinks:
+      type: object
+      required: [html_url, csv_url, expires_at]
+      properties:
+        html_url: {type: string}
+        csv_url: {type: string}
+        expires_at: {type: string, format: date-time}

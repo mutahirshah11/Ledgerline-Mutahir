@@ -310,8 +310,15 @@ def list_norm_log(
 # --- results (005 US2: EP-11 to EP-13, FR-021) -------------------------------------------
 # Open to every allow-listed role (contracts/auth.md); `repo.get_run` 404s an unknown run.
 
+_READ_ERRORS: dict[int | str, dict[str, Any]] = {
+    401: {"description": "UNAUTHENTICATED"},
+    403: {"description": "NOT_ALLOWED"},
+    404: {"description": "NOT_FOUND"},
+}
+"""Documented non-2xx status codes shared by EP-11 to EP-14, EP-16 (contracts/openapi.yaml)."""
 
-@router.get("/runs/{id}/groups", response_model=list[GroupView])
+
+@router.get("/runs/{id}/groups", response_model=list[GroupView], responses=_READ_ERRORS)
 def list_groups(
     id: UUID, repo: RepoDep, outcome: Annotated[Outcome | None, Query()] = None
 ) -> list[GroupView]:
@@ -322,14 +329,14 @@ def list_groups(
     return report.group_views(groups, repo.list_source_rows(id), repo.list_flags(id))
 
 
-@router.get("/runs/{id}/flags", response_model=list[ControlFlag])
+@router.get("/runs/{id}/flags", response_model=list[ControlFlag], responses=_READ_ERRORS)
 def list_flags(id: UUID, repo: RepoDep) -> list[ControlFlag]:
     """EP-12: the control flags of the latest reconcile (F-06)."""
     repo.get_run(id)
     return repo.list_flags(id)
 
 
-@router.get("/runs/{id}/proof", response_model=Proof)
+@router.get("/runs/{id}/proof", response_model=Proof, responses=_READ_ERRORS)
 def get_proof(id: UUID, repo: RepoDep) -> Proof:
     """EP-13: the completeness proof, Section 19 shape (F-07); 404 before the first reconcile."""
     repo.get_run(id)
@@ -342,14 +349,27 @@ def get_proof(id: UUID, repo: RepoDep) -> Proof:
 # --- delivery (005 US3: EP-18, FR-024) -----------------------------------------------------
 
 
-@router.get("/runs/{id}/report", response_model=ReportLinks)
+@router.get(
+    "/runs/{id}/report",
+    response_model=ReportLinks,
+    responses={**_READ_ERRORS, 409: {"description": "RUN_STATE_CONFLICT"}},
+)
 def report_links(id: UUID, repo: RepoDep, blobs: BlobsDep) -> ReportLinks:
     """EP-18: signed links to `report.html` and `outcomes.csv`, valid 5 minutes (F-09.R5);
     409 `RUN_STATE_CONFLICT` unless the run is `FINALISED`; open to every allow-listed role."""
     return finalise.report_links(repo, blobs, id)
 
 
-@router.post("/runs/{id}/finalise", response_model=FinaliseResponse)
+@router.post(
+    "/runs/{id}/finalise",
+    response_model=FinaliseResponse,
+    responses={
+        **_READ_ERRORS,
+        400: {"description": "CONFIRM_REQUIRED"},
+        409: {"description": "PROOF_NOT_PASSED or RUN_STATE_CONFLICT"},
+        502: {"description": "UpstreamFailed"},
+    },
+)
 def finalise_run(
     id: UUID,
     request: Request,
