@@ -207,3 +207,78 @@ def test_no_backoff_retries_without_waiting() -> None:
         _notifier(handler, waits, TELEGRAM_BACKOFF_S=()).send_message(CHAT, "hi")
     assert len(handler.requests) == 3
     assert all(w == 0 for w in waits)
+
+
+# --- sendDocument (005: F-10 sends report.html) --------------------------------------------
+
+REPORT = b"<html><body>report 4417</body></html>"
+
+
+def test_send_document_multipart() -> None:
+    handler = _Handler(_ok(77))
+    waits: list[float] = []
+    sent = _notifier(handler, waits).send_document(CHAT, "report.html", REPORT, caption="Sep")
+    assert sent == 77
+    (req,) = handler.requests
+    assert req.method == "POST"
+    assert str(req.url) == f"https://api.telegram.org/bot{TOKEN}/sendDocument"
+    assert req.headers["content-type"].startswith("multipart/form-data")
+    body = req.content
+    assert b'name="chat_id"' in body and CHAT.encode() in body
+    assert b'name="caption"' in body and b"Sep" in body
+    assert b'name="document"; filename="report.html"' in body and REPORT in body
+    assert req.extensions["timeout"]["read"] == 10
+    assert waits == []
+
+
+def test_send_document_without_caption_sends_no_caption_field() -> None:
+    handler = _Handler(_ok(5))
+    assert _notifier(handler, []).send_document(CHAT, "report.html", REPORT) == 5
+    assert b'name="caption"' not in handler.requests[0].content
+
+
+def test_send_document_retries_then_upstream_failed() -> None:
+    handler = _Handler(httpx.Response(502), httpx.ConnectError("refused"), httpx.Response(429))
+    waits: list[float] = []
+    with pytest.raises(UpstreamFailed) as info:
+        _notifier(handler, waits).send_document(CHAT, "report.html", REPORT)
+    assert len(handler.requests) == 3 and waits == [1, 4]
+    assert info.value.detail == "rate limited after 3 attempts"
+
+
+def test_send_document_client_error_not_retried() -> None:
+    handler = _Handler(httpx.Response(403))
+    with pytest.raises(UpstreamFailed) as info:
+        _notifier(handler, []).send_document(CHAT, "report.html", REPORT)
+    assert len(handler.requests) == 1 and info.value.detail == "rejected: HTTP 403"
+
+
+def test_send_document_telegram_down_fault_and_missing_token() -> None:
+    handler = _Handler(_ok())
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    down = TelegramNotifier(
+        _settings(), client=client, sleep=lambda _: None, fault=Fault.TELEGRAM_DOWN
+    )
+    with pytest.raises(UpstreamFailed, match="down after 3 attempts"):
+        down.send_document(CHAT, "report.html", REPORT)
+    no_token = TelegramNotifier(Settings(_env_file=None), client=client, sleep=lambda _: None)
+    with pytest.raises(UpstreamFailed):
+        no_token.send_document(CHAT, "report.html", REPORT)
+    assert handler.requests == []
+
+
+def test_send_document_token_never_in_error_or_logs(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    def leaky(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"cannot reach {request.url}", request=request)
+
+    for handler in (_Handler(_ok()), leaky):
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        notifier = TelegramNotifier(_settings(), client=client, sleep=lambda _: None)
+        try:
+            notifier.send_document(CHAT, "report.html", REPORT)
+        except UpstreamFailed as exc:
+            assert exc.__cause__ is None
+            assert TOKEN not in "".join(traceback.format_exception(exc))
+    assert caplog.records and TOKEN not in caplog.text

@@ -8,7 +8,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from typing import Protocol, Self
+from typing import Any, Protocol, Self
 
 import httpx
 
@@ -23,10 +23,15 @@ TELEGRAM_API = "https://api.telegram.org"
 
 
 class Notifier(Protocol):
-    """Sends a plain-text message; returns Telegram's `message_id`. Raises UpstreamFailed
-    ("telegram", detail) after its own retries; the detail never contains the bot token."""
+    """Sends a plain-text message or a document; returns Telegram's `message_id`. Raises
+    UpstreamFailed("telegram", detail) after its own retries; the detail never contains the
+    bot token."""
 
     def send_message(self, chat_id: str, text: str) -> int: ...
+
+    def send_document(
+        self, chat_id: str, filename: str, content: bytes, caption: str | None = None
+    ) -> int: ...
 
 
 class _RedactBotPath(logging.Filter):
@@ -62,8 +67,9 @@ def _cause_of(error: BaseException) -> str | None:
 
 
 class TelegramNotifier:
-    """`sendMessage` as plain text (no `parse_mode`), `TELEGRAM_ATTEMPTS` attempts with the
-    `TELEGRAM_BACKOFF_S` waits and `TELEGRAM_TIMEOUT_S` per call. 4xx answers are not retried.
+    """`sendMessage` as plain text (no `parse_mode`) and `sendDocument` (multipart), each with
+    `TELEGRAM_ATTEMPTS` attempts, the `TELEGRAM_BACKOFF_S` waits and `TELEGRAM_TIMEOUT_S` per
+    call. 4xx answers are not retried.
     `fault=TELEGRAM_DOWN` fails every attempt without a network call (Section 25)."""
 
     def __init__(
@@ -93,10 +99,22 @@ class TelegramNotifier:
         self.close()
 
     def send_message(self, chat_id: str, text: str) -> int:
+        return self._send("sendMessage", {"json": {"chat_id": chat_id, "text": text}})
+
+    def send_document(
+        self, chat_id: str, filename: str, content: bytes, caption: str | None = None
+    ) -> int:
+        """`sendDocument` as multipart (005 research R11; F-10 sends `report.html`)."""
+        data = {"chat_id": chat_id} | ({} if caption is None else {"caption": caption})
+        files = {"document": (filename, content, "application/octet-stream")}
+        return self._send("sendDocument", {"data": data, "files": files})
+
+    def _send(self, method: str, body: dict[str, Any]) -> int:
+        """One Bot API call with the retry policy; `body` is httpx's `post` keyword args."""
         token = self._settings.TELEGRAM_BOT_TOKEN
         if token is None or not token.get_secret_value():
             raise UpstreamFailed("telegram", "bot token not set")
-        url = f"{TELEGRAM_API}/bot{token.get_secret_value()}/sendMessage"
+        url = f"{TELEGRAM_API}/bot{token.get_secret_value()}/{method}"
         policy = retrying(
             "telegram",
             max(1, self._settings.TELEGRAM_ATTEMPTS),
@@ -106,22 +124,20 @@ class TelegramNotifier:
             chain=False,
             cause_of=_cause_of,
         )
-        return policy(lambda: self._post(url, {"chat_id": chat_id, "text": text}))
+        return policy(lambda: self._post(url, body))
 
     def _retry_heard(self, detail: dict[str, object]) -> None:
         log.warning("telegram send failed; retrying", extra=detail)
         if self._on_retry is not None:
             self._on_retry(detail)
 
-    def _post(self, url: str, payload: dict[str, str]) -> int:
+    def _post(self, url: str, body: dict[str, Any]) -> int:
         """One call: the message id, `_Retryable`, or UpstreamFailed for a final rejection.
         Raised errors never chain the httpx exception (its text can hold the URL)."""
         if self._fault is Fault.TELEGRAM_DOWN:
             raise _Retryable("down")
         try:
-            response = self._client.post(
-                url, json=payload, timeout=self._settings.TELEGRAM_TIMEOUT_S
-            )
+            response = self._client.post(url, timeout=self._settings.TELEGRAM_TIMEOUT_S, **body)
         except httpx.TimeoutException:
             raise _Retryable("timeout") from None
         except httpx.TransportError:

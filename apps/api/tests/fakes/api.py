@@ -18,20 +18,59 @@ from app.core.errors import UpstreamFailed
 
 
 class FakeNotifier:
-    """Records `(chat_id, text)` per sent message; with `fail` set, raises UpstreamFailed."""
+    """Records what it delivers, per chat id: `sent` `(chat_id, text)` and `documents`
+    `(chat_id, filename, content, caption)`; `attempted` / `attempted_documents` also hold the
+    failed calls. Delivered ids increase across texts and documents (1, 2, ...), like
+    Telegram's `message_id`. `down` (alias `fail`, the Phase 3 name) makes every call raise
+    UpstreamFailed("telegram", ...) as the real notifier does after its retries;
+    `fail_document` fails documents only (005 T009, research R17)."""
 
-    def __init__(self, *, fail: bool = False) -> None:
-        self.fail = fail
+    def __init__(
+        self, *, fail: bool = False, down: bool = False, fail_document: bool = False
+    ) -> None:
+        self.down = down or fail
+        self.fail_document = fail_document
         self.sent: list[tuple[str, str]] = []
         self.attempted: list[tuple[str, str]] = []
+        self.documents: list[tuple[str, str, bytes, str | None]] = []
+        self.attempted_documents: list[tuple[str, str, bytes, str | None]] = []
+        self._last_id = 0
+
+    @property
+    def fail(self) -> bool:
+        return self.down
+
+    @fail.setter
+    def fail(self, value: bool) -> None:
+        self.down = value
+
+    def _next_id(self) -> int:
+        self._last_id += 1
+        return self._last_id
 
     def send_message(self, chat_id: str, text: str) -> int:
-        """Returns the next message id (1, 2, ...), like Telegram's `message_id`."""
         self.attempted.append((chat_id, text))
-        if self.fail:
+        if self.down:
             raise UpstreamFailed("telegram", "down after 3 attempts")
         self.sent.append((chat_id, text))
-        return len(self.sent)
+        return self._next_id()
+
+    def send_document(
+        self, chat_id: str, filename: str, content: bytes, caption: str | None = None
+    ) -> int:
+        self.attempted_documents.append((chat_id, filename, content, caption))
+        if self.down or self.fail_document:
+            raise UpstreamFailed("telegram", "down after 3 attempts")
+        self.documents.append((chat_id, filename, content, caption))
+        return self._next_id()
+
+    def texts(self, chat_id: str) -> list[str]:
+        """Delivered texts to `chat_id`, in order."""
+        return [text for chat, text in self.sent if chat == chat_id]
+
+    def documents_to(self, chat_id: str) -> list[tuple[str, bytes]]:
+        """Delivered `(filename, content)` to `chat_id`, in order."""
+        return [(name, data) for chat, name, data, _ in self.documents if chat == chat_id]
 
 
 # --- Tokens and JWKS (contracts/auth.md) ---------------------------------------------------
