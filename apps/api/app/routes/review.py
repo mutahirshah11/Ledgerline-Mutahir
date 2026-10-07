@@ -29,7 +29,19 @@ from app.domain.enums import (
     Role,
     Source,
 )
-from app.domain.models import AllowedUser, Cell, PageImageLink, ResolveRequest, ResolveResponse
+from app.domain.models import (
+    AllowedUser,
+    Cell,
+    CellContext,
+    FlagAckContext,
+    PageImageLink,
+    PageLabelMismatchContext,
+    ResolveRequest,
+    ResolveResponse,
+    RowInOneReadContext,
+    UnknownMappingContext,
+    UnmatchedRowContext,
+)
 from app.routes._common import READ_ERRORS, channel
 from app.services import review
 from app.services.telegram import Notifier
@@ -70,6 +82,44 @@ PAGE_IMAGE_URL_S = 300
 """EP-16: the page image link is valid 5 minutes (FR-003)."""
 
 
+class CellCardContext(CellContext):
+    """EP-14 context of a `CELL` value item: stored fields plus the view fields (001
+    data-model.md "ReviewContext"; `review.review_card_context`, R3)."""
+
+    table_top: float | None
+    table_bottom: float | None
+    other_sources: dict[Source, str | None]
+    other_sources_label: str
+    equals_sources: list[Source]
+
+
+class RowInOneReadCardContext(RowInOneReadContext):
+    """EP-14 context of a `CELL` / `ROW_IN_ONE_READ` item: stored fields plus table edges."""
+
+    table_top: float | None
+    table_bottom: float | None
+
+
+class UnknownMappingCardContext(UnknownMappingContext):
+    """EP-14 context of an `UNKNOWN_MAPPING` item: stored fields plus the other sources."""
+
+    other_sources: dict[Source, str | None]
+    other_sources_label: str
+    equals_sources: list[Source]
+
+
+CardContext = (
+    CellCardContext
+    | RowInOneReadCardContext
+    | PageLabelMismatchContext
+    | UnknownMappingCardContext
+    | UnmatchedRowContext
+    | FlagAckContext
+)
+"""EP-14 `ReviewCard.context`, one shape per kind/reason (blueprint C25, 006 T002); every
+model forbids unknown keys, so exactly one matches a card's context."""
+
+
 class ReviewCard(BaseModel):
     """EP-14 item: a `ReviewItem` whose `context` carries the view fields (R3, C25)."""
 
@@ -83,7 +133,7 @@ class ReviewCard(BaseModel):
     reason: ReviewReason
     read_a: Cell | None
     read_b: Cell | None
-    context: dict[str, Any]
+    context: CardContext
     status: ReviewStatus
     resolved_value: str | None
     resolved_by: str | None
