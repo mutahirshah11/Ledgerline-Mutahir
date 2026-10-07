@@ -15,6 +15,7 @@ apps/web/.env.local
 .vercel
 node_modules/
 .next/
+apps/web/.next-*/
 .venv/
 __pycache__/
 .pytest_cache/
@@ -22,3 +23,10 @@ __pycache__/
 .ruff_cache/
 apps/web/next-env.d.ts
 supabase/.temp/
+
+# Web test runner output (006-web T005/T009) and the generated OpenAPI intermediate (T006; only
+# apps/web/lib/api-types.ts, regenerated from it, is committed)
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+apps/api/openapi.json

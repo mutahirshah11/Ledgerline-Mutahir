@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Parallel Playwright "screens" builds use their own NEXT_DIST_DIR (006-web common rules).
+    ".next-*/**",
+    // Generated, never hand-edited (006-web R5, T006).
+    "lib/api-types.ts",
   ]),
 ]);
 
