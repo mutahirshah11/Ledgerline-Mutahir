@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from jwt.algorithms import ECAlgorithm
 
 from app.core.errors import UpstreamFailed
+from app.services.runlog import OnRetry
 
 # --- Notifier ------------------------------------------------------------------------------
 
@@ -23,7 +24,8 @@ class FakeNotifier:
     failed calls. Delivered ids increase across texts and documents (1, 2, ...), like
     Telegram's `message_id`. `down` (alias `fail`, the Phase 3 name) makes every call raise
     UpstreamFailed("telegram", ...) as the real notifier does after its retries;
-    `fail_document` fails documents only (005 T009, research R17)."""
+    `fail_document` fails documents only (005 T009, research R17). It has no retries of its
+    own, so it never calls `on_retry`."""
 
     def __init__(
         self, *, fail: bool = False, down: bool = False, fail_document: bool = False
@@ -48,7 +50,7 @@ class FakeNotifier:
         self._last_id += 1
         return self._last_id
 
-    def send_message(self, chat_id: str, text: str) -> int:
+    def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
         self.attempted.append((chat_id, text))
         if self.down:
             raise UpstreamFailed("telegram", "down after 3 attempts")
@@ -56,7 +58,13 @@ class FakeNotifier:
         return self._next_id()
 
     def send_document(
-        self, chat_id: str, filename: str, content: bytes, caption: str | None = None
+        self,
+        chat_id: str,
+        filename: str,
+        content: bytes,
+        caption: str | None = None,
+        *,
+        on_retry: OnRetry | None = None,
     ) -> int:
         self.attempted_documents.append((chat_id, filename, content, caption))
         if self.down or self.fail_document:

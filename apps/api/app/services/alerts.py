@@ -37,7 +37,7 @@ _SERVICES = {"openai": "OpenAI", "telegram": "Telegram", "supabase": "Supabase"}
 
 def alert_key(run_id: UUID, stage: Stage, at: datetime) -> str:
     """`ALERT:{run_id}:{stage}:{YYYYMMDDHHMM}`: one alert per stage per scenario minute."""
-    return f"ALERT:{run_id}:{stage.value}:{at.strftime('%Y%m%d%H%M')}"
+    return ids.alert_key(run_id, stage, at.strftime("%Y%m%d%H%M"))
 
 
 def error_parts(error: BaseException) -> tuple[str, str]:

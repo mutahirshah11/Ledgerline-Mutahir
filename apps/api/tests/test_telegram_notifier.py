@@ -190,18 +190,42 @@ def test_upstream_failed_reports_attempts() -> None:
         assert info.value.attempts == attempts
 
 
-def test_on_retry_hears_each_retry() -> None:
+def test_on_retry_hears_each_retry_of_that_call_only() -> None:
+    """M1: `on_retry` is a per-call keyword; nothing on the notifier is mutated."""
     heard: list[dict[str, Any]] = []
-    handler = _Handler(httpx.Response(502), httpx.Response(429), _ok(5))
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    notifier = TelegramNotifier(
-        _settings(), client=client, sleep=lambda _: None, on_retry=heard.append
-    )
-    assert notifier.send_message(CHAT, "hi") == 5
+    handler = _Handler(httpx.ConnectError("refused"), httpx.Response(429), _ok(5))
+    notifier = _notifier(handler, [])
+    assert notifier.send_message(CHAT, "hi", on_retry=heard.append) == 5
     assert heard == [
-        {"service": "telegram", "attempt": 2, "cause": "server error"},
+        {"service": "telegram", "attempt": 2, "cause": "connection error"},
         {"service": "telegram", "attempt": 3, "cause": "rate limited"},
     ]
+    later = _Handler(httpx.Response(429), _ok(6))
+    other = _notifier(later, [])
+    assert other.send_document(CHAT, "report.html", b"x", on_retry=heard.append) == 6
+    assert heard[-1] == {"service": "telegram", "attempt": 2, "cause": "rate limited"}
+    assert len(heard) == 3
+    assert notifier.send_message(CHAT, "again") == 5  # no listener left behind
+    assert len(heard) == 3
+
+
+def test_constructor_builds_no_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M3: EP-05 gets a notifier per request; its httpx client is built on the first send."""
+    built: list[object] = []
+    real = httpx.Client
+
+    def counting(*args: Any, **kwargs: Any) -> httpx.Client:
+        built.append(1)
+        return real(transport=httpx.MockTransport(_Handler(_ok(3))))
+
+    monkeypatch.setattr(httpx, "Client", counting)
+    with TelegramNotifier(_settings(), sleep=lambda _: None):
+        pass
+    assert built == []
+    with TelegramNotifier(_settings(), sleep=lambda _: None) as notifier:
+        assert notifier.send_message(CHAT, "hi") == 3
+        assert notifier.send_message(CHAT, "hi") == 3
+    assert built == [1]
 
 
 def test_no_backoff_retries_without_waiting() -> None:

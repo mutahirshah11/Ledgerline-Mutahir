@@ -9,8 +9,7 @@ import logging
 import mimetypes
 import re
 import time
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol, Self
@@ -58,10 +57,18 @@ class Notifier(Protocol):
     summary must be an approved template (headline and counts plus the SCR-04 link), so that
     sender would build its own short text from the same `SummaryMessage`."""
 
-    def send_message(self, chat_id: str, text: str) -> int: ...
+    def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
+        """`on_retry` hears each of this call's own retries (the `notify` RETRY run events)."""
+        ...
 
     def send_document(
-        self, chat_id: str, filename: str, content: bytes, caption: str | None = None
+        self,
+        chat_id: str,
+        filename: str,
+        content: bytes,
+        caption: str | None = None,
+        *,
+        on_retry: OnRetry | None = None,
     ) -> int: ...
 
 
@@ -97,6 +104,12 @@ def _cause_of(error: BaseException) -> str | None:
     return error.cause if isinstance(error, _Retryable) else None
 
 
+def _retry_heard(detail: dict[str, Any], on_retry: OnRetry | None) -> None:
+    log.warning("telegram send failed; retrying", extra=detail)
+    if on_retry is not None:
+        on_retry(detail)
+
+
 class TelegramNotifier:
     """`sendMessage` as plain text (no `parse_mode`) and `sendDocument` (multipart), each with
     `TELEGRAM_ATTEMPTS` attempts, the `TELEGRAM_BACKOFF_S` waits and `TELEGRAM_TIMEOUT_S` per
@@ -110,19 +123,18 @@ class TelegramNotifier:
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         fault: Fault | None = None,
-        on_retry: OnRetry | None = None,
     ) -> None:
         _install_log_filter()
         self._settings = settings or get_settings()
-        self._client = client or httpx.Client()
+        self._client = client
+        """Built on the first call (M3: EP-05 gets a notifier per request and rarely sends)."""
         self._sleep = sleep
         self._fault = fault
-        self.on_retry = on_retry
-        """Hears each retry (`send_summary` points it at the `notify` step's `RETRY` events)."""
 
     def close(self) -> None:
-        """Close the HTTP client (also an injected one)."""
-        self._client.close()
+        """Close the HTTP client (also an injected one), if any."""
+        if self._client is not None:
+            self._client.close()
 
     def __enter__(self) -> Self:
         return self
@@ -130,13 +142,19 @@ class TelegramNotifier:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    def send_message(self, chat_id: str, text: str) -> int:
+    def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
         """Plain text, link previews off (research R11: the `Report:` link stays a line)."""
         body = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
-        return self._send("sendMessage", {"json": body})
+        return self._send("sendMessage", {"json": body}, on_retry)
 
     def send_document(
-        self, chat_id: str, filename: str, content: bytes, caption: str | None = None
+        self,
+        chat_id: str,
+        filename: str,
+        content: bytes,
+        caption: str | None = None,
+        *,
+        on_retry: OnRetry | None = None,
     ) -> int:
         """`sendDocument` as multipart (005 research R11; F-10 sends `report.html`), content
         type from the filename. A caption over `CAPTION_MAX` is a caller bug: ValueError before
@@ -146,9 +164,9 @@ class TelegramNotifier:
         data = {"chat_id": chat_id} | ({} if caption is None else {"caption": caption})
         mime = _MIME.guess_type(filename)[0] or "application/octet-stream"
         files = {"document": (filename, content, mime)}
-        return self._send("sendDocument", {"data": data, "files": files})
+        return self._send("sendDocument", {"data": data, "files": files}, on_retry)
 
-    def _send(self, method: str, body: dict[str, Any]) -> int:
+    def _send(self, method: str, body: dict[str, Any], on_retry: OnRetry | None) -> int:
         """One Bot API call with the retry policy; `body` is httpx's `post` keyword args."""
         token = self._settings.TELEGRAM_BOT_TOKEN
         secret = "" if token is None else token.get_secret_value()
@@ -159,23 +177,20 @@ class TelegramNotifier:
             "telegram",
             max(1, self._settings.TELEGRAM_ATTEMPTS),
             self._settings.TELEGRAM_BACKOFF_S,
-            self._retry_heard,
+            lambda detail: _retry_heard(detail, on_retry),
             sleep=self._sleep,
             chain=False,
             cause_of=_cause_of,
         )
         return policy(lambda: self._post(url, body))
 
-    def _retry_heard(self, detail: dict[str, object]) -> None:
-        log.warning("telegram send failed; retrying", extra=detail)
-        if self.on_retry is not None:
-            self.on_retry(detail)
-
     def _post(self, url: str, body: dict[str, Any]) -> int:
         """One call: the message id, `_Retryable`, or UpstreamFailed for a final rejection.
         Raised errors never chain the httpx exception (its text can hold the URL)."""
         if self._fault is Fault.TELEGRAM_DOWN:
             raise _Retryable("down")
+        if self._client is None:
+            self._client = httpx.Client()
         try:
             response = self._client.post(url, timeout=self._settings.TELEGRAM_TIMEOUT_S, **body)
         except httpx.TimeoutException:
@@ -287,20 +302,6 @@ def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> Sum
 # --- sending it at most once (F-10.R4 to R7; data-model.md §6, research R12) --------------
 
 
-@contextmanager
-def _retry_events(notifier: Notifier, step: StepLog) -> Iterator[None]:
-    """While sending, each HTTP retry of the real notifier writes a `RETRY` run event (FR-037).
-    Test fakes have no retries of their own."""
-    if not isinstance(notifier, TelegramNotifier):
-        yield
-        return
-    previous, notifier.on_retry = notifier.on_retry, step.retry
-    try:
-        yield
-    finally:
-        notifier.on_retry = previous
-
-
 class _NotifierFailed(LedgerlineError):
     """Wraps a notifier error so it is told apart from a repo error after a send; its text (the
     `notify FAILED` event detail) is the coded error's own, else the type name only."""
@@ -340,8 +341,7 @@ def send_summary(
     detail = {"notification_id": str(n.id)}
     try:
         with stage_step(repo, run.id, Stage.NOTIFY, detail, now=now) as step:
-            with _retry_events(notifier, step):
-                n = _deliver(repo, notifier, n, text, report_bytes, settings, now)
+            n = _deliver(repo, notifier, n, text, report_bytes, settings, now, step)
     except _NotifierFailed as failed:
         return _summary_failed(repo, notifier, run, n.id, failed.error, settings, now)
     done = now()
@@ -379,15 +379,17 @@ def _deliver(
     report_bytes: bytes,
     settings: Settings,
     now: Callable[[], datetime],
+    step: StepLog,
 ) -> Notification:
-    """Message (unless already delivered; its id stored before anything else), then document.
-    Notifier errors come out as `_NotifierFailed`."""
+    """Message (unless already delivered; its id stored before anything else), then document;
+    each HTTP retry is a `RETRY` run event (FR-037). Notifier errors come out as
+    `_NotifierFailed`."""
     chat_id = settings.TELEGRAM_CONTROLLER_CHAT_ID
     if not chat_id:
         raise _NotifierFailed(UpstreamFailed("telegram", "controller chat not set"))
     if n.telegram_message_id is None:
         try:
-            message_id = notifier.send_message(chat_id, text)
+            message_id = notifier.send_message(chat_id, text, on_retry=step.retry)
         except Exception as exc:
             raise _NotifierFailed(exc) from exc
         n = repo.update_notification(
@@ -397,7 +399,7 @@ def _deliver(
             updated_at=now(),
         )
     try:
-        notifier.send_document(chat_id, REPORT_FILENAME, report_bytes)
+        notifier.send_document(chat_id, REPORT_FILENAME, report_bytes, on_retry=step.retry)
     except Exception as exc:
         raise _NotifierFailed(exc) from exc
     return n

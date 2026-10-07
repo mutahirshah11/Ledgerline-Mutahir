@@ -28,6 +28,7 @@ from app.domain.enums import (
 from app.domain.ids import summary_key
 from app.domain.models import ExceptionItem, Notification, Proof
 from app.pipeline import report
+from app.services import finalise as finalise_service
 from app.services import telegram
 from app.services.finalise import load_run_view, report_paths
 from tests.factories import make_run, mapping_review
@@ -637,3 +638,35 @@ def test_F10_run_view_exceptions_skip_stale_open_items(pack_run: PackRun) -> Non
     assert [e.text for e in every] != [e.text for e in view.exceptions]  # it would show
     assert "4419 qty corrected on register, 60 to 66" in [e.text for e in view.exceptions]
     assert _message(pack_run) == _golden(GOLDEN, pack_run)
+
+
+# --- review fixes (M1, C1, C2, I1 to I4, M4) -------------------------------------------
+
+
+class _RetryingNotifier(FakeNotifier):
+    """Any notifier, not only TelegramNotifier, reports its HTTP retries through `on_retry`."""
+
+    def send_message(self, chat_id: str, text: str, *, on_retry: Any = None) -> int:
+        if on_retry is not None and chat_id == CONTROLLER_CHAT:
+            on_retry({"service": "telegram", "attempt": 2, "cause": "rate limited"})
+        return super().send_message(chat_id, text, on_retry=on_retry)
+
+
+def test_F10_R5_any_notifier_retry_writes_retry_event(pack_run: PackRun) -> None:
+    notifier = _RetryingNotifier()
+    pack_run.repo.transition_run(
+        pack_run.run_id,
+        RunStatus.FINALISED,
+        expected={RunStatus.AWAITING_REVIEW},
+        finalised_by="controller@kestrel.example",
+        finalised_at=pack_run.repo.get_run(pack_run.run_id).scenario_now,
+    )
+    run = pack_run.repo.get_run(pack_run.run_id)
+    n = finalise_service._summary_row(pack_run.repo, run, lambda: run.scenario_now)
+    sent = telegram.send_summary(pack_run.repo, notifier, run, n, "text", b"<html></html>")
+    assert sent.status is NotificationStatus.SENT
+    assert _events(pack_run, Stage.NOTIFY) == [
+        RunEventStatus.STARTED,
+        RunEventStatus.RETRY,
+        RunEventStatus.OK,
+    ]
