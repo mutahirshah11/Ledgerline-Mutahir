@@ -2,14 +2,15 @@
 
 Reads only; never changes data (F-02.R5). Every problem from every file is returned, in source
 order REGISTER, ERP, SHEET (`order.SOURCE_ORDER`) and file order within a source (F-02.R4).
+Column names, headers and the worksheet name come from `normalise`, so F-02 checks exactly what
+F-04 later reads.
 """
 
 import csv
 import io
 import re
 import struct
-import zipfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import NamedTuple
@@ -18,42 +19,24 @@ import openpyxl
 
 from app.domain.enums import ProblemCode, Source
 from app.domain.models import DomainModel
-
-ERP_COLUMNS: tuple[str, ...] = (
-    "grn_no",
-    "grn_date",
-    "supplier_code",
-    "supplier_name",
-    "item_desc",
-    "lot_no",
-    "qty",
-    "uom",
-    "entered_by",
-    "entered_at",
-)
-"""The ten required ERP columns, exact names (Section 7)."""
-
-SHEET_HEADERS: tuple[str, ...] = (
-    "Date",
-    "GRN",
-    "Supplier",
-    "Material",
-    "Lot",
-    "Qty Received",
-    "UOM",
-    "Remarks",
-)
-"""The eight required store sheet headers in row 1, exact text (Section 7)."""
+from app.pipeline.normalise import ERP_COLUMNS as ERP_COLUMNS
+from app.pipeline.normalise import SHEET_HEADERS as SHEET_HEADERS
+from app.pipeline.normalise import sheet_name as sheet_name
+from app.pipeline.order import SOURCE_ORDER
 
 MIN_IMAGE_PX = 800
 MAX_PAGES = 10
+QTY_MAX_EXPONENT = 15
+"""As normalise (F-04.R7): a qty of 10^15 or more is unreadable, so F-02 refuses it too."""
 
-_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-# JPEG start-of-frame markers carry the frame size; C4 (DHT), C8 (JPG), CC (DAC) are not frames.
-_JPEG_SOF = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+# Baseline, extended and progressive frames only (research R6); other SOF frames are refused.
+# C4 (DHT), C8 (JPG) and CC (DAC) are ordinary segments, not frames.
+_JPEG_SOF = frozenset({0xC0, 0xC1, 0xC2})
+_JPEG_OTHER_SOF = frozenset(range(0xC3, 0xD0)) - {0xC4, 0xC8, 0xCC}
 _JPEG_STANDALONE = frozenset({0x01, *range(0xD0, 0xD8)})
+_UNCLOSED_QUOTE = ("unexpected end of data", "field larger than field limit")
 
 
 class ProblemLocation(DomainModel):
@@ -95,14 +78,19 @@ def _problem(
 
 
 def _is_decimal(value: str) -> bool:
+    """What normalise reads as a qty (F-04.R7): `Decimal` text as written (padding allowed),
+    no `_` numerals, finite, below 10^15. Blank fails: F-02.R1 wants a decimal on every row."""
+    if not value.strip() or "_" in value:
+        return False
     try:
-        return Decimal(value).is_finite()
+        qty = Decimal(value)
     except InvalidOperation:
         return False
+    return qty.is_finite() and qty.adjusted() < QTY_MAX_EXPONENT
 
 
 def _is_iso_date(value: str) -> bool:
-    if not _ISO_DATE.match(value):
+    if not _ISO_DATE.fullmatch(value):
         return False
     try:
         date.fromisoformat(value)
@@ -111,35 +99,55 @@ def _is_iso_date(value: str) -> bool:
     return True
 
 
+def _erp_header_problems(header: list[str]) -> list[ValidationProblem]:
+    """One MISSING_COLUMN per required column absent or repeated, in column order."""
+    problems = []
+    for c in ERP_COLUMNS:
+        count = header.count(c)
+        if count == 1:
+            continue
+        times = "twice" if count == 2 else f"{count} times"
+        msg = f"ERP: column {c} is missing" if count == 0 else f"ERP: column {c} appears {times}"
+        problems.append(_problem(Source.ERP, ProblemCode.MISSING_COLUMN, msg, column=c))
+    return problems
+
+
 def check_erp(data: bytes) -> list[ValidationProblem]:
-    """F-02.R1: UTF-8 (BOM allowed), quoted CSV, the ten columns, ≥ 1 data row, decimal `qty`
-    and ISO `grn_date` on every data row (line 1 = first data row)."""
+    """F-02.R1: UTF-8 (BOM allowed), quoted CSV, the ten columns once each, ≥ 1 data row, every
+    row as wide as the header, decimal `qty` and ISO `grn_date` on every data row.
+
+    Lines are numbered as normalise's `ERP-{line:04}` ids: line 1 = first data row and only
+    empty lines are skipped (rows of bare commas count). A CSV that won't parse is one ENCODING.
+    """
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         msg = f"ERP: file is not UTF-8 text (bad byte at position {exc.start})"
         return [_problem(Source.ERP, ProblemCode.ENCODING, msg)]
-    reader = csv.reader(io.StringIO(text, newline=""))
-    header = next(reader, [])
-    problems = [
-        _problem(Source.ERP, ProblemCode.MISSING_COLUMN, f"ERP: column {c} is missing", column=c)
-        for c in ERP_COLUMNS
-        if c not in header
-    ]
-    rows = [r for r in reader if any(v.strip() for v in r)]
+    reader = csv.reader(io.StringIO(text, newline=""), strict=True)
+    rows: list[list[str]] = []
+    try:
+        header = next(reader, [])
+        rows.extend(r for r in reader if r != [])
+    except csv.Error as exc:
+        reason = "unclosed quote" if str(exc).startswith(_UNCLOSED_QUOTE) else "bad quoting"
+        msg = f"ERP: file is not valid CSV ({reason} near line {len(rows) + 1})"
+        return [_problem(Source.ERP, ProblemCode.ENCODING, msg)]
+    problems = _erp_header_problems(header)
     if not rows:
         problems.append(_problem(Source.ERP, ProblemCode.NO_DATA_ROWS, "ERP: no data rows"))
-    checks = (
+    checks: tuple[tuple[str, ProblemCode, Callable[[str], bool], str], ...] = (
         ("qty", ProblemCode.BAD_NUMBER, _is_decimal, "is not a number"),
         ("grn_date", ProblemCode.BAD_DATE, _is_iso_date, "is not a date YYYY-MM-DD"),
     )
     index = {name: header.index(name) for name, *_ in checks if name in header}
     for line, row in enumerate(rows, start=1):
+        if len(row) != len(header):
+            msg = f"ERP line {line}: expected {len(header)} values, found {len(row)}"
+            problems.append(_problem(Source.ERP, ProblemCode.MISSING_COLUMN, msg, line=line))
+            continue
         for name, code, ok, what in checks:
-            if name not in index:
-                continue
-            value = row[index[name]] if index[name] < len(row) else ""
-            if not ok(value):
+            if name in index and not ok(value := row[index[name]]):
                 msg = f'ERP line {line}: {name} "{value}" {what}'
                 problems.append(_problem(Source.ERP, code, msg, line=line, column=name))
     return problems
@@ -148,46 +156,48 @@ def check_erp(data: bytes) -> list[ValidationProblem]:
 # --- R2 sheet -----------------------------------------------------------------------------
 
 
-def sheet_name(month: str) -> str:
-    """The worksheet name for run month `YYYY-MM`: `2026-09` → `Sep-2026` (Section 7)."""
-    year, mon = month.split("-")
-    return f"{_MONTHS[int(mon) - 1]}-{year}"
-
-
 def check_sheet(month: str, data: bytes) -> list[ValidationProblem]:
-    """F-02.R2: openpyxl read-only with values; worksheet `Mon-YYYY` for the run month; the
-    eight headers in row 1; ≥ 1 data row. Cell values are not parsed (F-02.AC6: F-04's job)."""
+    """F-02.R2: openpyxl read-only with values; worksheet `Mon-YYYY` for the run month (`month`
+    already validated as `YYYY-MM`); the eight headers in row 1, exact text; ≥ 1 data row.
+    Cell values are not parsed (F-02.AC6: F-04's job). Damage found while opening the workbook
+    or reading its rows is one ENCODING problem, as in `normalise.read_sheet`.
+    """
     name = sheet_name(month)
+    found: list[str] = []
+    header: tuple[object, ...] = ()
+    has_data = False
     try:
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    except (zipfile.BadZipFile, OSError, KeyError, ValueError):
+        try:
+            found = list(wb.sheetnames)
+            if name in found:
+                rows = wb[name].iter_rows(values_only=True)
+                header = next(rows, ())
+                has_data = any(any(v is not None and str(v).strip() for v in r) for r in rows)
+        finally:
+            wb.close()
+    except Exception:  # BadZipFile, KeyError, ParseError, ...: varies by damage
         msg = "Store sheet: file is not a readable .xlsx workbook"
         return [_problem(Source.SHEET, ProblemCode.ENCODING, msg)]
-    try:
-        if name not in wb.sheetnames:
-            found = ", ".join(wb.sheetnames) or "none"
-            msg = f"Store sheet: no worksheet named {name} (found: {found})"
-            return [_problem(Source.SHEET, ProblemCode.MISSING_WORKSHEET, msg, worksheet=name)]
-        rows = wb[name].iter_rows(values_only=True)
-        header = next(rows, ())
-        problems = [
-            _problem(
-                Source.SHEET,
-                ProblemCode.MISSING_HEADER,
-                f"Store sheet: header {h} is missing from row 1",
-                row=1,
-                column=h,
-                worksheet=name,
-            )
-            for h in SHEET_HEADERS
-            if h not in header
-        ]
-        if not any(any(v is not None and str(v).strip() for v in r) for r in rows):
-            msg = f"Store sheet: worksheet {name} has no data rows"
-            problems.append(_problem(Source.SHEET, ProblemCode.NO_DATA_ROWS, msg, worksheet=name))
-        return problems
-    finally:
-        wb.close()
+    if name not in found:
+        msg = f"Store sheet: no worksheet named {name} (found: {', '.join(found) or 'none'})"
+        return [_problem(Source.SHEET, ProblemCode.MISSING_WORKSHEET, msg, worksheet=name)]
+    problems = [
+        _problem(
+            Source.SHEET,
+            ProblemCode.MISSING_HEADER,
+            f"Store sheet: header {h} is missing from row 1",
+            row=1,
+            column=h,
+            worksheet=name,
+        )
+        for h in SHEET_HEADERS
+        if h not in header
+    ]
+    if not has_data:
+        msg = f"Store sheet: worksheet {name} has no data rows"
+        problems.append(_problem(Source.SHEET, ProblemCode.NO_DATA_ROWS, msg, worksheet=name))
+    return problems
 
 
 # --- R3 register --------------------------------------------------------------------------
@@ -214,8 +224,8 @@ def _jpeg_size(data: bytes) -> tuple[int, int] | None:
         if marker in _JPEG_STANDALONE:
             i += 2
             continue
-        if marker in (0xD9, 0xDA):  # end of image, or scan data before any frame
-            return None
+        if marker in (0xD9, 0xDA) or marker in _JPEG_OTHER_SOF:
+            return None  # end of image, scan data before any frame, or an unsupported frame
         (length,) = struct.unpack(">H", data[i + 2 : i + 4])
         if marker in _JPEG_SOF:
             if i + 9 > len(data):
@@ -227,8 +237,8 @@ def _jpeg_size(data: bytes) -> tuple[int, int] | None:
 
 
 def image_size(data: bytes) -> tuple[int, int] | None:
-    """Width and height from a PNG IHDR or JPEG SOF header, standard library only (research
-    R6); None when the bytes are neither or the header can't be parsed."""
+    """Width and height from a PNG IHDR or a JPEG SOF0/SOF1/SOF2 header, standard library only
+    (research R6); None when the bytes are neither or the header can't be parsed."""
     size = _png_size(data) or _jpeg_size(data)
     if size is None or 0 in size:
         return None
@@ -267,9 +277,11 @@ def check_register(files: Sequence[RegisterFile]) -> list[ValidationProblem]:
 def validate_files(
     month: str, erp_bytes: bytes, sheet_bytes: bytes, register_files: Sequence[RegisterFile]
 ) -> list[ValidationProblem]:
-    """Every problem across all files, REGISTER then ERP then SHEET (F-02.R4); [] = pass."""
-    return [
-        *check_register(register_files),
-        *check_erp(erp_bytes),
-        *check_sheet(month, sheet_bytes),
-    ]
+    """Every problem across all files in `SOURCE_ORDER` (REGISTER, ERP, SHEET) (F-02.R4);
+    [] = pass. `month` is the run's already validated `YYYY-MM`."""
+    checks: dict[Source, Callable[[], list[ValidationProblem]]] = {
+        Source.REGISTER: lambda: check_register(register_files),
+        Source.ERP: lambda: check_erp(erp_bytes),
+        Source.SHEET: lambda: check_sheet(month, sheet_bytes),
+    }
+    return [p for source in SOURCE_ORDER for p in checks[source]()]
