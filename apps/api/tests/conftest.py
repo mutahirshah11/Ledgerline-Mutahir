@@ -86,13 +86,21 @@ def live_settings() -> "Settings":
 
 @pytest.fixture(autouse=True)
 def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Settings see no .env and no OS env vars, so local runs behave like CI."""
+    """Settings see no .env and no OS env vars, so local runs behave like CI; the backend is
+    `memory` and the process-wide memory stores start empty in every test."""
     from app.core.config import get_settings
+    from app.core.db import shared_memory_repo
+    from app.core.storage import shared_memory_blobstore
     from tests.support.pack_pages import make_settings_hermetic
 
     make_settings_hermetic(monkeypatch)
+    monkeypatch.setenv("REPO_BACKEND", "memory")
+    shared_memory_repo.cache_clear()
+    shared_memory_blobstore.cache_clear()
     yield
     get_settings.cache_clear()
+    shared_memory_repo.cache_clear()
+    shared_memory_blobstore.cache_clear()
 
 
 @pytest.fixture

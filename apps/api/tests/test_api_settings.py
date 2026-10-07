@@ -3,10 +3,13 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.core.config import API_DIR, Settings
 
 
-def test_phase3_setting_defaults() -> None:
+def test_phase3_setting_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REPO_BACKEND")  # set to `memory` by the autouse hermetic_settings
     s = Settings(_env_file=None)
     assert (s.OPENAI_TIMEOUT_S, s.EXTRACT_ATTEMPTS, s.EXTRACT_BACKOFF_S) == (60, 3, (2, 8))
     assert (s.TELEGRAM_ATTEMPTS, s.TELEGRAM_BACKOFF_S, s.TELEGRAM_TIMEOUT_S) == (3, (1, 4), 10)
