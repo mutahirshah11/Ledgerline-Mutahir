@@ -82,7 +82,9 @@ ATTEMPTS = 3
 WAITS_S = (1, 2)
 TIMEOUT_S = 10
 PAGE_ROWS = 1000
-"""PostgREST's default `max-rows`; lists read pages of this size until a short page."""
+"""PostgREST's default `max-rows`; lists read pages of up to this size until an empty one."""
+REVIEW_CHUNK = 500
+"""Review items per `upsert_review_items` RPC call (bounded request size)."""
 
 _CONNECT_CODES = ("PGRST000", "PGRST001", "PGRST002", "PGRST003")
 _CONSTRAINT = re.compile(r'constraint "([^"]+)"|\(([a-z0-9_]+)\)\s*$')
@@ -256,17 +258,22 @@ class SupabaseRepo:
     def _rows_all(
         self, build: Callable[[], Any], model: type[M], limit: int | None = None
     ) -> list[M]:
-        """Every row of `build` (which must end in a total order), `PAGE_ROWS` per request."""
+        """Every row of `build` (which must end in a total order), up to `PAGE_ROWS` per
+        request. Only an empty page ends the list: a project with a lower `max-rows` answers
+        with short pages, which must not be taken for the end."""
         out: list[M] = []
-        while True:
+        while limit is None or len(out) < limit:
             start = len(out)
             size = PAGE_ROWS if limit is None else min(PAGE_ROWS, limit - start)
-            if size <= 0:
-                return out
-            page = self._rows(lambda: build().range(start, start + size - 1), model)
+
+            def page_query(first: int = start, n: int = size) -> Any:
+                return build().range(first, first + n - 1)
+
+            page = self._rows(page_query, model)
+            if not page:
+                break
             out.extend(page)
-            if len(page) < size:
-                return out
+        return out
 
     def _one(self, build: Callable[[], Any], model: type[M]) -> M | None:
         rows = self._rows(build, model)
@@ -298,7 +305,7 @@ class SupabaseRepo:
         ours: Callable[[M], bool],
         missing: tuple[str, object],
     ) -> tuple[M, bool]:
-        """"Existing returned" insert: on 23505 return (existing, False), or (existing, True)
+        """ "Existing returned" insert: on 23505 return (existing, False), or (existing, True)
         when a retry hit our own earlier insert (`ours`)."""
         try:
             rows = self._send(lambda: self._table(table).insert(_json(item)))[0]
@@ -323,11 +330,9 @@ class SupabaseRepo:
         """Update `fields` (values from `new`) only while `guard` (column, value) still holds.
         0 rows → `StateConflict(reread())`, unless a retry already applied the update."""
         values = _values(fields, new)
+        row_id = str(_json(current)["id"])  # M is any model with an id
         rows, made = self._send_mapped(
-            lambda: self._table(table)
-            .update(values)
-            .eq("id", str(getattr(current, "id")))
-            .eq(*guard)
+            lambda: self._table(table).update(values).eq("id", row_id).eq(*guard)
         )
         if rows:
             return _model(type(current), rows[0])
@@ -433,10 +438,12 @@ class SupabaseRepo:
 
     def find_finalised_run_by_key(self, run_key: str) -> Run | None:
         return self._one(
-            lambda: self._table("runs")
-            .select("*")
-            .eq("status", RunStatus.FINALISED.value)
-            .eq("run_key", run_key),
+            lambda: (
+                self._table("runs")
+                .select("*")
+                .eq("status", RunStatus.FINALISED.value)
+                .eq("run_key", run_key)
+            ),
             Run,
         )
 
@@ -465,9 +472,11 @@ class SupabaseRepo:
     def confirm_source_file(self, file_id: UUID, at: datetime) -> SourceFile:
         new = _updated(self._file(file_id), {"confirmed_at": at})  # rejects a naive time
         rows = self._call(
-            lambda: self._table("source_files")
-            .update(_values({"confirmed_at": at}, new))
-            .eq("id", str(file_id))
+            lambda: (
+                self._table("source_files")
+                .update(_values({"confirmed_at": at}, new))
+                .eq("id", str(file_id))
+            )
         )
         if not rows:
             raise NotFound("source_file", file_id)
@@ -494,7 +503,7 @@ class SupabaseRepo:
             "page_manifest",
             entry,
             lambda: self.get_page(entry.sha256),
-            lambda found: found.first_seen_run_id == entry.first_seen_run_id,
+            lambda found: found == entry,
             ("run", entry.first_seen_run_id),
         )
 
@@ -504,12 +513,14 @@ class SupabaseRepo:
         self, page_sha256: str, variant: ReadVariant, model: str, prompt_version: str
     ) -> Extraction | None:
         return self._one(
-            lambda: self._table("extractions")
-            .select("*")
-            .eq("page_sha256", page_sha256)
-            .eq("read_variant", variant.value)
-            .eq("model", model)
-            .eq("prompt_version", prompt_version),
+            lambda: (
+                self._table("extractions")
+                .select("*")
+                .eq("page_sha256", page_sha256)
+                .eq("read_variant", variant.value)
+                .eq("model", model)
+                .eq("prompt_version", prompt_version)
+            ),
             Extraction,
         )
 
@@ -543,10 +554,12 @@ class SupabaseRepo:
 
     def get_source_row(self, run_id: UUID, source_row_id: str) -> CanonicalRow:
         row = self._one(
-            lambda: self._table("source_rows")
-            .select(_SOURCE_ROW_COLUMNS)
-            .eq("run_id", str(run_id))
-            .eq("source_row_id", source_row_id),
+            lambda: (
+                self._table("source_rows")
+                .select(_SOURCE_ROW_COLUMNS)
+                .eq("run_id", str(run_id))
+                .eq("source_row_id", source_row_id)
+            ),
             CanonicalRow,
         )
         if row is None:
@@ -564,10 +577,12 @@ class SupabaseRepo:
 
     def get_group(self, run_id: UUID, group_key: str) -> Group:
         group = self._one(
-            lambda: self._table("groups")
-            .select("*")
-            .eq("run_id", str(run_id))
-            .eq("group_key", group_key),
+            lambda: (
+                self._table("groups")
+                .select("*")
+                .eq("run_id", str(run_id))
+                .eq("group_key", group_key)
+            ),
             Group,
         )
         if group is None:
@@ -607,22 +622,31 @@ class SupabaseRepo:
     # --- review --------------------------------------------------------------------------
 
     def upsert_review_items(self, run_id: UUID, items: list[ReviewItem]) -> list[ReviewItem]:
-        """One `upsert_review_items` RPC (migration 0002, one transaction): new item_keys are
-        inserted OPEN; existing ones get only the refreshed columns, so decisions are kept."""
+        """`upsert_review_items` RPC (migration 0002) per chunk of `REVIEW_CHUNK` items, each one
+        transaction: new item_keys are inserted OPEN; existing ones get only the refreshed
+        columns, so decisions are kept. Validation of the whole batch precedes every call."""
         self.get_run(run_id)
         if any(i.run_id != run_id for i in items):
             raise ValueError("every review item must belong to the run")
         keys = [i.item_key for i in items]
         if len(set(keys)) != len(keys):
             raise UniqueViolation("review_items_run_item_key_uq")
-        if not items:
-            return []
-        params = {"p_run_id": str(run_id), "p_items": [_json(i) for i in items]}
-        try:
-            rows = self._send(lambda: self._client().rpc("upsert_review_items", params))[0]
-        except APIError as error:
-            raise self._run_conflict(error, run_id) from None
-        stored = {r.item_key: r for r in (_model(ReviewItem, row) for row in rows or [])}
+        stored: dict[str, ReviewItem] = {}
+        for start in range(0, len(items), REVIEW_CHUNK):
+            chunk = items[start : start + REVIEW_CHUNK]
+            params = {"p_run_id": str(run_id), "p_items": [_json(i) for i in chunk]}
+
+            def call(p: dict[str, Any] = params) -> Any:
+                return self._client().rpc("upsert_review_items", p)
+
+            try:
+                rows = self._send(call)[0]
+            except APIError as error:
+                raise self._run_conflict(error, run_id) from None
+            stored.update((r.item_key, r) for r in (_model(ReviewItem, row) for row in rows or []))
+        missing = [k for k in keys if k not in stored]
+        if missing:
+            raise UpstreamFailed(SERVICE, f"upsert_review_items returned no row for {missing[:3]}")
         return [stored[k] for k in keys]
 
     def list_review_items(
@@ -690,9 +714,7 @@ class SupabaseRepo:
 
     def get_notification_by_key(self, idempotency_key: str) -> Notification | None:
         return self._one(
-            lambda: self._table("notifications")
-            .select("*")
-            .eq("idempotency_key", idempotency_key),
+            lambda: self._table("notifications").select("*").eq("idempotency_key", idempotency_key),
             Notification,
         )
 
@@ -733,22 +755,26 @@ class SupabaseRepo:
 
     def list_stale_sending(self, older_than: datetime) -> list[Notification]:
         return self._rows_all(
-            lambda: self._table("notifications")
-            .select("*")
-            .eq("status", NotificationStatus.SENDING.value)
-            .lt("updated_at", older_than.isoformat())
-            .order("seq"),
+            lambda: (
+                self._table("notifications")
+                .select("*")
+                .eq("status", NotificationStatus.SENDING.value)
+                .lt("updated_at", older_than.isoformat())
+                .order("seq")
+            ),
             Notification,
         )
 
     def get_latest_notification(self, kind: NotificationKind) -> Notification | None:
         return self._one(
-            lambda: self._table("notifications")
-            .select("*")
-            .eq("kind", kind.value)
-            .order("updated_at", desc=True)
-            .order("id", desc=True)
-            .limit(1),
+            lambda: (
+                self._table("notifications")
+                .select("*")
+                .eq("kind", kind.value)
+                .order("updated_at", desc=True)
+                .order("id", desc=True)
+                .limit(1)
+            ),
             Notification,
         )
 
@@ -760,11 +786,13 @@ class SupabaseRepo:
     def list_run_events(self, run_id: UUID) -> list[RunEvent]:
         """Newest first: `at` desc, then newest insertion first (`seq` desc, C27)."""
         return self._rows_all(
-            lambda: self._table("run_events")
-            .select("*")
-            .eq("run_id", str(run_id))
-            .order("at", desc=True)
-            .order("seq", desc=True),
+            lambda: (
+                self._table("run_events")
+                .select("*")
+                .eq("run_id", str(run_id))
+                .order("at", desc=True)
+                .order("seq", desc=True)
+            ),
             RunEvent,
         )
 

@@ -116,7 +116,7 @@ def test_source_rows_quantities_travel_as_strings() -> None:
     run = make_run()
     payload = make_payload(run.id)
     stored = payload.rows[0].model_dump(mode="json")
-    repo, client = _repo(None, [stored])
+    repo, client = _repo(None, [stored], [])
     repo.replace_reconciliation(run.id, payload)
     [(_, (params,), _)] = client.calls(0)
     assert params["p_run_id"] == str(run.id)
@@ -132,7 +132,7 @@ def test_numeric_from_postgrest_must_be_text() -> None:
     """A JSON number would arrive as a float; the select casts quantities to text."""
     run = make_run()
     row = make_row(run.id, "ERP-0001").model_dump(mode="json") | {"qty": "2.500"}
-    repo, _ = _repo([row])
+    repo, _ = _repo([row], [])
     assert repo.list_source_rows(run.id)[0].qty == Decimal("2.500")
 
 
@@ -223,10 +223,15 @@ def test_existing_returned_methods_count_our_retried_insert_as_created() -> None
         [page.model_dump(mode="json")],
         _unique("page_manifest_pkey"),
         [page.model_dump(mode="json")],
+        CONNECT,
+        _unique("page_manifest_pkey"),
+        [make_page(run.id, page_no=2).model_dump(mode="json")],
     )
     assert repo.insert_notification(n) == (n, True)
     assert repo.add_page_if_new(page) == (page, True)
     assert repo.add_page_if_new(page) == (page, False)  # one attempt: someone else's
+    # same run, but not the row we sent: not ours (the whole row is compared)
+    assert repo.add_page_if_new(page)[1] is False
 
 
 def test_retried_cas_that_landed_returns_the_row() -> None:
@@ -261,12 +266,38 @@ def test_append_audit_retries_only_before_the_server() -> None:
 def test_lists_page_past_the_postgrest_row_cap() -> None:
     run = make_run()
     flags = [make_flag(run.id).model_dump(mode="json") for _ in range(1001)]
-    repo, client = _repo(flags[:1000], flags[1000:])
+    repo, client = _repo(flags[:1000], flags[1000:], [])
     assert len(repo.list_flags(run.id)) == 1001
-    ranges = [c for i in range(2) for c in client.calls(i) if c[0] == "range"]
-    assert ranges == [("range", (0, 999), {}), ("range", (1000, 1999), {})]
+    ranges = [c for i in range(3) for c in client.calls(i) if c[0] == "range"]
+    assert ranges == [
+        ("range", (0, 999), {}),
+        ("range", (1000, 1999), {}),
+        ("range", (1001, 2000), {}),
+    ]
     orders = [c[1] for c in client.calls(0) if c[0] == "order"]
     assert orders == [("seq",)]  # a total order, so pages never overlap
+
+
+def test_short_page_is_not_the_end() -> None:
+    """A project with a lower max-rows returns short pages; only an empty page ends the list."""
+    run = make_run()
+    flags = [make_flag(run.id).model_dump(mode="json") for _ in range(3)]
+    repo, client = _repo(flags[:2], flags[2:], [])
+    assert len(repo.list_flags(run.id)) == 3
+    assert len(client.queries) == 3
+
+
+def test_upsert_review_items_chunks_and_checks_every_key() -> None:
+    run = make_run()
+    items = [make_review(run.id, f"CELL:REG-p1-r01:k{i}") for i in range(501)]
+    rows = [i.model_dump(mode="json") for i in items]
+    repo, client = _repo([_run_row(id=run.id)], rows[:500], rows[500:])
+    assert repo.upsert_review_items(run.id, items) == items
+    sizes = [len(client.calls(i)[0][1][0]["p_items"]) for i in (1, 2)]
+    assert sizes == [500, 1]
+    repo, _ = _repo([_run_row(id=run.id)], rows[:1])
+    with pytest.raises(UpstreamFailed):
+        repo.upsert_review_items(run.id, items[:2])
 
 
 def test_upsert_review_items_is_one_rpc() -> None:
