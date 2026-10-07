@@ -1,0 +1,454 @@
+openapi: 3.1.0
+info:
+  title: Ledgerline API (Phase 3 endpoints)
+  version: 0.3.0
+  description: >
+    Endpoints EP-01 to EP-10 and EP-19 to EP-21 (blueprint Section 11). EP-11 to EP-18 are added by
+    Phase 4 (specs/005-review-delivery). All paths are under /api/v1. Every endpoint except
+    /health requires a Supabase access token (bearer). Quantities are strings; timestamps are
+    ISO-8601 with offset from the scenario clock. Role rules: contracts/auth.md.
+servers:
+  - url: /api/v1
+security:
+  - bearer: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    RunId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Fault:
+      name: fault
+      in: query
+      required: false
+      description: Honoured only when ALLOW_FAULTS=true; otherwise ignored (Section 25).
+      schema:
+        type: string
+        enum: [EXTRACT_TIMEOUT, EXTRACT_BAD_JSON, TELEGRAM_DOWN, PROOF_DROP_ROW]
+  responses:
+    Unauthenticated:
+      description: Missing or invalid token (UNAUTHENTICATED)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+    NotAllowed:
+      description: Email not on the allowlist or role not permitted (NOT_ALLOWED)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+    NotFound:
+      description: Unknown run, page or file (NOT_FOUND)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+    Conflict:
+      description: Wrong run status for this call (RUN_STATE_CONFLICT) or duplicate of a finalised run (DUPLICATE_RUN)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+    ContractViolation:
+      description: Input files break their contract (CONTRACT_VIOLATION)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+    UpstreamFailed:
+      description: OpenAI, Telegram or Supabase failed after retries (UPSTREAM_FAILED)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+    BadRequest:
+      description: Bad request body or query (BAD_MONTH, MISSING_SOURCE, BAD_REQUEST)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, stage, details]
+          properties:
+            code:
+              type: string
+              enum: [BAD_MONTH, MISSING_SOURCE, BAD_REQUEST, UNAUTHENTICATED, NOT_ALLOWED,
+                     NOT_FOUND, RUN_STATE_CONFLICT, DUPLICATE_RUN, CONTRACT_VIOLATION,
+                     UPSTREAM_FAILED, PROOF_NOT_PASSED, CONFIRM_REQUIRED, ITEM_ALREADY_RESOLVED,
+                     INVALID_REVIEW_ACTION, INTERNAL_ERROR]
+            message: { type: string }
+            stage:
+              type: [string, 'null']
+              enum: [upload, validate, extract, reconcile, proof, review, finalise, notify, null]
+            details: { type: object }
+    Role: { type: string, enum: [CONTROLLER, REVIEWER, OPS] }
+    Source: { type: string, enum: [REGISTER, ERP, SHEET] }
+    RunStatus:
+      type: string
+      enum: [CREATED, UPLOADED, VALIDATED, EXTRACTING, EXTRACTED, RECONCILED, AWAITING_REVIEW,
+             READY, FINALISED, FAILED]
+    ProofStatus: { type: string, enum: [PASS, FAIL] }
+    Outcome:
+      type: string
+      enum: [MATCHED, MATCHED_AFTER_CONVERSION, MISMATCHED, MISSING, NEEDS_REVIEW,
+             UNMATCHED_NO_KEY, DUPLICATE, NON_RECEIPT]
+    OutcomeCounts:
+      type: object
+      description: All eight Outcome keys, zeros included.
+      additionalProperties: { type: integer, minimum: 0 }
+    Health:
+      type: object
+      required: [status, db, storage, openai_key_set, telegram_set, telegram, scenario_now]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        db: { type: string, enum: [ok, failing] }
+        storage: { type: string, enum: [ok, failing] }
+        openai_key_set: { type: boolean }
+        telegram_set: { type: boolean }
+        telegram: { type: string, enum: [ok, failing, unset] }
+        scenario_now: { type: string, format: date-time }
+    Me:
+      type: object
+      required: [email, display_name, role]
+      properties:
+        email: { type: string }
+        display_name: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+    Run:
+      type: object
+      required: [id, month, status, scenario_now, created_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        month: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        run_key: { type: [string, 'null'] }
+        failed_stage: { type: [string, 'null'] }
+        error_message: { type: [string, 'null'] }
+        scenario_now: { type: string, format: date-time }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        finalised_at: { type: [string, 'null'], format: date-time }
+        finalised_by: { type: [string, 'null'] }
+    StageProgress:
+      type: object
+      required: [stage, state]
+      properties:
+        stage: { type: string }
+        state: { type: string, enum: [PENDING, RUNNING, OK, FAILED] }
+        at: { type: [string, 'null'], format: date-time }
+        duration_ms: { type: [integer, 'null'] }
+    StageProgressView:
+      description: EP-05 stage_progress (blueprint C25; web W6). Pages in page order.
+      type: object
+      required: [stages, pages]
+      properties:
+        stages: { type: array, items: { $ref: '#/components/schemas/StageProgress' } }
+        pages:
+          type: array
+          items:
+            type: object
+            required: [page_no, extracted, cached]
+            properties:
+              page_no: { type: integer }
+              extracted: { type: boolean }
+              cached: { type: boolean }
+    RunDetail:
+      description: >
+        EP-05 response, flat. Phase 3 defines these base fields; Phase 4
+        (specs/005-review-delivery/contracts/openapi.yaml, RunView) adds headline,
+        exceptions, summary and row_counts to the same object (blueprint C25).
+      allOf:
+        - $ref: '#/components/schemas/Run'
+        - type: object
+          required: [stage_progress, counts, proof_status, open_review_items]
+          properties:
+            stage_progress: { $ref: '#/components/schemas/StageProgressView' }
+            counts: { $ref: '#/components/schemas/OutcomeCounts' }
+            proof_status: { oneOf: [ { $ref: '#/components/schemas/ProofStatus' }, { type: 'null' } ] }
+            open_review_items: { type: integer }
+    RunSummary:
+      type: object
+      required: [id, month, status, created_at, counts]
+      properties:
+        id: { type: string, format: uuid }
+        month: { type: string }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        created_at: { type: string, format: date-time }
+        counts: { $ref: '#/components/schemas/OutcomeCounts' }
+        proof_status: { oneOf: [ { $ref: '#/components/schemas/ProofStatus' }, { type: 'null' } ] }
+    UploadFileIn:
+      type: object
+      required: [source, filename, size_bytes, sha256]
+      properties:
+        source: { $ref: '#/components/schemas/Source' }
+        filename: { type: string }
+        size_bytes: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        page_no: { type: [integer, 'null'], minimum: 1, maximum: 10 }
+    UploadSlot:
+      type: object
+      required: [file_id, source, filename, storage_path, signed_url]
+      properties:
+        file_id: { type: string, format: uuid }
+        source: { $ref: '#/components/schemas/Source' }
+        filename: { type: string }
+        page_no: { type: [integer, 'null'] }
+        storage_path: { type: string }
+        signed_url: { type: string }
+    ConfirmResponse:
+      type: object
+      required: [run, new_pages, known_pages]
+      properties:
+        run: { $ref: '#/components/schemas/Run' }
+        new_pages: { type: array, items: { type: integer } }
+        known_pages: { type: array, items: { type: integer } }
+    ValidationProblem:
+      type: object
+      required: [source, code, message]
+      properties:
+        source: { $ref: '#/components/schemas/Source' }
+        code:
+          type: string
+          enum: [ENCODING, MISSING_COLUMN, NO_DATA_ROWS, BAD_NUMBER, BAD_DATE, MISSING_WORKSHEET,
+                 MISSING_HEADER, IMAGE_UNREADABLE, IMAGE_TOO_SMALL, TOO_MANY_PAGES]
+        message: { type: string }
+        location:
+          type: [object, 'null']
+          properties:
+            line: { type: integer }
+            row: { type: integer }
+            column: { type: string }
+            worksheet: { type: string }
+            page_no: { type: integer }
+    ValidateResponse:
+      type: object
+      required: [ok, problems]
+      properties:
+        ok: { type: boolean, const: true }
+        problems: { type: array, maxItems: 0, items: { $ref: '#/components/schemas/ValidationProblem' } }
+    ExtractPageResponse:
+      type: object
+      required: [page_no, cached, rows, review_cells, disagreements]
+      properties:
+        page_no: { type: integer }
+        cached: { type: boolean }
+        rows: { type: integer }
+        review_cells: { type: integer }
+        disagreements: { type: integer }
+    ReconcileResponse:
+      type: object
+      required: [status, counts, proof_status, open_review_items]
+      properties:
+        status: { $ref: '#/components/schemas/RunStatus' }
+        counts: { $ref: '#/components/schemas/OutcomeCounts' }
+        proof_status: { $ref: '#/components/schemas/ProofStatus' }
+        open_review_items: { type: integer }
+    RunEvent:
+      type: object
+      required: [id, stage, status, at]
+      properties:
+        id: { type: string, format: uuid }
+        stage: { type: string }
+        status: { type: string, enum: [STARTED, OK, RETRY, FAILED] }
+        at: { type: string, format: date-time }
+        duration_ms: { type: [integer, 'null'] }
+        detail: { type: object }
+    AuditEntry:
+      type: object
+      required: [id, at, actor, action, entity, entity_id, channel]
+      properties:
+        id: { type: integer }
+        at: { type: string, format: date-time }
+        actor: { type: string }
+        action: { type: string }
+        entity: { type: string }
+        entity_id: { type: string }
+        before: { type: [object, 'null'] }
+        after: { type: [object, 'null'] }
+        channel: { type: string, enum: [WEB, API, SYSTEM, TELEGRAM] }
+    NormLogEntry:
+      type: object
+      required: [source_row_id, field, code]
+      properties:
+        source_row_id: { type: string }
+        field: { type: string }
+        code:
+          type: string
+          enum: [GRN_PREFIX_STRIPPED, DATE_SERIAL_PARSED, DATE_TEXT_PARSED, DATE_YEAR_FROM_HEADER,
+                 SUPPLIER_MAPPED, UNIT_MAPPED, UNIT_CONVERTED, TEXT_TRIMMED]
+        before: { type: [string, 'null'] }
+        after: { type: [string, 'null'] }
+
+paths:
+  /health:
+    get:
+      operationId: ep01_health
+      summary: EP-01 Health (F-11.R7); no authentication
+      security: []
+      responses:
+        '200': { description: All checks pass, content: { application/json: { schema: { $ref: '#/components/schemas/Health' } } } }
+        '503': { description: A check fails (same body, status degraded), content: { application/json: { schema: { $ref: '#/components/schemas/Health' } } } }
+  /me:
+    get:
+      operationId: ep02_me
+      summary: EP-02 Current user (F-12)
+      responses:
+        '200': { description: Caller, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+  /runs:
+    post:
+      operationId: ep03_create_run
+      summary: EP-03 Create run (F-01.R1); CONTROLLER only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [month]
+              properties:
+                month: { type: string, example: '2026-09' }
+      responses:
+        '201': { description: Run with status CREATED, content: { application/json: { schema: { $ref: '#/components/schemas/Run' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+    get:
+      operationId: ep04_list_runs
+      summary: EP-04 List runs, newest first
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200': { description: Runs, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RunSummary' } } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+  /runs/{id}:
+    get:
+      operationId: ep05_get_run
+      summary: EP-05 Run with stage progress and counts by outcome
+      parameters: [ { $ref: '#/components/parameters/RunId' } ]
+      responses:
+        '200': { description: Run detail, content: { application/json: { schema: { $ref: '#/components/schemas/RunDetail' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /runs/{id}/uploads:
+    post:
+      operationId: ep06_request_uploads
+      summary: EP-06 Declare files and get signed upload URLs (F-01.R2, R3); CONTROLLER only; run must be CREATED
+      parameters: [ { $ref: '#/components/parameters/RunId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files: { type: array, minItems: 1, items: { $ref: '#/components/schemas/UploadFileIn' } }
+      responses:
+        '200':
+          description: One signed URL per file (valid 10 minutes, enforced at confirm)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uploads]
+                properties:
+                  uploads: { type: array, items: { $ref: '#/components/schemas/UploadSlot' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ContractViolation' }
+  /runs/{id}/uploads/confirm:
+    post:
+      operationId: ep07_confirm_uploads
+      summary: EP-07 Verify uploads, compute run_key, page manifest (F-01.R4 to R7); CONTROLLER only; idempotent
+      parameters: [ { $ref: '#/components/parameters/RunId' } ]
+      responses:
+        '200': { description: Run UPLOADED with run_key, new_pages, known_pages, content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ContractViolation' }
+        '502': { $ref: '#/components/responses/UpstreamFailed' }
+  /runs/{id}/validate:
+    post:
+      operationId: ep08_validate
+      summary: EP-08 Contract validation (F-02); CONTROLLER, or OPS on a FAILED run; idempotent
+      parameters: [ { $ref: '#/components/parameters/RunId' } ]
+      responses:
+        '200': { description: Valid; run VALIDATED, content: { application/json: { schema: { $ref: '#/components/schemas/ValidateResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: Problems found; run FAILED at validate; details.problems lists every problem
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+        '502': { $ref: '#/components/responses/UpstreamFailed' }
+  /runs/{id}/pages/{page_no}/extract:
+    post:
+      operationId: ep09_extract_page
+      summary: EP-09 Read one register page (F-03 via Phase 2 service); CONTROLLER, or OPS on a FAILED run; idempotent
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - { name: page_no, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 10 } }
+        - $ref: '#/components/parameters/Fault'
+      responses:
+        '200': { description: Page read (or cache hit), content: { application/json: { schema: { $ref: '#/components/schemas/ExtractPageResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: Page unreadable (FM-06, over half the cells illegible); run FAILED at extract; details {problem PAGE_UNREADABLE, page_no}
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } }
+        '502': { $ref: '#/components/responses/UpstreamFailed' }
+  /runs/{id}/reconcile:
+    post:
+      operationId: ep10_reconcile
+      summary: EP-10 Normalise, reconcile, controls, proof (F-04 to F-07 via the Phase 1 engine); accepts EXTRACTED, AWAITING_REVIEW, READY (re-reconcile), 409 if FINALISED (C25); CONTROLLER, or OPS on a FAILED run; idempotent
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/Fault'
+      responses:
+        '200': { description: Reconciled; status AWAITING_REVIEW or READY, or FAILED with proof_status FAIL (FM-07), content: { application/json: { schema: { $ref: '#/components/schemas/ReconcileResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { $ref: '#/components/responses/UpstreamFailed' }
+  /runs/{id}/events:
+    get:
+      operationId: ep19_run_events
+      summary: EP-19 Run events, newest first (F-11.R2)
+      parameters: [ { $ref: '#/components/parameters/RunId' } ]
+      responses:
+        '200': { description: Events, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RunEvent' } } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /runs/{id}/audit:
+    get:
+      operationId: ep20_run_audit
+      summary: EP-20 Audit entries for the run, newest first (F-11.R6)
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - { name: actor, in: query, required: false, schema: { type: string } }
+      responses:
+        '200': { description: Audit entries, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /runs/{id}/normalisation-log:
+    get:
+      operationId: ep21_normalisation_log
+      summary: EP-21 Normalisation log (F-04)
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - { name: source_row_id, in: query, required: false, schema: { type: string } }
+      responses:
+        '200': { description: Entries, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/NormLogEntry' } } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotAllowed' }
+        '404': { $ref: '#/components/responses/NotFound' }
