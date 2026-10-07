@@ -74,7 +74,8 @@ export interface paths {
         };
         /**
          * List Runs
-         * @description EP-04: newest first, counts by outcome and proof status (FR-013).
+         * @description EP-04: newest first, counts by outcome and proof status (FR-013); three Repo reads
+         *     whatever the limit (006 carry-over, NFR-02).
          */
         get: operations["list_runs_api_v1_runs_get"];
         put?: never;
@@ -593,12 +594,19 @@ export interface components {
          * @enum {string}
          */
         ComparedField: "date" | "supplier_code" | "lot_no" | "qty" | "uom";
-        /** ConfirmResponse */
+        /**
+         * ConfirmResponse
+         * @description EP-07. `read_cost_estimate_usd` (006 read cost, `app.pipeline.cost`): `new_pages` x the
+         *     per-page token averages x the price settings, US$ to 0.001; None while a price is unset.
+         *     Known pages come from the extraction cache at US$0.
+         */
         ConfirmResponse: {
             /** Known Pages */
             known_pages: number[];
             /** New Pages */
             new_pages: number[];
+            /** Read Cost Estimate Usd */
+            read_cost_estimate_usd: string | null;
             run: components["schemas"]["RunOut"];
         };
         /** ControlFlag */
@@ -1018,6 +1026,31 @@ export interface components {
             placed: string;
         };
         /**
+         * ReadCost
+         * @description EP-05 `read_cost` (006 spec.md Clarifications 2026-10-07; `app.pipeline.cost`).
+         *
+         *     `new_pages`: register pages this run reads new, i.e. not `cached` in `stage_progress.pages`
+         *     (before reading: every page without both reads stored before the run). `estimate_usd`:
+         *     `new_pages` x the per-page token averages x the prices. `input_tokens` / `output_tokens`:
+         *     the stored reads (current model and prompt) of those pages created since the run was
+         *     created, i.e. what this run actually read (a read stored earlier, by another run, is a
+         *     cache hit and costs nothing). `actual_usd`: those tokens x the prices; "0.000" before any
+         *     page is read and when every page is cached. Both USD fields are None while either price
+         *     setting is unset.
+         */
+        ReadCost: {
+            /** Actual Usd */
+            actual_usd: string | null;
+            /** Estimate Usd */
+            estimate_usd: string | null;
+            /** Input Tokens */
+            input_tokens: number;
+            /** New Pages */
+            new_pages: number;
+            /** Output Tokens */
+            output_tokens: number;
+        };
+        /**
          * ReadVariant
          * @enum {string}
          */
@@ -1320,7 +1353,8 @@ export interface components {
          * RunView
          * @description EP-05 response and the `run` of EP-15/EP-17 (data-model.md §2); flat (C25): the Phase 3
          *     `RunDetail` fields (Run fields, `stage_progress`, `counts`, `proof_status`,
-         *     `open_review_items`) plus `row_counts`, `headline`, `exceptions` and `summary` (E3).
+         *     `open_review_items`) plus `row_counts`, `headline`, `exceptions` and `summary` (E3), and
+         *     the 006 `read_cost`.
          */
         RunView: {
             /** Counts */
@@ -1355,6 +1389,7 @@ export interface components {
             /** Open Review Items */
             open_review_items: number;
             proof_status: components["schemas"]["ProofStatus"] | null;
+            read_cost: components["schemas"]["ReadCost"];
             /** Row Counts */
             row_counts: {
                 [key: string]: {
