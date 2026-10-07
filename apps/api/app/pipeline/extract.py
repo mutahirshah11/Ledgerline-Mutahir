@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-import openai
 from pydantic import ValidationError
 from tenacity import (
     RetryCallState,
@@ -596,7 +595,13 @@ def _read_with_retries(
 
 
 def retry_cause(error: BaseException | None) -> str | None:
-    """The contract §4 cause of a retryable failure, or None when it must not be retried."""
+    """The contract §4 cause of a retryable failure, or None when it must not be retried.
+
+    `openai` is imported here, not at module level: its SDK import is real time (full
+    types/graders tree) every test would otherwise pay even offline (NFR-11 suite budget).
+    """
+    import openai
+
     if isinstance(error, openai.APITimeoutError):  # before its base, APIConnectionError
         return "timeout"
     if isinstance(error, openai.APIConnectionError):
@@ -619,6 +624,8 @@ def _final_error(error: BaseException, attempts: int, page_no: int) -> BaseExcep
     """Contract §4 final detail. Any other `openai.APIError` (e.g. a response that fails the
     SDK's own validation) is upstream trouble too (FR-012); non-openai errors (bugs, e.g. a
     replay cache miss) are returned unchanged."""
+    import openai
+
     cause = retry_cause(error)
     if cause is not None:
         detail = f"{cause} after {attempts} attempts"
