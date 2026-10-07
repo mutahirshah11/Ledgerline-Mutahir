@@ -1,0 +1,694 @@
+[
+  {
+    "action": "SUMMARY_SENT",
+    "actor": "system",
+    "after": {
+      "sent_at": "2026-10-15T08:31:30+05:00",
+      "status": "SENT",
+      "telegram_message_id": 3
+    },
+    "at": "2026-10-15T08:31:30+05:00",
+    "before": {
+      "status": "SENDING"
+    },
+    "channel": "TELEGRAM",
+    "entity": "notification",
+    "entity_id": "00000000-0000-4000-8000-00000000004c",
+    "id": 36,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RUN_FINALISED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "finalised_at": "2026-10-15T08:31:30+05:00",
+      "finalised_by": "controller@kestrel.example",
+      "report_paths": [
+        "00000000-0000-4000-8000-000000000013/report.html",
+        "00000000-0000-4000-8000-000000000013/outcomes.csv"
+      ],
+      "status": "FINALISED"
+    },
+    "at": "2026-10-15T08:31:30+05:00",
+    "before": {
+      "open_review_items": 0,
+      "status": "READY"
+    },
+    "channel": "WEB",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 35,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "REVIEW_RESOLVED",
+    "actor": "reviewer@kestrel.example",
+    "after": {
+      "action": "ACKNOWLEDGE",
+      "equals_sources": [],
+      "group_key": null,
+      "group_outcome": null,
+      "item_key": "FLAG:SEQUENCE_GAP:4429",
+      "note": "Checked GRN 4429 with stores.",
+      "resolved_value": null,
+      "status": "RESOLVED"
+    },
+    "at": "2026-10-15T08:31:24+05:00",
+    "before": {
+      "item_key": "FLAG:SEQUENCE_GAP:4429",
+      "read_a": null,
+      "read_b": null,
+      "resolved_value": null,
+      "status": "OPEN"
+    },
+    "channel": "WEB",
+    "entity": "review_item",
+    "entity_id": "00000000-0000-4000-8000-00000000004b",
+    "id": 34,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RECONCILED",
+    "actor": "system",
+    "after": {
+      "decided_item_keys": [
+        "CELL:REG-p2-r05:qty",
+        "CELL:REG-p2-r14:qty",
+        "FLAG:BACKDATED_ENTRY:ERP-0028",
+        "FLAG:SEQUENCE_GAP:4429"
+      ],
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "open_item_keys": [],
+      "open_review_items": 0,
+      "proof_status": "PASS",
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 22,
+          "REGISTER": 22,
+          "SHEET": 22
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      },
+      "status": "READY"
+    },
+    "at": "2026-10-15T08:31:24+05:00",
+    "before": {
+      "status": "AWAITING_REVIEW"
+    },
+    "channel": "SYSTEM",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 33,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "REVIEW_RESOLVED",
+    "actor": "reviewer@kestrel.example",
+    "after": {
+      "action": "ACKNOWLEDGE",
+      "equals_sources": [],
+      "group_key": "GRN:4430",
+      "group_outcome": "MISSING",
+      "item_key": "FLAG:BACKDATED_ENTRY:ERP-0028",
+      "note": "Checked GRN 4430 with stores.",
+      "resolved_value": null,
+      "status": "RESOLVED"
+    },
+    "at": "2026-10-15T08:31:21+05:00",
+    "before": {
+      "item_key": "FLAG:BACKDATED_ENTRY:ERP-0028",
+      "read_a": null,
+      "read_b": null,
+      "resolved_value": null,
+      "status": "OPEN"
+    },
+    "channel": "WEB",
+    "entity": "review_item",
+    "entity_id": "00000000-0000-4000-8000-00000000004a",
+    "id": 32,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RECONCILED",
+    "actor": "system",
+    "after": {
+      "decided_item_keys": [
+        "CELL:REG-p2-r05:qty",
+        "CELL:REG-p2-r14:qty",
+        "FLAG:BACKDATED_ENTRY:ERP-0028"
+      ],
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "open_item_keys": [
+        "FLAG:SEQUENCE_GAP:4429"
+      ],
+      "open_review_items": 1,
+      "proof_status": "PASS",
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 22,
+          "REGISTER": 22,
+          "SHEET": 22
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      },
+      "status": "AWAITING_REVIEW"
+    },
+    "at": "2026-10-15T08:31:21+05:00",
+    "before": {
+      "status": "AWAITING_REVIEW"
+    },
+    "channel": "SYSTEM",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 31,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "REVIEW_RESOLVED",
+    "actor": "reviewer@kestrel.example",
+    "after": {
+      "action": "ENTER_VALUE",
+      "equals_sources": [
+        "ERP",
+        "SHEET"
+      ],
+      "group_key": "GRN:4428",
+      "group_outcome": "MATCHED",
+      "item_key": "CELL:REG-p2-r14:qty",
+      "note": null,
+      "resolved_value": "250",
+      "status": "RESOLVED"
+    },
+    "at": "2026-10-15T08:31:18+05:00",
+    "before": {
+      "item_key": "CELL:REG-p2-r14:qty",
+      "read_a": {
+        "status": "ILLEGIBLE",
+        "value": null
+      },
+      "read_b": {
+        "status": "ILLEGIBLE",
+        "value": null
+      },
+      "resolved_value": null,
+      "status": "OPEN"
+    },
+    "channel": "WEB",
+    "entity": "review_item",
+    "entity_id": "00000000-0000-4000-8000-000000000049",
+    "id": 30,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RECONCILED",
+    "actor": "system",
+    "after": {
+      "decided_item_keys": [
+        "CELL:REG-p2-r05:qty",
+        "CELL:REG-p2-r14:qty"
+      ],
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "open_item_keys": [
+        "FLAG:BACKDATED_ENTRY:ERP-0028",
+        "FLAG:SEQUENCE_GAP:4429"
+      ],
+      "open_review_items": 2,
+      "proof_status": "PASS",
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 22,
+          "REGISTER": 22,
+          "SHEET": 22
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      },
+      "status": "AWAITING_REVIEW"
+    },
+    "at": "2026-10-15T08:31:18+05:00",
+    "before": {
+      "status": "AWAITING_REVIEW"
+    },
+    "channel": "SYSTEM",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 29,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "REVIEW_RESOLVED",
+    "actor": "reviewer@kestrel.example",
+    "after": {
+      "action": "ACCEPT_READ",
+      "equals_sources": [
+        "ERP"
+      ],
+      "group_key": "GRN:4419",
+      "group_outcome": "MISMATCHED",
+      "item_key": "CELL:REG-p2-r05:qty",
+      "note": null,
+      "resolved_value": "66",
+      "status": "RESOLVED"
+    },
+    "at": "2026-10-15T08:31:15+05:00",
+    "before": {
+      "item_key": "CELL:REG-p2-r05:qty",
+      "read_a": {
+        "status": "CORRECTED",
+        "value": "66"
+      },
+      "read_b": {
+        "status": "CORRECTED",
+        "value": "66"
+      },
+      "resolved_value": null,
+      "status": "OPEN"
+    },
+    "channel": "WEB",
+    "entity": "review_item",
+    "entity_id": "00000000-0000-4000-8000-000000000048",
+    "id": 28,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RECONCILED",
+    "actor": "system",
+    "after": {
+      "decided_item_keys": [
+        "CELL:REG-p2-r05:qty"
+      ],
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 21,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 1,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "open_item_keys": [
+        "CELL:REG-p2-r14:qty",
+        "FLAG:BACKDATED_ENTRY:ERP-0028",
+        "FLAG:SEQUENCE_GAP:4429"
+      ],
+      "open_review_items": 3,
+      "proof_status": "PASS",
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 21,
+          "REGISTER": 21,
+          "SHEET": 21
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      },
+      "status": "AWAITING_REVIEW"
+    },
+    "at": "2026-10-15T08:31:15+05:00",
+    "before": {
+      "status": "AWAITING_REVIEW"
+    },
+    "channel": "SYSTEM",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 27,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RECONCILED",
+    "actor": "system",
+    "after": {
+      "decided_item_keys": [],
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 21,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 4,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 2,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "open_item_keys": [
+        "CELL:REG-p2-r05:qty",
+        "CELL:REG-p2-r14:qty",
+        "FLAG:BACKDATED_ENTRY:ERP-0028",
+        "FLAG:SEQUENCE_GAP:4429"
+      ],
+      "open_review_items": 4,
+      "proof_status": "PASS",
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 21,
+          "REGISTER": 21,
+          "SHEET": 21
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 4,
+          "REGISTER": 4,
+          "SHEET": 4
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 2,
+          "REGISTER": 2,
+          "SHEET": 2
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      },
+      "status": "AWAITING_REVIEW"
+    },
+    "at": "2026-10-15T08:30:39+05:00",
+    "before": {
+      "status": "EXTRACTED"
+    },
+    "channel": "SYSTEM",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 17,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "PAGE_EXTRACTED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "cached": false,
+      "disagreements": 0,
+      "page_no": 2,
+      "review_cells": 2,
+      "rows": 14
+    },
+    "at": "2026-10-15T08:30:36+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "page",
+    "entity_id": "563b43479011b0003605fcb1a1275ba506fffb143738b8da3ff266632bb4d2bb",
+    "id": 16,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "PAGE_EXTRACTED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "cached": true,
+      "disagreements": 0,
+      "page_no": 1,
+      "review_cells": 0,
+      "rows": 14
+    },
+    "at": "2026-10-15T08:30:33+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "page",
+    "entity_id": "d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1",
+    "id": 15,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RUN_VALIDATED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "status": "VALIDATED"
+    },
+    "at": "2026-10-15T08:30:30+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 14,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_store_sheet.xlsx",
+      "page_no": null,
+      "sha256": "b8c40dd70191e743970646297e9a9d8c539cbe0bb82e8ab9dfe72a69634de869",
+      "size_bytes": 6617,
+      "source": "SHEET"
+    },
+    "at": "2026-10-15T08:30:27+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000017",
+    "id": 13,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_erp_grn.csv",
+      "page_no": null,
+      "sha256": "c44ef7c17b3fc5aa6e6de7c479b03fda4c6dfe52bea9e9e5f73aebb90eec1ebb",
+      "size_bytes": 3261,
+      "source": "ERP"
+    },
+    "at": "2026-10-15T08:30:27+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000016",
+    "id": 12,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_register_page2.jpg",
+      "page_no": 2,
+      "sha256": "563b43479011b0003605fcb1a1275ba506fffb143738b8da3ff266632bb4d2bb",
+      "size_bytes": 434656,
+      "source": "REGISTER"
+    },
+    "at": "2026-10-15T08:30:27+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000015",
+    "id": 11,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_register_page1.jpg",
+      "page_no": 1,
+      "sha256": "d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1",
+      "size_bytes": 439229,
+      "source": "REGISTER"
+    },
+    "at": "2026-10-15T08:30:27+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000014",
+    "id": 10,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  },
+  {
+    "action": "RUN_CREATED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "month": "2026-09",
+      "run_key": "5f6ade40539445514e1622da6807d939925329ed12c88e9ad9843d62260c18d8",
+      "status": "UPLOADED"
+    },
+    "at": "2026-10-15T08:30:27+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000013",
+    "id": 9,
+    "run_id": "00000000-0000-4000-8000-000000000013"
+  }
+]

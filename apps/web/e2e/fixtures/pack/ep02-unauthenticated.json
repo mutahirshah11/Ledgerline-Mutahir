@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "UNAUTHENTICATED",
+    "details": {},
+    "message": "Sign in again",
+    "stage": null
+  }
+}

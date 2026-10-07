@@ -1,0 +1,12 @@
+{
+  "error": {
+    "code": "UPSTREAM_FAILED",
+    "details": {
+      "attempts": 3,
+      "page_no": 2,
+      "service": "openai"
+    },
+    "message": "openai failed after retries",
+    "stage": "extract"
+  }
+}

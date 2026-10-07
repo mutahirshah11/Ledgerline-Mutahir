@@ -1,0 +1,137 @@
+[
+  {
+    "action": "ALERT_SENT",
+    "actor": "system",
+    "after": {
+      "stage": "extract",
+      "status": "SENT"
+    },
+    "at": "2026-10-15T08:30:18+05:00",
+    "before": null,
+    "channel": "TELEGRAM",
+    "entity": "notification",
+    "entity_id": "00000000-0000-4000-8000-00000000000e",
+    "id": 8,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "PAGE_EXTRACTED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "cached": false,
+      "disagreements": 0,
+      "page_no": 1,
+      "review_cells": 0,
+      "rows": 14
+    },
+    "at": "2026-10-15T08:30:15+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "page",
+    "entity_id": "d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1",
+    "id": 7,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "RUN_VALIDATED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "status": "VALIDATED"
+    },
+    "at": "2026-10-15T08:30:12+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000001",
+    "id": 6,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_store_sheet.xlsx",
+      "page_no": null,
+      "sha256": "b8c40dd70191e743970646297e9a9d8c539cbe0bb82e8ab9dfe72a69634de869",
+      "size_bytes": 6617,
+      "source": "SHEET"
+    },
+    "at": "2026-10-15T08:30:09+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-00000000000f",
+    "id": 5,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_erp_grn.csv",
+      "page_no": null,
+      "sha256": "c44ef7c17b3fc5aa6e6de7c479b03fda4c6dfe52bea9e9e5f73aebb90eec1ebb",
+      "size_bytes": 3261,
+      "source": "ERP"
+    },
+    "at": "2026-10-15T08:30:09+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000010",
+    "id": 4,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_register_page2.jpg",
+      "page_no": 2,
+      "sha256": "563b43479011b0003605fcb1a1275ba506fffb143738b8da3ff266632bb4d2bb",
+      "size_bytes": 434656,
+      "source": "REGISTER"
+    },
+    "at": "2026-10-15T08:30:09+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000011",
+    "id": 3,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "FILE_UPLOADED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "filename": "t4_register_page1.jpg",
+      "page_no": 1,
+      "sha256": "d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1",
+      "size_bytes": 439229,
+      "source": "REGISTER"
+    },
+    "at": "2026-10-15T08:30:09+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "source_file",
+    "entity_id": "00000000-0000-4000-8000-000000000012",
+    "id": 2,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+    "action": "RUN_CREATED",
+    "actor": "controller@kestrel.example",
+    "after": {
+      "month": "2026-09",
+      "run_key": "5f6ade40539445514e1622da6807d939925329ed12c88e9ad9843d62260c18d8",
+      "status": "UPLOADED"
+    },
+    "at": "2026-10-15T08:30:09+05:00",
+    "before": null,
+    "channel": "WEB",
+    "entity": "run",
+    "entity_id": "00000000-0000-4000-8000-000000000001",
+    "id": 1,
+    "run_id": "00000000-0000-4000-8000-000000000001"
+  }
+]

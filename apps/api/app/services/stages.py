@@ -13,7 +13,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,6 +40,7 @@ from app.domain.enums import (
 from app.domain.ids import parse_month, run_key
 from app.domain.models import (
     AllowedUser,
+    Extraction,
     PageExtractionResult,
     PageManifestEntry,
     PageRead,
@@ -526,7 +527,7 @@ def confirm_uploads(
 def run_outcome_counts(repo: Repo, run_id: UUID) -> dict[Outcome, int]:
     """data-model.md §2 `OutcomeCounts` of a stored run (engine `OutcomeCounts.flat`).
 
-    Two reads (groups, rows) per run; EP-04 calls it per listed run (Phase 5 follow-up)."""
+    Two reads (groups, rows); EP-04 uses the batched `Repo.count_outcomes` instead (006)."""
     return outcome_counts_of(repo.list_source_rows(run_id), repo.list_groups(run_id)).flat()
 
 
@@ -754,6 +755,26 @@ _EXTRACT_PAST = frozenset(
 Reader = Callable[[Callable[[RetryInfo], None] | None], PageExtractionResult]
 
 
+class _SpentTokens:
+    """The repo as one EP-09 read uses it, adding up the tokens of every read the call stores
+    (each `put_extraction` is one successful model read; a cached read is never stored), so
+    the step's `OK` or `FAILED` event records what this call spent (006 read cost)."""
+
+    def __init__(self, repo: Repo) -> None:
+        self._repo = repo
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.repo = cast(Repo, self)
+
+    def put_extraction(self, extraction: Extraction) -> tuple[Extraction, bool]:
+        self.input_tokens += extraction.input_tokens
+        self.output_tokens += extraction.output_tokens
+        return self._repo.put_extraction(extraction)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._repo, name)
+
+
 def _register_file(repo: Repo, run_id: UUID, page_no: int) -> SourceFile:
     for f in repo.list_source_files(run_id, Source.REGISTER):
         if f.page_no == page_no:
@@ -913,10 +934,11 @@ def extract_stage(
         stage_failed_alert(repo, notifier, run, Stage.EXTRACT, exc, page_no, now=now)
         raise _unexpected(Stage.EXTRACT) from exc
     reader_client = FaultModelClient(client, fault) if fault in EXTRACT_FAULTS else client
+    spent = _SpentTokens(repo)
 
     def read(on_retry: Callable[[RetryInfo], None] | None) -> PageExtractionResult:
         return extract_page(
-            repo=repo,
+            repo=spent.repo,
             client=reader_client,
             run_id=run.id,
             run_month=run.month,
@@ -933,7 +955,7 @@ def extract_stage(
             assert reads is not None  # checked above; reads are never deleted
             out = _repeat(reads, run, file, done[page_no])
         else:
-            out = _read_page(repo, run, page_no, user, read, now)
+            out = _read_page(repo, run, page_no, user, read, now, spent)
     except StateConflict:
         raise
     except (UpstreamFailed, PageUnreadable) as exc:
@@ -981,12 +1003,20 @@ def _repeat_past(
 
 
 def _read_page(
-    repo: Repo, run: Run, page_no: int, user: AllowedUser, read: Reader, now: Now
+    repo: Repo,
+    run: Run,
+    page_no: int,
+    user: AllowedUser,
+    read: Reader,
+    now: Now,
+    spent: _SpentTokens,
 ) -> ExtractPageResult:
     """One page read as a run step. Retries heard on the reader's worker threads are written
     as `RETRY` events here, on the request thread, after the read ends and before the step's
     `OK` or `FAILED`; so each RETRY event's `at` is the read's end time, not the retry's. A
-    RETRY write that fails is logged by type name and never hides the read's outcome."""
+    RETRY write that fails is logged by type name and never hides the read's outcome. The
+    step's `OK` or `FAILED` event records `input_tokens` / `output_tokens` of the reads this
+    call made (0 when every read was cached; 006 read cost)."""
     retries: list[RetryInfo] = []
     with stage_step(repo, run.id, Stage.EXTRACT, page_no=page_no, now=now) as step:
         try:
@@ -998,6 +1028,8 @@ def _read_page(
                     step.retry({**detail, "cause": info.cause})
                 except Exception as exc:
                     log.error("RETRY event not written: %s", type(exc).__name__)
+            step.base["input_tokens"] = spent.input_tokens
+            step.base["output_tokens"] = spent.output_tokens
         out = _page_result(result, result.cached)
         step.base["cached"] = out.cached  # the OK event detail is {page_no, cached}
         audit(

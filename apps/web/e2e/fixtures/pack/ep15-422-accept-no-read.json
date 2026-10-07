@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "INVALID_REVIEW_ACTION",
+    "details": {
+      "field": "qty",
+      "reason": "the reads do not give one value"
+    },
+    "message": "This action is not valid for this item",
+    "stage": "review"
+  }
+}

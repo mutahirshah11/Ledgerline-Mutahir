@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "NOT_ALLOWED",
+    "details": {},
+    "message": "Your role does not allow this",
+    "stage": null
+  }
+}

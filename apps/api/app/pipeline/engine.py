@@ -16,6 +16,7 @@ from app.core import clock
 from app.core.db import Repo
 from app.core.errors import StateConflict
 from app.domain.enums import (
+    ROW_ONLY_OUTCOMES,
     AuditAction,
     AuditChannel,
     Fault,
@@ -88,10 +89,6 @@ class OutcomeCounts:
             else self.groups_by_outcome[o]
             for o in Outcome
         }
-
-
-ROW_ONLY_OUTCOMES = frozenset({Outcome.DUPLICATE, Outcome.NON_RECEIPT})
-"""Outcomes a row gets without a group (Section 8 count table, "n/a" groups)."""
 
 
 @dataclass(frozen=True)

@@ -37,6 +37,7 @@ from app.domain.enums import (
 from app.domain.models import (
     AllowedUser,
     ControlFlag,
+    DecimalStr,
     FinaliseRequest,
     FinaliseResponse,
     GroupView,
@@ -112,9 +113,16 @@ class UploadResponse(BaseModel):
 
 
 class ConfirmResponse(BaseModel):
+    """EP-07. `read_cost_estimate_usd`: EP-05's `read_cost.estimate_usd` (006 read cost): the
+    pages still lacking a stored read under the current model and prompt x the per-page token
+    averages x the price settings, US$ to 0.001; None while a price is unset. It can differ
+    from `len(new_pages)`: a page known to the manifest whose reads were never stored (or are
+    under another model or prompt) still costs."""
+
     run: RunOut
     new_pages: list[int]
     known_pages: list[int]
+    read_cost_estimate_usd: DecimalStr | None
 
 
 class ValidateResponse(BaseModel):
@@ -167,14 +175,6 @@ class NormLogEntryOut(BaseModel):
     after: str | None
 
 
-# --- views -----------------------------------------------------------------------------
-
-
-def _proof_status(repo: Repo, run_id: UUID) -> ProofStatus | None:
-    proof = repo.get_proof(run_id)
-    return None if proof is None else proof.status
-
-
 # --- endpoints -------------------------------------------------------------------------
 
 
@@ -186,17 +186,22 @@ def create_run(body: CreateRunRequest, user: Controller, repo: RepoDep) -> RunOu
 
 @router.get("/runs", response_model=list[RunSummary])
 def list_runs(repo: RepoDep, limit: Annotated[int, Query(ge=1, le=100)] = 20) -> list[RunSummary]:
-    """EP-04: newest first, counts by outcome and proof status (FR-013)."""
+    """EP-04: newest first, counts by outcome and proof status (FR-013); three Repo reads
+    whatever the limit (006 carry-over, NFR-02)."""
+    runs = repo.list_runs(limit)
+    ids = [run.id for run in runs]
+    counts = repo.count_outcomes(ids)
+    proofs = repo.list_proof_statuses(ids)
     return [
         RunSummary(
             id=run.id,
             month=run.month,
             status=run.status,
             created_at=run.created_at,
-            counts=stages.run_outcome_counts(repo, run.id),
-            proof_status=_proof_status(repo, run.id),
+            counts=counts[run.id],
+            proof_status=proofs.get(run.id),
         )
-        for run in repo.list_runs(limit)
+        for run in runs
     ]
 
 
@@ -226,7 +231,10 @@ def confirm_uploads(
     """EP-07 (F-01.R4 to R7); idempotent."""
     result = stages.confirm_uploads(repo, blobs, repo.get_run(id), user, notifier=notifier)
     return ConfirmResponse(
-        run=RunOut.of(result.run), new_pages=result.new_pages, known_pages=result.known_pages
+        run=RunOut.of(result.run),
+        new_pages=result.new_pages,
+        known_pages=result.known_pages,
+        read_cost_estimate_usd=finalise.read_cost(repo, result.run).estimate_usd,
     )
 
 

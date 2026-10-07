@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     PROMPT_VERSION: str = "v3"
     EXTRACT_PRICE_INPUT_PER_MTOK: Decimal | None = None
     EXTRACT_PRICE_OUTPUT_PER_MTOK: Decimal | None = None
+    EXTRACT_EST_INPUT_TOKENS_PER_PAGE: int = 9500
+    """006 read cost estimate: input tokens of one page's two reads together (Phase 2
+    measurement, gpt-5.6-luna, prompt v3, 2026-10-07)."""
+    EXTRACT_EST_OUTPUT_TOKENS_PER_PAGE: int = 8000
+    """006 read cost estimate: output tokens of one page's two reads together (as above)."""
 
     TELEGRAM_BOT_TOKEN: SecretStr | None = None
     TELEGRAM_CONTROLLER_CHAT_ID: str | None = None

@@ -1,0 +1,26 @@
+[
+  {
+    "context": {
+      "detail": {
+        "high": "4429",
+        "low": "4429"
+      },
+      "flag": "SEQUENCE_GAP"
+    },
+    "field": null,
+    "grn_no": 4429,
+    "id": "00000000-0000-4000-8000-00000000004b",
+    "item_key": "FLAG:SEQUENCE_GAP:4429",
+    "kind": "FLAG_ACK",
+    "note": null,
+    "read_a": null,
+    "read_b": null,
+    "reason": "SEQUENCE_GAP",
+    "resolved_at": null,
+    "resolved_by": null,
+    "resolved_value": null,
+    "run_id": "00000000-0000-4000-8000-000000000013",
+    "source_row_id": null,
+    "status": "OPEN"
+  }
+]

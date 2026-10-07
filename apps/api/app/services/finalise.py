@@ -54,6 +54,7 @@ from app.domain.models import (
     Notification,
     PageProgress,
     Proof,
+    ReadCost,
     ReportLinks,
     ReviewItem,
     Run,
@@ -64,7 +65,7 @@ from app.domain.models import (
     StageProgressView,
     StageState,
 )
-from app.pipeline import report
+from app.pipeline import cost, report
 from app.pipeline.engine import open_review_state, outcome_counts_of
 from app.services import telegram
 from app.services.alerts import stage_failed_alert
@@ -94,36 +95,77 @@ def _extract_cached(events: list[RunEvent]) -> dict[int, bool]:
     return found
 
 
-def _pages(repo: Repo, run: Run, events: list[RunEvent]) -> list[PageProgress]:
-    """`StageProgressView.pages`. `extracted`: both reads under the current model and prompt.
-    `cached`: both reads existed before this run's extract stage first touched the page, read
-    from the run's extract OK event; without one, both reads are older than the run itself."""
-    settings = get_settings()
+def _pages(
+    repo: Repo, run: Run, events: list[RunEvent], settings: Settings
+) -> tuple[list[PageProgress], int]:
+    """`StageProgressView.pages` and the number of pages new to this run (006 `ReadCost`).
+    `extracted`: both reads under the current model and prompt. `cached`: both reads existed
+    before this run's extract stage first touched the page, read from the run's extract OK
+    event; without one, both reads are older than the run itself. A page is new when its
+    newest extract OK event says `cached: false`, or, before it has one, when it lacks either
+    read (as EP-07's estimate). Every page's reads come from one `list_extractions` call (006,
+    NFR-02)."""
     from_events = _extract_cached(events)
     out: list[PageProgress] = []
-    files = repo.list_source_files(run.id, Source.REGISTER)
-    for f in sorted(files, key=lambda f: f.page_no or 0):
+    new_pages = 0
+    files = sorted(repo.list_source_files(run.id, Source.REGISTER), key=lambda f: f.page_no or 0)
+    stored = {
+        (e.page_sha256, e.read_variant): e
+        for e in repo.list_extractions(
+            tuple(f.sha256 for f in files), settings.EXTRACT_MODEL, settings.PROMPT_VERSION
+        )
+    }
+    for f in files:
         page_no = f.page_no or 0
-        reads = [
-            repo.get_extraction(f.sha256, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
-            for v in ReadVariant
-        ]
+        reads = [stored.get((f.sha256, v)) for v in ReadVariant]
         extracted = all(r is not None for r in reads)
         if page_no in from_events:
             cached = extracted and from_events[page_no]
+            new_pages += not from_events[page_no]
         else:
             cached = extracted and all(
                 r is not None and r.created_at < run.created_at for r in reads
             )
+            new_pages += not extracted
         out.append(PageProgress(page_no=page_no, extracted=extracted, cached=cached))
-    return out
+    return out, new_pages
+
+
+_SPENT = frozenset({RunEventStatus.OK, RunEventStatus.FAILED})
+
+
+def _read_cost(events: list[RunEvent], new_pages: int, settings: Settings) -> ReadCost:
+    """EP-05 `read_cost` (`ReadCost` has the rules): tokens from this run's own extract
+    `OK` / `FAILED` events (each records only the reads its call made, EP-09), never from
+    extraction timestamps."""
+    spent = [e.detail for e in events if e.stage is Stage.EXTRACT and e.status in _SPENT]
+    input_tokens = sum(int(d.get("input_tokens", 0)) for d in spent)
+    output_tokens = sum(int(d.get("output_tokens", 0)) for d in spent)
+    return ReadCost(
+        new_pages=new_pages,
+        estimate_usd=cost.estimate_read_cost(new_pages, settings),
+        actual_usd=cost.tokens_cost(input_tokens, output_tokens, settings),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
 
 
 def stage_progress(repo: Repo, run: Run) -> StageProgressView:
     """Per stage: the state of its newest event (`list_run_events` is newest first); extract
     stays `RUNNING` until every page is read."""
+    return progress_and_cost(repo, run)[0]
+
+
+def read_cost(repo: Repo, run: Run) -> ReadCost:
+    """The run's `read_cost` alone (EP-07's estimate; same rules as EP-05)."""
+    return progress_and_cost(repo, run)[1]
+
+
+def progress_and_cost(repo: Repo, run: Run) -> tuple[StageProgressView, ReadCost]:
+    """`stage_progress` and the run's `read_cost`, from one read of events and page reads."""
+    settings = get_settings()
     events = repo.list_run_events(run.id)
-    pages = _pages(repo, run, events)
+    pages, new_pages = _pages(repo, run, events, settings)
     out: list[StageProgress] = []
     for stage in PROGRESS_STAGES:
         last = next((e for e in events if e.stage is stage), None)
@@ -136,7 +178,7 @@ def stage_progress(repo: Repo, run: Run) -> StageProgressView:
         out.append(
             StageProgress(stage=stage, state=state, at=last.at, duration_ms=last.duration_ms)
         )
-    return StageProgressView(stages=out, pages=pages)
+    return StageProgressView(stages=out, pages=pages), _read_cost(events, new_pages, settings)
 
 
 # --- run view (FR-020) ---------------------------------------------------------------------
@@ -230,9 +272,10 @@ def run_view(repo: Repo, data: RunData) -> RunView:
     """The `RunView` of `data` (reads only the stage progress and the summary row)."""
     run = data.run
     counts = outcome_counts_of(data.rows, data.groups)
+    progress, read_cost = progress_and_cost(repo, run)
     return RunView(
         **run.model_dump(),
-        stage_progress=stage_progress(repo, run),
+        stage_progress=progress,
         counts=counts.flat(),
         row_counts={s: {o: counts.rows_by_outcome[o][s] for o in Outcome} for s in Source},
         proof_status=None if data.proof is None else data.proof.status,
@@ -240,6 +283,7 @@ def run_view(repo: Repo, data: RunData) -> RunView:
         headline=report.headline(data.groups),
         exceptions=data.exceptions(),
         summary=telegram.summary_of(repo, run),
+        read_cost=read_cost,
     )
 
 

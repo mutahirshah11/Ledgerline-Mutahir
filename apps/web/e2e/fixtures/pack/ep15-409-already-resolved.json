@@ -1,0 +1,45 @@
+{
+  "error": {
+    "code": "ITEM_ALREADY_RESOLVED",
+    "details": {
+      "item": {
+        "context": {
+          "candidates": [],
+          "note": null,
+          "page_no": 2,
+          "row_index": 5,
+          "struck": "60"
+        },
+        "field": "qty",
+        "grn_no": 4419,
+        "id": "00000000-0000-4000-8000-000000000048",
+        "item_key": "CELL:REG-p2-r05:qty",
+        "kind": "CELL",
+        "note": null,
+        "read_a": {
+          "candidates": [],
+          "note": null,
+          "status": "CORRECTED",
+          "struck": "60",
+          "value": "66"
+        },
+        "read_b": {
+          "candidates": [],
+          "note": null,
+          "status": "CORRECTED",
+          "struck": "60",
+          "value": "66"
+        },
+        "reason": "CORRECTED",
+        "resolved_at": "2026-10-15T08:31:15+05:00",
+        "resolved_by": "reviewer@kestrel.example",
+        "resolved_value": "66",
+        "run_id": "00000000-0000-4000-8000-000000000013",
+        "source_row_id": "REG-p2-r05",
+        "status": "RESOLVED"
+      }
+    },
+    "message": "This item was already decided",
+    "stage": "review"
+  }
+}

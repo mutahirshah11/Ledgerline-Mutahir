@@ -9,4 +9,6 @@ paths = [
   '''apps/api/tests/ground_truth/.*\.json''',
   # Cached model reads (research R10): each record names its page image by SHA-256 hex digest.
   '''supabase/seed/extractions/.*\.json''',
+  # Recorded web fixtures (006 T007): run_key / page SHA-256 digests from fake-secret recordings.
+  '''apps/web/e2e/fixtures/pack/.*\.json''',
 ]

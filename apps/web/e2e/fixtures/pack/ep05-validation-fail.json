@@ -1,0 +1,113 @@
+{
+  "counts": {
+    "DUPLICATE": 0,
+    "MATCHED": 0,
+    "MATCHED_AFTER_CONVERSION": 0,
+    "MISMATCHED": 0,
+    "MISSING": 0,
+    "NEEDS_REVIEW": 0,
+    "NON_RECEIPT": 0,
+    "UNMATCHED_NO_KEY": 0
+  },
+  "created_at": "2026-10-15T08:31:42+05:00",
+  "created_by": "controller@kestrel.example",
+  "error_message": "1 problem: Store sheet: no worksheet named Aug-2026 (found: Sep-2026)",
+  "exceptions": [],
+  "failed_stage": "validate",
+  "finalised_at": null,
+  "finalised_by": null,
+  "headline": "0 receipts: 0 match, 0 need attention",
+  "id": "00000000-0000-4000-8000-00000000006a",
+  "month": "2026-08",
+  "open_review_items": 0,
+  "proof_status": null,
+  "read_cost": {
+    "actual_usd": "0.000",
+    "estimate_usd": "0.000",
+    "input_tokens": 0,
+    "new_pages": 0,
+    "output_tokens": 0
+  },
+  "row_counts": {
+    "ERP": {
+      "DUPLICATE": 0,
+      "MATCHED": 0,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 0,
+      "MISSING": 0,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 0,
+      "UNMATCHED_NO_KEY": 0
+    },
+    "REGISTER": {
+      "DUPLICATE": 0,
+      "MATCHED": 0,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 0,
+      "MISSING": 0,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 0,
+      "UNMATCHED_NO_KEY": 0
+    },
+    "SHEET": {
+      "DUPLICATE": 0,
+      "MATCHED": 0,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 0,
+      "MISSING": 0,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 0,
+      "UNMATCHED_NO_KEY": 0
+    }
+  },
+  "run_key": "aaa15771a4a5f9cca9d44e3c96c3f44b1b729b948117d9c80dcc46ea88e08a8b",
+  "scenario_now": "2026-10-15T08:31:42+05:00",
+  "stage_progress": {
+    "pages": [
+      {
+        "cached": true,
+        "extracted": true,
+        "page_no": 1
+      },
+      {
+        "cached": true,
+        "extracted": true,
+        "page_no": 2
+      }
+    ],
+    "stages": [
+      {
+        "at": "2026-10-15T08:31:48+05:00",
+        "duration_ms": 3000,
+        "stage": "upload",
+        "state": "OK"
+      },
+      {
+        "at": "2026-10-15T08:31:51+05:00",
+        "duration_ms": 400,
+        "stage": "validate",
+        "state": "FAILED"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "extract",
+        "state": "PENDING"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "reconcile",
+        "state": "PENDING"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "proof",
+        "state": "PENDING"
+      }
+    ]
+  },
+  "status": "FAILED",
+  "summary": null
+}

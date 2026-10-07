@@ -1,0 +1,36 @@
+{
+  "uploads": [
+    {
+      "file_id": "00000000-0000-4000-8000-000000000014",
+      "filename": "t4_register_page1.jpg",
+      "page_no": 1,
+      "signed_url": "http://storage.test/inputs/00000000-0000-4000-8000-000000000013/register/p1-d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1.jpg?exp=1792035624",
+      "source": "REGISTER",
+      "storage_path": "00000000-0000-4000-8000-000000000013/register/p1-d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1.jpg"
+    },
+    {
+      "file_id": "00000000-0000-4000-8000-000000000015",
+      "filename": "t4_register_page2.jpg",
+      "page_no": 2,
+      "signed_url": "http://storage.test/inputs/00000000-0000-4000-8000-000000000013/register/p2-563b43479011b0003605fcb1a1275ba506fffb143738b8da3ff266632bb4d2bb.jpg?exp=1792035624",
+      "source": "REGISTER",
+      "storage_path": "00000000-0000-4000-8000-000000000013/register/p2-563b43479011b0003605fcb1a1275ba506fffb143738b8da3ff266632bb4d2bb.jpg"
+    },
+    {
+      "file_id": "00000000-0000-4000-8000-000000000016",
+      "filename": "t4_erp_grn.csv",
+      "page_no": null,
+      "signed_url": "http://storage.test/inputs/00000000-0000-4000-8000-000000000013/erp.csv?exp=1792035624",
+      "source": "ERP",
+      "storage_path": "00000000-0000-4000-8000-000000000013/erp.csv"
+    },
+    {
+      "file_id": "00000000-0000-4000-8000-000000000017",
+      "filename": "t4_store_sheet.xlsx",
+      "page_no": null,
+      "signed_url": "http://storage.test/inputs/00000000-0000-4000-8000-000000000013/sheet.xlsx?exp=1792035624",
+      "source": "SHEET",
+      "storage_path": "00000000-0000-4000-8000-000000000013/sheet.xlsx"
+    }
+  ]
+}

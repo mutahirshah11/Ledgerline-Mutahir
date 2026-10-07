@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "PROOF_NOT_PASSED",
+    "details": {},
+    "message": "The completeness proof has not passed",
+    "stage": "proof"
+  }
+}
