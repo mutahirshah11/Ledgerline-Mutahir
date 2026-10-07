@@ -365,11 +365,41 @@ def _fail(step: StepLog, issued: datetime | None, at: datetime, err: ApiError) -
     return err
 
 
+def _files_changed(
+    repo: Repo, notifier: Notifier | None, moved: Run, step: StepLog, now: Now
+) -> StateConflict:
+    """EP-06 raced this confirm: the run's files are not the set just confirmed (added or
+    removed between the list and the move to `UPLOADED`; none can change after it, 0002
+    triggers). The run key and checks no longer hold: `FAILED` at `upload`, one ops alert,
+    409; the run must be created again."""
+    message = "The run's files changed while they were confirmed; create the run again"
+    step.write(RunEventStatus.FAILED, {"error": ErrorCode.RUN_STATE_CONFLICT.value})
+    failed = repo.transition_run(
+        moved.id,
+        RunStatus.FAILED,
+        expected={RunStatus.UPLOADED},
+        failed_stage=Stage.UPLOAD,
+        error_message=message,
+    )
+    if notifier is not None:
+        err = ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, message, Stage.UPLOAD)
+        stage_failed_alert(repo, notifier, failed, Stage.UPLOAD, err, now=now)
+    return StateConflict(failed)
+
+
 def confirm_uploads(
-    repo: Repo, blobs: BlobStore, run: Run, user: AllowedUser, *, now: Now = clock.now
+    repo: Repo,
+    blobs: BlobStore,
+    run: Run,
+    user: AllowedUser,
+    *,
+    notifier: Notifier | None = None,
+    now: Now = clock.now,
 ) -> ConfirmResult:
     """EP-07 (F-01.R4 to R7). Past `CREATED` it returns the run as is without writes; a
-    `FINALISED` run is 409. Audit `RUN_CREATED` and `FILE_UPLOADED` × n only on the transition."""
+    `FINALISED` run is 409. Audit `RUN_CREATED` and `FILE_UPLOADED` × n only on the transition.
+    After the transition the run's files are listed again: a set changed by a concurrent EP-06
+    fails the run at `upload` (`_files_changed`; the route always passes `notifier`)."""
     if run.status is RunStatus.FINALISED:
         raise StateConflict(run)
     if run.status is not RunStatus.CREATED:
@@ -444,6 +474,11 @@ def confirm_uploads(
             raise
         new, known = _pages(repo, current)
         return ConfirmResult(run=current, new_pages=new, known_pages=known)
+    now_files = repo.list_source_files(run.id)
+    if {f.id for f in now_files} != {f.id for f in confirmed} or any(
+        f.confirmed_at is None for f in now_files
+    ):
+        raise _files_changed(repo, notifier, moved, step, now)
     new, known = _pages(repo, moved)
     audit(
         repo,
