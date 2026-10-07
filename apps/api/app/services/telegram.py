@@ -28,6 +28,7 @@ from app.domain.enums import (
     Fault,
     NotificationStatus,
     Outcome,
+    RunEventStatus,
     Stage,
 )
 from app.domain.ids import summary_key
@@ -266,6 +267,17 @@ STALE_AFTER = timedelta(minutes=2)
 STALE_GROUP = "stale"
 """`ALERT:{run_id}:notify:stale`: the one ops alert for a stale summary (research R12)."""
 _MATCH = (Outcome.MATCHED, Outcome.MATCHED_AFTER_CONVERSION)
+ITEM_MAX = 200
+ALSO_MAX = 600
+"""C2 caps (contracts/telegram-message.md "Caps"): a numbered item's text and the whole Also
+line end in "…" past these lengths, so 8 items of any length still fit F-10.R8."""
+_NEWLINE = re.compile(r"\r\n|[\r\n]")
+
+
+def _one_line(text: str, limit: int) -> str:
+    """Newlines become spaces (a note can hold them); over `limit` it is cut to end in "…"."""
+    flat = _NEWLINE.sub(" ", text)
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
 class MessageTooLong(Exception):
@@ -292,8 +304,8 @@ class SummaryMessage:
     link: str
 
     def render(self) -> str:
-        """The contracts/telegram-message.md layout; MessageTooLong over 20 lines or at or
-        over 4,096 characters."""
+        """The contracts/telegram-message.md layout; MessageTooLong over 20 lines (newlines
+        counted) or at or over 4,096 characters."""
         lines = [self.headline, ""]
         for section in self.sections:
             lines += [section.title, *(f"{n}. {text}" for n, text in section.items), ""]
@@ -305,15 +317,17 @@ class SummaryMessage:
             lines.append(self.also)
         lines += [self.proof_line, self.link]
         text = "\n".join(lines)
-        if len(lines) > MAX_LINES or len(text) >= MAX_CHARS:
-            raise MessageTooLong(f"{len(lines)} lines, {len(text)} characters")
+        count = text.count("\n") + 1
+        if count > MAX_LINES or len(text) >= MAX_CHARS:
+            raise MessageTooLong(f"{count} lines, {len(text)} characters")
         return text
 
 
 def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> SummaryMessage:
     """The summary from the exception list only (F-09.R1, F-10.R8, C4): categories 1 to 3
     numbered (at most 8, then `+N more`), categories 4 and 5 in the "Also:" line, the proof
-    line from proof C2 and the link to the run overview (SCR-04)."""
+    line from proof C2 and the link to the run overview (SCR-04). Item texts and the Also
+    line are one line each, capped at `ITEM_MAX` / `ALSO_MAX` (C2)."""
     groups = sum(n for o, n in view.counts.items() if o not in ROW_ONLY_OUTCOMES)
     matched = sum(view.counts.get(o, 0) for o in _MATCH)
     headline = (
@@ -326,13 +340,14 @@ def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> Sum
         title = SECTION_TITLES[item.category]
         if not sections or sections[-1].title != title:
             sections.append(MessageSection(title=title, items=[]))
-        sections[-1].items.append((number, item.text))
+        sections[-1].items.append((number, _one_line(item.text, ITEM_MAX)))
+    also = report.also_line(view.exceptions)
     c2 = proof.checks.C2
     return SummaryMessage(
         headline=headline,
         sections=sections,
         more=max(0, len(numbered) - NUMBERED_MAX),
-        also=report.also_line(view.exceptions),
+        also=None if also is None else _one_line(also, ALSO_MAX),
         proof_line=f"Proof: {c2.rows - len(c2.unplaced)} of {c2.rows} rows placed once.",
         link=f"Report: {app_base_url.rstrip('/')}/runs/{view.id}",
     )
@@ -455,6 +470,36 @@ def _deliver(
     return n
 
 
+def summary_not_built(
+    repo: Repo,
+    notifier: Notifier,
+    run: Run,
+    notification: Notification,
+    exc: Exception,
+    *,
+    settings: Settings | None = None,
+    now: Callable[[], datetime] = clock.now,
+) -> Notification:
+    """C2: the summary text of a resend could not be built or rendered. Nothing is sent: the
+    row (`PENDING`/`FAILED`) becomes `FAILED` with `SUMMARY_FAILED` and one ops alert, as a
+    failed send would; run event `notify` FAILED. A lost CAS is 409 (I3)."""
+    from app.services.alerts import error_parts
+
+    settings = settings or get_settings()
+    code, reason = error_parts(exc)
+    detail = {"notification_id": str(notification.id), "error": f"{code}: {reason}"}
+    StepLog(repo, run.id, Stage.NOTIFY, now).write(RunEventStatus.FAILED, detail)
+    expected = {NotificationStatus.PENDING, NotificationStatus.FAILED}
+    try:
+        return _summary_failed(
+            repo, notifier, run, notification.id, exc, settings, now, expected, notification.status
+        )
+    except StateConflict as conflict:
+        raise ApiError(
+            ErrorCode.RUN_STATE_CONFLICT, 409, "The summary send is in progress", Stage.NOTIFY
+        ) from conflict
+
+
 def _summary_failed(
     repo: Repo,
     notifier: Notifier,
@@ -463,6 +508,8 @@ def _summary_failed(
     exc: Exception,
     settings: Settings,
     now: Callable[[], datetime],
+    expected: set[NotificationStatus] | None = None,
+    before: NotificationStatus = NotificationStatus.SENDING,
 ) -> Notification:
     """`FAILED` + `last_error` (code and token-free reason), audit `SUMMARY_FAILED`, one ops
     alert (F-10.R6, FM-11, FR-035). The controller is never told about failures."""
@@ -472,7 +519,7 @@ def _summary_failed(
     at = now()
     n = repo.update_notification(
         notification_id,
-        expected={NotificationStatus.SENDING},
+        expected=expected or {NotificationStatus.SENDING},
         status=NotificationStatus.FAILED,
         last_error=f"{code}: {reason}",
         updated_at=at,
@@ -484,7 +531,7 @@ def _summary_failed(
         "notification",
         str(n.id),
         run_id=run.id,
-        before={"status": NotificationStatus.SENDING.value},
+        before={"status": before.value},
         after={"status": n.status.value, "last_error": n.last_error},
         channel=AuditChannel.TELEGRAM,
         now=lambda: at,

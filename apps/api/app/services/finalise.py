@@ -44,6 +44,7 @@ from app.domain.models import (
     FinaliseResponse,
     Notification,
     PageProgress,
+    Proof,
     ReportLinks,
     Run,
     RunEvent,
@@ -265,7 +266,9 @@ def finalise(
     `AWAITING_REVIEW`/`READY` (freeze: one instant, report files, `FINALISED`, `RUN_FINALISED`)
     or `FINALISED` (a resend), else 409. Then the `SUMMARY:{run_key}` row by state: `SENT` →
     nothing sent; `SENDING` → 409 (stale: "check Telegram by hand"); `PENDING`/`FAILED` → one
-    send pass. A Telegram failure is the 200 body's `FAILED` notification, never an error."""
+    send pass. A Telegram failure is the 200 body's `FAILED` notification, never an error. C2:
+    the summary text is built before the run freezes (a failure there is FM-10); on a resend
+    it is rebuilt, and a failure there is a `FAILED` notification too."""
     settings = settings or get_settings()
     if request.confirm is not True:
         raise ConfirmRequired()
@@ -278,8 +281,9 @@ def finalise(
             ErrorCode.PROOF_NOT_PASSED, 409, "The completeness proof has not passed", Stage.PROOF
         )
     run = repo.get_run(run_id)
+    text: str | None = None
     if run.status in FINALISABLE:
-        run = _freeze(repo, store, notifier, run, actor, channel, settings, now)
+        run, text = _freeze(repo, store, notifier, run, actor, channel, proof, settings, now)
     elif run.status is not RunStatus.FINALISED:
         raise StateConflict(run)
     n = _summary_row(repo, run, now)
@@ -291,9 +295,12 @@ def finalise(
         details = {"status": run.status.value, "summary_status": n.status.value}
         raise ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, message, Stage.NOTIFY, details)
     html_path, _ = report_paths(run.id)
-    if n.status is not NotificationStatus.SENT:
-        view = load_run_view(repo, run.id)
-        text = telegram.build_summary_message(view, settings.APP_BASE_URL, proof).render()
+    if n.status is not NotificationStatus.SENT and text is None:
+        try:
+            text = summary_text(repo, run.id, proof, settings)
+        except Exception as exc:
+            n = telegram.summary_not_built(repo, notifier, run, n, exc, settings=settings, now=now)
+    if n.status is not NotificationStatus.SENT and text is not None:
         html = store.get(REPORTS_BUCKET, html_path)
         try:
             n = telegram.send_summary(
@@ -307,6 +314,12 @@ def finalise(
     return FinaliseResponse(run=load_run_view(repo, run.id), report_url=report_url, notification=n)
 
 
+def summary_text(repo: Repo, run_id: UUID, proof: Proof, settings: Settings) -> str:
+    """The rendered summary message of the run as it stands (contracts/telegram-message.md)."""
+    view = load_run_view(repo, run_id)
+    return telegram.build_summary_message(view, settings.APP_BASE_URL, proof).render()
+
+
 def _freeze(
     repo: Repo,
     store: BlobStore,
@@ -314,17 +327,20 @@ def _freeze(
     run: Run,
     actor: AllowedUser,
     channel: AuditChannel,
+    proof: Proof,
     settings: Settings,
     now: Callable[[], datetime],
-) -> Run:
-    """F-10.R2, R3: one instant for the report and the run; report files first. A report
-    failure (FM-10) leaves the run unchanged, writes `finalise FAILED` and alerts ops; a
-    StateConflict (a concurrent finalise) is only the 409."""
+) -> tuple[Run, str]:
+    """F-10.R2, R3: one instant for the report and the run; the summary text (C2), then the
+    report files, then `FINALISED`. A text or report failure (FM-10) leaves the run unchanged,
+    writes `finalise FAILED` and alerts ops; a StateConflict (a concurrent finalise) is only
+    the 409. Returns the frozen run and the summary text."""
     at = now()
     open_items = open_review_count(repo, run.id)
     try:
         with stage_step(repo, run.id, Stage.FINALISE, now=now):
             try:
+                text = summary_text(repo, run.id, proof, settings)
                 paths = write_report_files(repo, store, run.id, at, actor.email)
             except StateConflict:
                 raise
@@ -366,7 +382,7 @@ def _freeze(
         channel=channel,
         now=lambda: at,
     )
-    return frozen
+    return frozen, text
 
 
 def _summary_row(repo: Repo, run: Run, now: Callable[[], datetime]) -> Notification:

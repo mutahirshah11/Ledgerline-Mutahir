@@ -850,3 +850,120 @@ def test_F10_R4_racing_send_passes_one_delivery(pack_run: PackRun) -> None:
     assert notifier.second.stage is Stage.NOTIFY
     assert notifier.texts(CONTROLLER_CHAT) == ["text"]
     assert len(notifier.documents) == 1
+
+
+# --- C2: the message always fits; it is built before the run freezes --------------------
+
+LONG_NOTE = ("Stamp half torn.\nThe clerk wrote over it twice; " * 20)[:500]
+
+
+def test_F10_R8_caps_keep_any_valid_run_finalisable(pack_run: PackRun) -> None:
+    """C2 (contracts/telegram-message.md "Caps"): items over 200 characters end in "…", the
+    Also line stops at 600, newlines inside texts become spaces; 8 such items still fit."""
+    view = load_run_view(pack_run.repo, pack_run.run_id)
+    items = [
+        e.model_copy(update={"text": f"{4400 + i} qty could not be determined: {LONG_NOTE}"})
+        for i, e in enumerate(_synthetic(8))
+    ]
+    also = [
+        e.model_copy(update={"text": f"GRN {4500 + i} missing\neverywhere " + "x" * 100})
+        for i, e in enumerate(_synthetic(1) * 10)
+    ]
+    also = [e.model_copy(update={"category": 4, "kind": "SEQUENCE_GAP"}) for e in also]
+    view = view.model_copy(update={"exceptions": items + also})
+    message = telegram.build_summary_message(view, "https://x.example", _proof(pack_run))
+    text = message.render()
+    lines = text.split("\n")
+    assert len(lines) <= 20 and len(text) < 4096
+    numbered = [t for s in message.sections for _, t in s.items]
+    assert len(numbered) == 8
+    assert all(len(t) == 200 and t.endswith("…") and "\n" not in t for t in numbered)
+    assert numbered[0].startswith("4400 qty could not be determined: Stamp half torn. The clerk")
+    assert message.also is not None and len(message.also) == 600 and message.also.endswith("…")
+    assert "\n" not in message.also
+
+
+def test_F10_R8_render_counts_real_lines() -> None:
+    """A newline inside a part is a line too (F-10.R8: at most 20 lines)."""
+    message = telegram.SummaryMessage(
+        headline="h\n" * 19,
+        sections=[],
+        more=0,
+        also=None,
+        proof_line="Proof: 1 of 1 rows placed once.",
+        link="Report: l",
+    )
+    with pytest.raises(telegram.MessageTooLong):
+        message.render()
+
+
+def test_F10_R8_long_notes_finalise_and_send(
+    pack_run: PackRun, api_client_as: Client, fake_notifier: FakeNotifier
+) -> None:
+    """Two CANNOT_DETERMINE decisions with 500-character, multi-line notes (the API maximum)."""
+    client = api_client_as("controller")
+    for item in pack_run.repo.list_review_items(pack_run.run_id):
+        if item.item_key.startswith("CELL:"):
+            body = {"action": "CANNOT_DETERMINE", "note": LONG_NOTE}
+            resp = client.post(f"{API}/review-items/{item.id}/resolve", json=body)
+            assert resp.status_code == 200, resp.text
+    assert _ok(_finalise(client, pack_run))["notification"]["status"] == "SENT"
+    (text,) = fake_notifier.texts(CONTROLLER_CHAT)
+    assert len(text.split("\n")) <= 20 and len(text) < 4096
+    assert "could not be determined: Stamp half torn. The clerk" in text
+
+
+def test_F10_FM10_message_build_failure_leaves_run_unchanged(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C2: the summary text is built and rendered before the run freezes; a failure there is
+    the FM-10 path: run and storage unchanged, finalise FAILED, one ops alert."""
+
+    def broken(*args: Any, **kwargs: Any) -> telegram.SummaryMessage:
+        raise telegram.MessageTooLong("21 lines")
+
+    monkeypatch.setattr(telegram, "build_summary_message", broken)
+    before = pack_run.repo.get_run(pack_run.run_id)
+    resp = _finalise(api_client_as("controller"), pack_run)
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["error"]["stage"] == "finalise"
+    assert pack_run.repo.get_run(pack_run.run_id) == before
+    for path in report_paths(pack_run.run_id):
+        assert not pack_run.blobs.exists(REPORTS_BUCKET, path)
+    assert _summaries(pack_run) == []
+    assert fake_notifier.texts(CONTROLLER_CHAT) == []
+    assert len(fake_notifier.texts(OPS_CHAT)) == 1
+    assert _events(pack_run, Stage.FINALISE) == [RunEventStatus.STARTED, RunEventStatus.FAILED]
+
+
+def test_F10_R6_resend_build_failure_is_failed_not_500(
+    faults_on: None,
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+    move_clock: Callable[[datetime], None],
+    frozen_clock: datetime,
+) -> None:
+    """C2: on a resend the text is rebuilt; if that fails the row is FAILED with
+    SUMMARY_FAILED and an ops alert, and the call is still a 200."""
+    client = api_client_as("controller")
+    assert _ok(_finalise(client, pack_run, fault="TELEGRAM_DOWN"))["notification"]["status"] == (
+        "FAILED"
+    )
+
+    def broken(*args: Any, **kwargs: Any) -> telegram.SummaryMessage:
+        raise telegram.MessageTooLong("21 lines")
+
+    monkeypatch.setattr(telegram, "build_summary_message", broken)
+    move_clock(frozen_clock + timedelta(minutes=1))
+    body = _ok(_finalise(client, pack_run))
+    assert body["notification"]["status"] == "FAILED"
+    assert "MessageTooLong" in body["notification"]["last_error"]
+    assert len(_audits(pack_run, AuditAction.SUMMARY_FAILED)) == 2
+    assert fake_notifier.texts(CONTROLLER_CHAT) == []
+    assert len(fake_notifier.texts(OPS_CHAT)) == 1  # the TELEGRAM_DOWN alert went nowhere
+    assert len(_alerts(pack_run)) == 2
