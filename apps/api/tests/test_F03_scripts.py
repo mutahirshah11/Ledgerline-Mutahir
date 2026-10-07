@@ -12,6 +12,7 @@ from decimal import Decimal
 from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import openai
 import pytest
@@ -37,8 +38,9 @@ from scripts.eval_extraction import (
     main,
     parse_pages,
 )
+from scripts.seed_cache import page_image
 from tests.fakes.model_clients import ScriptedModelClient
-from tests.support.extracted import ground_truth_read, page_image
+from tests.support.extracted import ground_truth_read
 from tests.support.pack import PAGES
 
 SHA = "a" * 64
@@ -406,6 +408,10 @@ def _seed_settings() -> Settings:
 
 def _seed_client(ground_truth_dir: Path) -> ScriptedModelClient:
     """Answers pages 1 then 2 for each variant with the ground truth (pages read in order)."""
+    return ScriptedModelClient(_seed_script(ground_truth_dir))
+
+
+def _seed_script(ground_truth_dir: Path) -> dict[ReadVariant, list[RawRead]]:
     answers = [
         RawRead(
             payload=ground_truth_read(ground_truth_dir, p).model_dump(mode="json"),
@@ -415,7 +421,7 @@ def _seed_client(ground_truth_dir: Path) -> ScriptedModelClient:
         )
         for p in PAGES
     ]
-    return ScriptedModelClient({v: list(answers) for v in ReadVariant})
+    return {v: list(answers) for v in ReadVariant}
 
 
 def _seed_names(pack_dir: Path) -> set[str]:
@@ -511,7 +517,7 @@ def test_F03_seed_cache_capture_cli_uses_injected_client(
 ) -> None:
     """`--capture` with a client factory (tests) writes the 4 files and exits 0."""
     code = seed_cache.main(
-        ["--capture"],
+        ["--capture", "--allow-override"],
         cache_dir=tmp_path,
         pack_dir=pack_dir,
         settings=_seed_settings(),
@@ -532,7 +538,7 @@ def test_F03_seed_cache_capture_cli_refuses_overwrite_exit_2(
     _seed_capture(tmp_path, pack_dir, ground_truth_dir)
     client = _seed_client(ground_truth_dir)
     code = seed_cache.main(
-        ["--capture"],
+        ["--capture", "--allow-override"],
         cache_dir=tmp_path,
         pack_dir=pack_dir,
         settings=_seed_settings(),
@@ -599,7 +605,7 @@ def test_F03_seed_cache_capture_error_masks_key(
     """A failed read: exit 2, one line, anything shaped like an API key masked, nothing written."""
     client = ScriptedModelClient({v: [ValueError("bad key sk-proj-ABC_123")] for v in ReadVariant})
     code = seed_cache.main(
-        ["--capture"],
+        ["--capture", "--allow-override"],
         cache_dir=tmp_path,
         pack_dir=pack_dir,
         settings=_seed_settings(),
@@ -611,3 +617,102 @@ def test_F03_seed_cache_capture_error_masks_key(
     assert "sk-***" in err
     assert len(err.strip().splitlines()) == 1
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["EXTRACT_MODEL", "PROMPT_VERSION"])
+def test_F03_seed_cache_capture_refuses_settings_override(
+    name: str,
+    tmp_path: Path,
+    pack_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An `EXTRACT_MODEL` or `PROMPT_VERSION` from env/.env that differs from the committed
+    default: `--capture` exits 2 with one line pointing at app/core/config.py, before building a
+    client, and writes nothing (T034: the committed reads follow the committed defaults)."""
+    monkeypatch.setenv(name, "override-1")
+    built: list[Settings] = []
+
+    def factory(settings: Settings) -> ScriptedModelClient:
+        built.append(settings)
+        return ScriptedModelClient()
+
+    code = seed_cache.main(
+        ["--capture"], cache_dir=tmp_path, pack_dir=pack_dir, client_factory=factory
+    )
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert len(err.strip().splitlines()) == 1
+    assert err.startswith("seed_cache: ")
+    assert "override-1" in err and "app/core/config.py" in err and "--allow-override" in err
+    assert built == []
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_F03_seed_cache_capture_allow_override(
+    tmp_path: Path,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--allow-override` captures under the overriding model and prompt version."""
+    monkeypatch.setenv("EXTRACT_MODEL", SEED_MODEL)
+    monkeypatch.setenv("PROMPT_VERSION", SEED_PROMPT)
+    code = seed_cache.main(
+        ["--capture", "--allow-override"],
+        cache_dir=tmp_path,
+        pack_dir=pack_dir,
+        client_factory=lambda _settings: _seed_client(ground_truth_dir),
+    )
+    assert code == 0
+    assert {p.name for p in tmp_path.iterdir()} == _seed_names(pack_dir)
+
+
+class _RacingClient(ScriptedModelClient):
+    """Answers like `_seed_client`, but on its first call another writer creates `race`
+    (after capture's existence check, before its writes)."""
+
+    def __init__(self, ground_truth_dir: Path, race: Path) -> None:
+        super().__init__(_seed_script(ground_truth_dir))
+        self._race = race
+
+    def read_page(self, **kwargs: Any) -> RawRead:
+        if not self._race.exists():
+            self._race.write_text("other writer", encoding="utf-8")
+        return super().read_page(**kwargs)
+
+
+def test_F03_seed_cache_capture_write_is_all_or_nothing(
+    tmp_path: Path,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A write failing part-way (here: another writer created the last file meanwhile) removes
+    the files this run already wrote, keeps the other writer's file and exits 2."""
+    # the file capture writes last: page 2, variant B
+    sha2 = sha256(page_image(pack_dir, 2)).hexdigest()
+    last = tmp_path / cache_file_name(sha2, ReadVariant.B, SEED_MODEL, SEED_PROMPT)
+    client = _RacingClient(ground_truth_dir, last)
+
+    with pytest.raises(FileExistsError):
+        seed_cache.capture(
+            client=client, settings=_seed_settings(), cache_dir=tmp_path, pack_dir=pack_dir
+        )
+    assert [p.name for p in tmp_path.iterdir()] == [last.name]
+    assert last.read_text(encoding="utf-8") == "other writer"
+
+    last.unlink()
+    code = seed_cache.main(
+        ["--capture", "--allow-override"],
+        cache_dir=tmp_path,
+        pack_dir=pack_dir,
+        settings=_seed_settings(),
+        client_factory=lambda _settings: _RacingClient(ground_truth_dir, last),
+    )
+    assert code == 2
+    assert "FileExistsError" in capsys.readouterr().err
+    assert [p.name for p in tmp_path.iterdir()] == [last.name]

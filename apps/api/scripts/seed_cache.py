@@ -10,15 +10,19 @@ Usage (from apps/api)::
 through `extract_page` (validation, retries, merge and readability checks) into a scratch
 MemoryRepo, then writes the 4 stored `Extraction` records to `supabase/seed/extractions/` as
 `{sha}.{variant}.{model}.{prompt_version}.json` (`cache_file_name`). It refuses, before any model
-call, when a file for any of the 4 keys already exists, and writes nothing unless both pages were
-read (no partial capture). The files are never edited by hand (Clarification 4).
+call, when a file for any of the 4 keys already exists, and when `EXTRACT_MODEL`/`PROMPT_VERSION`
+(env/.env) differ from the committed defaults in `Settings` unless `--allow-override` is given
+(T034: bump the default in app/core/config.py instead). It writes nothing unless both pages were
+read, and a write failing part-way removes the files this run wrote (all 4 or none). The files
+are never edited by hand (Clarification 4).
 
 `--load` loads every committed read into the configured repo with `load_cached_extractions`
 (idempotent). Until Phase 3 that repo is a MemoryRepo, so `--load` only validates the files and
 reports the count; Phase 3 passes a SupabaseRepo factory.
 
-Exit codes: 0 success; 2 on an error (no key, an existing file, a failed read, a bad cache
-file), with one `seed_cache: <message>` line on stderr and no traceback. Never prints the key.
+Exit codes: 0 success; 2 on an error (a settings override, no key, an existing file, a failed
+read or write, a bad cache file), with one `seed_cache: <message>` line on stderr and no
+traceback. Never prints the key.
 """
 
 from __future__ import annotations
@@ -57,7 +61,9 @@ ClientFactory = Callable[[Settings], ModelClient]
 RepoFactory = Callable[[], Repo]
 
 
-def _image(pack_dir: Path, page_no: int) -> bytes:
+def page_image(pack_dir: Path, page_no: int) -> bytes:
+    """The bytes of pack register page `page_no` (shared with the tests, which may import
+    scripts; scripts never import tests)."""
     return (pack_dir / f"t4_register_page{page_no}.jpg").read_bytes()
 
 
@@ -98,7 +104,7 @@ def capture(
         FileExistsError: a file for one of the 4 keys exists (checked before any call).
         UpstreamFailed / PageUnreadable / ValueError: from `extract_page`; nothing is written.
     """
-    images = {p: _image(pack_dir, p) for p in PACK_PAGES}
+    images = {p: page_image(pack_dir, p) for p in PACK_PAGES}
     shas = {p: hashlib.sha256(image).hexdigest() for p, image in images.items()}
     model, version = settings.EXTRACT_MODEL, settings.PROMPT_VERSION
     targets = {
@@ -122,13 +128,33 @@ def capture(
             settings=settings,
         )
     written: list[Path] = []
-    for (page_no, variant), path in targets.items():
-        record = repo.get_extraction(shas[page_no], variant, model, version)
-        assert record is not None, "extract_page stores every read it returns"
-        with path.open("x", encoding="utf-8", newline="\n") as fh:  # "x": never overwrite
-            fh.write(record.model_dump_json(indent=2) + "\n")
-        written.append(path)
+    try:
+        for (page_no, variant), path in targets.items():
+            record = repo.get_extraction(shas[page_no], variant, model, version)
+            assert record is not None, "extract_page stores every read it returns"
+            with path.open("x", encoding="utf-8", newline="\n") as fh:  # "x": never overwrite
+                written.append(path)  # created by this run: removed if a later write fails
+                fh.write(record.model_dump_json(indent=2) + "\n")
+    except BaseException:
+        for path in written:  # all 4 files or none (no partial capture)
+            path.unlink(missing_ok=True)
+        raise
     return written
+
+
+def settings_override(settings: Settings) -> str | None:
+    """Why `settings` would capture under a model or prompt version other than the committed
+    defaults in `Settings` (an env/.env override), or None when they match (T034)."""
+    names = ("EXTRACT_MODEL", "PROMPT_VERSION")
+    defaults = tuple(str(Settings.model_fields[name].default) for name in names)
+    effective = tuple(str(getattr(settings, name)) for name in names)
+    if effective == defaults:
+        return None
+    return (
+        f"EXTRACT_MODEL/PROMPT_VERSION {'/'.join(effective)} differ from the committed defaults "
+        f"{'/'.join(defaults)}; bump the default in app/core/config.py instead "
+        "(or pass --allow-override)"
+    )
 
 
 def _default_client(settings: Settings) -> ModelClient:
@@ -146,6 +172,11 @@ def _parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--capture", action="store_true", help="live-read the pack pages")
     mode.add_argument("--load", action="store_true", help="load the committed reads")
+    parser.add_argument(
+        "--allow-override",
+        action="store_true",
+        help="capture even when EXTRACT_MODEL/PROMPT_VERSION differ from the committed defaults",
+    )
     return parser
 
 
@@ -175,6 +206,9 @@ def main(
         return EXIT_OK
 
     cfg = get_settings() if settings is None else settings
+    override = settings_override(cfg)
+    if override is not None and not args.allow_override:
+        return _fail(override)
     if client_factory is None:
         if cfg.OPENAI_API_KEY is None:
             return _fail("OPENAI_API_KEY is not set (apps/api/.env); --capture needs the model")
