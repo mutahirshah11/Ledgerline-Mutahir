@@ -169,6 +169,16 @@ export function readCostActualLine(actualUsd: string | null): string {
   return actualUsd === null ? READ_COST_UNAVAILABLE : `Read cost US$${actualUsd}`;
 }
 
+// --- month default (SCR-03-AC1, FR-008) ----------------------------------------------------------
+
+/** "YYYY-MM" of the month before an ISO timestamp's own calendar month (EP-01 `scenario_now`,
+ * read in the offset it is written in; never the system clock). */
+export function previousMonth(iso: string): string {
+  const year = Number(iso.slice(0, 4));
+  const month = Number(iso.slice(5, 7));
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
 // --- EP-19 (research R9) --------------------------------------------------------------------------
 
 export type EventLike = { stage: Stage; status: string; detail: Record<string, unknown> };

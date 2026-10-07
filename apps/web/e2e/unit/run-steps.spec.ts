@@ -4,6 +4,7 @@ import {
   initialSteps,
   latestRetryAttempt,
   planSteps,
+  previousMonth,
   readCostActualLine,
   readCostEstimateLine,
   stepLines,
@@ -200,4 +201,10 @@ test("EP-19: latest event for the step; RETRY gives its attempt, anything else n
   expect(latestRetryAttempt(events, "page:1")).toBeNull();
   expect(latestRetryAttempt(events, "reconcile")).toBeNull();
   expect(latestRetryAttempt([ev("reconcile", "RETRY", { attempt: 3 })], "reconcile")).toBe(3);
+});
+
+test("previousMonth: the month before the scenario clock (EP-01 scenario_now, its own offset)", () => {
+  expect(previousMonth("2026-10-15T08:30:00+05:00")).toBe("2026-09");
+  expect(previousMonth("2026-01-01T00:10:00+05:00")).toBe("2025-12");
+  expect(previousMonth("2026-12-31T23:59:00Z")).toBe("2026-11");
 });
