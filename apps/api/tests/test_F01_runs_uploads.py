@@ -449,3 +449,65 @@ def test_F01_EP05_unknown_run_404(client: TestClient, tokens: dict[str, dict[str
     resp = client.get(f"{API}/runs/{uuid4()}", headers=tokens["controller"])
     assert resp.status_code == 404
     assert _error(resp)["code"] == "NOT_FOUND"
+
+
+def _stages(client: TestClient, headers: dict[str, str], run_id: UUID) -> dict[str, Any]:
+    body = client.get(f"{API}/runs/{run_id}", headers=headers).json()
+    return {s["stage"]: s for s in body["stage_progress"]["stages"]}
+
+
+def test_F01_EP05_stage_from_latest_event_on_ties(
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    memory_repo: MemoryRepo,
+    frozen_clock: datetime,
+) -> None:
+    """Frozen clock: FAILED, STARTED, OK at the same `at`; the last written (OK) wins."""
+    run_id = UUID(_create(client, tokens["controller"]))
+    for status in (RunEventStatus.FAILED, RunEventStatus.STARTED, RunEventStatus.OK):
+        memory_repo.add_run_event(
+            make_event(run_id, stage=Stage.VALIDATE, status=status, at=frozen_clock)
+        )
+    assert _stages(client, tokens["ops"], run_id)["validate"]["state"] == "OK"
+
+
+def test_F01_EP05_cached_from_extract_event_under_frozen_clock(
+    pack_upload: Upload,
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    memory_repo: MemoryRepo,
+    pack_declared: list[dict[str, Any]],
+    frozen_clock: datetime,
+) -> None:
+    """`cached` comes from the run's extract OK event for the page (EP-09 detail), even when
+    the reads carry the same frozen `created_at` as the run."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    run_id = UUID(pack_upload()["run"]["id"])
+    for page_no, cached in ((1, True), (2, False)):
+        for variant in ReadVariant:
+            memory_repo.put_extraction(
+                make_extraction(
+                    page_sha256=pack_declared[page_no - 1]["sha256"],
+                    read_variant=variant,
+                    model=settings.EXTRACT_MODEL,
+                    prompt_version=settings.PROMPT_VERSION,
+                    created_at=frozen_clock,
+                )
+            )
+        memory_repo.add_run_event(
+            make_event(
+                run_id,
+                stage=Stage.EXTRACT,
+                status=RunEventStatus.OK,
+                at=frozen_clock,
+                detail={"page_no": page_no, "cached": cached},
+            )
+        )
+    body = client.get(f"{API}/runs/{run_id}", headers=tokens["controller"]).json()
+    assert body["stage_progress"]["pages"] == [
+        {"page_no": 1, "extracted": True, "cached": True},
+        {"page_no": 2, "extracted": True, "cached": False},
+    ]
+    assert {s["stage"]: s["state"] for s in body["stage_progress"]["stages"]}["extract"] == "OK"

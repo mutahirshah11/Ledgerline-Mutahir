@@ -124,37 +124,53 @@ _STATE: dict[RunEventStatus, StageState] = {
     RunEventStatus.OK: "OK",
     RunEventStatus.FAILED: "FAILED",
 }
-_RANK = {RunEventStatus.STARTED: 0, RunEventStatus.RETRY: 1, RunEventStatus.OK: 2}
-"""Tie-break for events with the same `at` (frozen clock): the step's end wins."""
 
 
-def _pages(repo: Repo, run: Run) -> list[PageProgress]:
-    """`extracted`: both reads under the current model and prompt (data-model.md §3);
-    `cached`: both reads existed before the run was created (no model call for this run)."""
+def _extract_cached(events: list[RunEvent]) -> dict[int, bool]:
+    """`detail.cached` of the newest extract OK event per page (EP-09 writes page_no, cached)."""
+    found: dict[int, bool] = {}
+    for e in events:  # newest first
+        page_no, cached = e.detail.get("page_no"), e.detail.get("cached")
+        if e.stage is Stage.EXTRACT and e.status is RunEventStatus.OK and page_no not in found:
+            if isinstance(page_no, int) and isinstance(cached, bool):
+                found[page_no] = cached
+    return found
+
+
+def _pages(repo: Repo, run: Run, events: list[RunEvent]) -> list[PageProgress]:
+    """data-model.md §2 `StageProgressView.pages`. `extracted`: both reads under the current model
+    and prompt (§3). `cached`: both reads existed before this run's extract stage first touched
+    the page, read from the run's extract OK event; without one, both reads are older than the
+    run itself."""
     settings = get_settings()
+    from_events = _extract_cached(events)
     out: list[PageProgress] = []
     files = repo.list_source_files(run.id, Source.REGISTER)
     for f in sorted(files, key=lambda f: f.page_no or 0):
+        page_no = f.page_no or 0
         reads = [
             repo.get_extraction(f.sha256, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
             for v in ReadVariant
         ]
         extracted = all(r is not None for r in reads)
-        cached = extracted and all(r is not None and r.created_at < run.created_at for r in reads)
-        out.append(PageProgress(page_no=f.page_no or 0, extracted=extracted, cached=cached))
+        if page_no in from_events:
+            cached = extracted and from_events[page_no]
+        else:
+            cached = extracted and all(
+                r is not None and r.created_at < run.created_at for r in reads
+            )
+        out.append(PageProgress(page_no=page_no, extracted=extracted, cached=cached))
     return out
 
 
 def _latest(events: list[RunEvent], stage: Stage) -> RunEvent | None:
-    mine = [e for e in events if e.stage is stage]
-    if not mine:
-        return None
-    return max(mine, key=lambda e: (e.at, _RANK.get(e.status, 3)))
+    """The newest event of `stage`; `list_run_events` is newest first, ties newest insertion."""
+    return next((e for e in events if e.stage is stage), None)
 
 
 def _stage_progress(repo: Repo, run: Run) -> StageProgressView:
     events = repo.list_run_events(run.id)
-    pages = _pages(repo, run)
+    pages = _pages(repo, run, events)
     out: list[StageProgress] = []
     for stage in PROGRESS_STAGES:
         last = _latest(events, stage)

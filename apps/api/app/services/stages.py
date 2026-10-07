@@ -267,7 +267,9 @@ def _pages(repo: Repo, run: Run) -> tuple[list[int], list[int]]:
 
 
 def _issued_at(repo: Repo, run_id: UUID) -> datetime | None:
-    for event in repo.list_run_events(run_id):  # newest first
+    for event in repo.list_run_events(
+        run_id
+    ):  # newest first, ties newest insertion (same rule as EP-05)
         if event.stage is Stage.UPLOAD and event.status is RunEventStatus.STARTED:
             return event.at
     return None
