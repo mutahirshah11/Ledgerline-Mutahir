@@ -311,11 +311,17 @@ export const test = base.extend<{ mockApi: MockApi }, { mockServer: void }>({
       await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
         const url = new URL(req.url());
-        const response = await route.fetch({
-          url: `${API_BASE_URL}${url.pathname}${url.search}`,
-          headers: { ...req.headers(), "x-mock-via": "browser", "x-mock-session": session },
-        });
-        await route.fulfill({ response });
+        try {
+          const response = await route.fetch({
+            url: `${API_BASE_URL}${url.pathname}${url.search}`,
+            headers: { ...req.headers(), "x-mock-via": "browser", "x-mock-session": session },
+          });
+          await route.fulfill({ response });
+        } catch (err) {
+          // A delayed reply still in flight when the test ends: the page is gone, nothing to answer.
+          if (page.isClosed() || /Test ended|Target .*closed|has been closed/i.test(String(err))) return;
+          throw err;
+        }
       });
 
       await page.route(`${SUPABASE_URL}/auth/v1/**`, async (route) => {

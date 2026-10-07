@@ -69,7 +69,7 @@ export default defineConfig({
           command: `pnpm build && pnpm exec next start -p ${PORT}`,
           url: `${APP_BASE_URL}/favicon.ico`, // public (proxy matcher skips it), unlike / which redirects to /login
           reuseExistingServer: false,
-          timeout: 180_000,
+          timeout: 600_000, // next build alone takes ~3 min while parallel agents build
           env: {
             API_BASE_URL,
             APP_BASE_URL,
