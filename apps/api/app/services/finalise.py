@@ -7,7 +7,9 @@ headline, the exception list and the summary notification (C25, FR-020). `finali
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
+from typing import NoReturn
 from uuid import UUID, uuid4
 
 from app.core import clock
@@ -40,8 +42,10 @@ from app.domain.enums import (
 from app.domain.ids import summary_key
 from app.domain.models import (
     AllowedUser,
+    CanonicalRow,
     FinaliseRequest,
     FinaliseResponse,
+    Group,
     Notification,
     PageProgress,
     Proof,
@@ -179,20 +183,26 @@ def report_paths(run_id: UUID) -> tuple[str, str]:
 
 
 def write_report_files(
-    repo: Repo, store: BlobStore, run_id: UUID, finalise_at: datetime, actor: str
+    repo: Repo,
+    store: BlobStore,
+    run_id: UUID,
+    finalise_at: datetime,
+    actor: str,
+    *,
+    adopt: bool = False,
 ) -> tuple[str, str]:
     """Write `outcomes.csv` then `report.html`, each once (F-09.R5, research R9): an existing
     file is kept, never rewritten. The report prints `finalise_at` and `actor` (the email the
     run is finalised by), so the caller passes the same instant to `transition_run` (R8); it
     is written last, so a crash after the CSV leaves it missing and the retry prints the
     instant it actually finalises with. StateConflict (the caller must not finalise) when
-    `report.html` already exists for a run that is not `FINALISED` (another finalise is under
-    way, or one crashed before its transition), or when its write loses a race: the printed
-    instant is then the other caller's."""
+    `report.html` already exists for a run that is not `FINALISED`, unless the caller `adopt`s
+    it (its meta tags matched, `_freeze`), or when its write loses a race: the printed instant
+    is then the other caller's."""
     html_path, csv_path = report_paths(run_id)
     run = repo.get_run(run_id)
     html_exists = store.exists(REPORTS_BUCKET, html_path)
-    if html_exists and run.status is not RunStatus.FINALISED:
+    if html_exists and run.status is not RunStatus.FINALISED and not adopt:
         raise StateConflict(run)
     csv_exists = store.exists(REPORTS_BUCKET, csv_path)
     if html_exists and csv_exists:
@@ -204,22 +214,34 @@ def write_report_files(
         _put_once(store, csv_path, csv_bytes, "text/csv; charset=utf-8")
     if not html_exists:
         frozen = run.model_copy(update={"finalised_at": finalise_at, "finalised_by": actor})
-        ctx = report.build_report_context(
-            frozen,
-            groups,
-            rows,
-            repo.list_flags(run_id),
-            repo.list_review_items(run_id),
-            repo.get_proof(run_id),
-            repo.list_norm_log(run_id),
-            repo.list_source_files(run_id),
-            repo.list_audit(run_id=run_id),
-            current_keys=current_item_keys(repo, run_id),
-        )
-        html = report.render_report_html(ctx)
+        html = report.render_report_html(_report_context(repo, frozen, rows, groups))
         if not _put_once(store, html_path, html, "text/html; charset=utf-8"):
             raise StateConflict(repo.get_run(run_id))
     return html_path, csv_path
+
+
+def _report_context(
+    repo: Repo, run: Run, rows: list[CanonicalRow], groups: list[Group]
+) -> report.ReportContext:
+    return report.build_report_context(
+        run,
+        groups,
+        rows,
+        repo.list_flags(run.id),
+        repo.list_review_items(run.id),
+        repo.get_proof(run.id),
+        repo.list_norm_log(run.id),
+        repo.list_source_files(run.id),
+        repo.list_audit(run_id=run.id),
+        current_keys=current_item_keys(repo, run.id),
+    )
+
+
+def report_fingerprint(repo: Repo, run_id: UUID) -> str:
+    """`report.report_fingerprint` of the run's data as it stands (research R9, I1/I2)."""
+    run = repo.get_run(run_id)
+    ctx = _report_context(repo, run, repo.list_source_rows(run_id), repo.list_groups(run_id))
+    return report.report_fingerprint(ctx)
 
 
 def _put_once(store: BlobStore, path: str, data: bytes, content_type: str) -> bool:
@@ -284,7 +306,9 @@ def finalise(
     text: str | None = None
     if run.status in FINALISABLE:
         run, text = _freeze(repo, store, notifier, run, actor, channel, proof, settings, now)
-    elif run.status is not RunStatus.FINALISED:
+    elif run.status is RunStatus.FINALISED:
+        _backfill_finalised_audit(repo, run, channel, now)
+    else:
         raise StateConflict(run)
     n = _summary_row(repo, run, now)
     if n.status is NotificationStatus.SENDING:
@@ -332,29 +356,65 @@ def _freeze(
     now: Callable[[], datetime],
 ) -> tuple[Run, str]:
     """F-10.R2, R3: one instant for the report and the run; the summary text (C2), then the
-    report files, then `FINALISED`. A text or report failure (FM-10) leaves the run unchanged,
-    writes `finalise FAILED` and alerts ops; a StateConflict (a concurrent finalise) is only
-    the 409. Returns the frozen run and the summary text."""
-    at = now()
+    report files, then `FINALISED` from the status read at the start (I2). A text or report
+    failure (FM-10) leaves the run unchanged, writes `finalise FAILED` and alerts ops; so does
+    a failed transition after the report was written. A StateConflict (a concurrent finalise
+    or decision) is only the 409. An existing report.html (an earlier finalise that never
+    transitioned, research R9) is adopted with its own instant and actor when its fingerprint
+    is the run's; otherwise 409 and one ops alert. Returns the frozen run and the text."""
+    at, by = now(), actor.email
     open_items = open_review_count(repo, run.id)
     try:
         with stage_step(repo, run.id, Stage.FINALISE, now=now):
             try:
                 text = summary_text(repo, run.id, proof, settings)
-                paths = write_report_files(repo, store, run.id, at, actor.email)
-            except StateConflict:
+                fingerprint = report_fingerprint(repo, run.id)
+                orphan = _orphan_report(store, run.id)
+                if orphan is not None:
+                    if orphan.meta is None or orphan.meta.fingerprint != fingerprint:
+                        _orphan_mismatch(repo, notifier, run, settings, now)
+                    at, by = orphan.meta.finalised_at, orphan.meta.finalised_by
+                paths = write_report_files(repo, store, run.id, at, by, adopt=orphan is not None)
+            except (StateConflict, ApiError):
                 raise
             except Exception as exc:
                 stage_failed_alert(
                     repo, notifier, run, Stage.FINALISE, exc, settings=settings, now=now
                 )
                 raise
-            frozen = repo.transition_run(
-                run.id,
-                RunStatus.FINALISED,
-                expected=set(FINALISABLE),
-                finalised_by=actor.email,
-                finalised_at=at,
+            if report_fingerprint(repo, run.id) != fingerprint:  # a decision meanwhile (I2)
+                raise StateConflict(repo.get_run(run.id))
+            try:
+                frozen = repo.transition_run(
+                    run.id,
+                    RunStatus.FINALISED,
+                    expected={run.status},
+                    finalised_by=by,
+                    finalised_at=at,
+                )
+            except (StateConflict, UniqueViolation):
+                raise
+            except Exception as exc:  # report.html is written: the next call adopts it
+                stage_failed_alert(
+                    repo, notifier, run, Stage.FINALISE, exc, settings=settings, now=now
+                )
+                raise
+            audit(
+                repo,
+                actor.email,
+                AuditAction.RUN_FINALISED,
+                "run",
+                str(run.id),
+                run_id=run.id,
+                before={"status": run.status.value, "open_review_items": open_items},
+                after={
+                    "status": frozen.status.value,
+                    "finalised_by": by,
+                    "finalised_at": at.isoformat(),
+                    "report_paths": list(paths),
+                },
+                channel=channel,
+                now=lambda: at,
             )
     except (StateConflict, UpstreamFailed, ApiError):
         raise
@@ -365,24 +425,77 @@ def _freeze(
         raise ApiError(ErrorCode.DUPLICATE_RUN, 409, message, Stage.FINALISE, details) from exc
     except Exception as exc:
         raise ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error", Stage.FINALISE) from exc
+    return frozen, text
+
+
+ORPHAN_GROUP = "orphan-report"
+"""`ALERT:{run_id}:finalise:orphan-report`: the one ops alert for a report.html left by an
+earlier finalise for different data (research R9)."""
+
+
+@dataclass(frozen=True)
+class _Orphan:
+    meta: report.ReportMeta | None
+
+
+def _orphan_report(store: BlobStore, run_id: UUID) -> _Orphan | None:
+    """The report.html of a run that is not `FINALISED`, if one exists (research R9)."""
+    html_path, _ = report_paths(run_id)
+    if not store.exists(REPORTS_BUCKET, html_path):
+        return None
+    return _Orphan(meta=report.read_report_meta(store.get(REPORTS_BUCKET, html_path)))
+
+
+def _orphan_mismatch(
+    repo: Repo, notifier: Notifier, run: Run, settings: Settings, now: Callable[[], datetime]
+) -> NoReturn:
+    """The orphan report prints other data (or has no meta tags): never frozen as this run's
+    report. One ops alert ever; the controller gets the 409."""
+    error = ApiError(
+        ErrorCode.RUN_STATE_CONFLICT,
+        409,
+        "An earlier finalise left a report for different data; ops must remove it before "
+        "this run can be finalised",
+        Stage.FINALISE,
+    )
+    stage_failed_alert(
+        repo,
+        notifier,
+        run,
+        Stage.FINALISE,
+        error,
+        settings=settings,
+        now=now,
+        attempt_group=ORPHAN_GROUP,
+    )
+    raise error
+
+
+def _backfill_finalised_audit(
+    repo: Repo, run: Run, channel: AuditChannel, now: Callable[[], datetime]
+) -> None:
+    """M4: a crash between `FINALISED` and its `RUN_FINALISED` audit is repaired by the next
+    EP-17 call; the entry says it was back-filled (`before` unknown)."""
+    if any(a.action is AuditAction.RUN_FINALISED for a in repo.list_audit(run_id=run.id)):
+        return
     audit(
         repo,
-        actor.email,
+        run.finalised_by or "system",
         AuditAction.RUN_FINALISED,
         "run",
         str(run.id),
         run_id=run.id,
-        before={"status": run.status.value, "open_review_items": open_items},
+        before=None,
         after={
-            "status": frozen.status.value,
-            "finalised_by": actor.email,
-            "finalised_at": at.isoformat(),
-            "report_paths": list(paths),
+            "status": run.status.value,
+            "finalised_by": run.finalised_by,
+            "finalised_at": None if run.finalised_at is None else run.finalised_at.isoformat(),
+            "report_paths": list(report_paths(run.id)),
+            "backfilled": True,
         },
         channel=channel,
-        now=lambda: at,
+        now=now,
     )
-    return frozen, text
 
 
 def _summary_row(repo: Repo, run: Run, now: Callable[[], datetime]) -> Notification:

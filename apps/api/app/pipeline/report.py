@@ -11,12 +11,14 @@ filled only with run data (F-09.R2). The frozen `report.html` (template
 import csv
 import dataclasses
 import datetime as dt
+import hashlib
 import io
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
+from html import unescape
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -865,10 +867,51 @@ def _environment() -> Environment:
 
 
 def render_report_html(ctx: ReportContext) -> bytes:
-    """`report.html` (contracts/frozen-files.md): self-contained UTF-8, sections 1 to 8;
+    """`report.html` (contracts/frozen-files.md): self-contained UTF-8, sections 1 to 8, and
+    in its head the finalise instant, actor and `report_fingerprint` (research R9);
     deterministic for the same context."""
+    return _render(ctx, report_fingerprint(ctx))
+
+
+_FINGERPRINT_AT = dt.datetime(2000, 1, 1, tzinfo=dt.UTC)
+
+
+def report_fingerprint(ctx: ReportContext) -> str:
+    """sha256 hex of the report as rendered with a fixed finalise instant and actor and no
+    meta tags: two contexts share it iff their reports print the same data (research R9)."""
+    blank = ctx.run.model_copy(update={"finalised_at": _FINGERPRINT_AT, "finalised_by": ""})
+    return hashlib.sha256(_render(dataclasses.replace(ctx, run=blank), "")).hexdigest()
+
+
+def _render(ctx: ReportContext, fingerprint: str) -> bytes:
     template = _environment().get_template("report.html.j2")
-    return template.render(ctx=ctx).encode("utf-8")
+    return template.render(ctx=ctx, fingerprint=fingerprint).encode("utf-8")
+
+
+@dataclass(frozen=True)
+class ReportMeta:
+    """The `ledgerline:*` meta tags of a written report.html (research R9)."""
+
+    finalised_at: dt.datetime
+    finalised_by: str
+    fingerprint: str
+
+
+_META = re.compile(r'<meta name="ledgerline:([a-z-]+)" content="([^"]*)">')
+
+
+def read_report_meta(html: bytes) -> ReportMeta | None:
+    """The meta tags of `html`'s head; None when any is missing or unreadable."""
+    head = html.split(b"</head>", 1)[0].decode("utf-8", errors="replace")
+    found = {name: unescape(value) for name, value in _META.findall(head)}
+    try:
+        at = dt.datetime.fromisoformat(found["finalised-at"])
+        by, fingerprint = found["finalised-by"], found["fingerprint"]
+    except (KeyError, ValueError):
+        return None
+    if at.tzinfo is None or not fingerprint:
+        return None
+    return ReportMeta(finalised_at=at, finalised_by=by, fingerprint=fingerprint)
 
 
 def render_outcomes_csv(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> bytes:

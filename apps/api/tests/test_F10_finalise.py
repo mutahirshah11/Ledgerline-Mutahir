@@ -26,6 +26,7 @@ from app.domain.enums import (
     ErrorCode,
     NotificationKind,
     NotificationStatus,
+    ReviewStatus,
     RunEventStatus,
     RunStatus,
     Stage,
@@ -33,6 +34,7 @@ from app.domain.enums import (
 from app.domain.ids import summary_key
 from app.domain.models import ExceptionItem, Notification, Proof, Run
 from app.pipeline import report
+from app.services import audit as audit_service
 from app.services import finalise as finalise_service
 from app.services import telegram
 from app.services.finalise import load_run_view, report_paths
@@ -602,13 +604,14 @@ def test_F10_FM10_crash_after_csv_retry_prints_its_own_instant(
 def test_F10_R2_report_exists_before_freeze_is_conflict(
     pack_run: PackRun, api_client_as: Client, fake_notifier: FakeNotifier
 ) -> None:
-    """Another finalise wrote report.html and has not yet set FINALISED: this caller must not
-    freeze the run with an instant the report does not print."""
+    """A report.html without the finalise meta tags (research R9) is never adopted: this caller
+    must not freeze the run with an instant the report does not print; ops are told once."""
     html_path, _ = report_paths(pack_run.run_id)
     pack_run.blobs.put(REPORTS_BUCKET, html_path, b"<html>other</html>", "text/html")
     _error(_finalise(api_client_as("controller"), pack_run), 409, "RUN_STATE_CONFLICT")
     assert pack_run.repo.get_run(pack_run.run_id).status is RunStatus.AWAITING_REVIEW
-    assert fake_notifier.sent == [] and _summaries(pack_run) == []
+    assert fake_notifier.texts(CONTROLLER_CHAT) == [] and _summaries(pack_run) == []
+    assert len(fake_notifier.texts(OPS_CHAT)) == 1
 
 
 def test_F10_R7_overview_read_alerts_stale_summary_once(
@@ -967,3 +970,195 @@ def test_F10_R6_resend_build_failure_is_failed_not_500(
     assert fake_notifier.texts(CONTROLLER_CHAT) == []
     assert len(fake_notifier.texts(OPS_CHAT)) == 1  # the TELEGRAM_DOWN alert went nowhere
     assert len(_alerts(pack_run)) == 2
+
+
+# --- I1, I2, M4: an interrupted finalise; a decision racing a finalise -------------------
+
+
+def _html(pack: PackRun) -> bytes:
+    return pack.blobs.get(REPORTS_BUCKET, report_paths(pack.run_id)[0])
+
+
+def _transition_fails_once(pack: PackRun, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The process dies between the report.html write and `FINALISED` (I1)."""
+    transition = pack.repo.transition_run
+    failed: list[bool] = []
+
+    def flaky(run_id: Any, to: RunStatus, **kwargs: Any) -> Run:
+        if to is RunStatus.FINALISED and not failed:
+            failed.append(True)
+            raise OSError("connection reset")
+        return transition(run_id, to, **kwargs)
+
+    monkeypatch.setattr(pack.repo, "transition_run", flaky)
+
+
+def test_F10_R3_report_meta_tags(pack_run: PackRun, api_client_as: Client) -> None:
+    """I1: report.html records its finalise instant, actor and data fingerprint in its head."""
+    _ok(_finalise(api_client_as("controller"), pack_run))
+    run = pack_run.repo.get_run(pack_run.run_id)
+    html = _html(pack_run)
+    head = html.split(b"</head>")[0].decode()
+    assert run.finalised_at is not None
+    at = run.finalised_at.isoformat()
+    assert f'<meta name="ledgerline:finalised-at" content="{at}">' in head
+    assert '<meta name="ledgerline:finalised-by" content="controller@kestrel.example">' in head
+    meta = report.read_report_meta(html)
+    assert meta is not None
+    assert meta.finalised_at == run.finalised_at
+    assert meta.finalised_by == "controller@kestrel.example"
+    assert re.fullmatch(r"[0-9a-f]{64}", meta.fingerprint)
+    assert f'<meta name="ledgerline:fingerprint" content="{meta.fingerprint}">' in head
+    assert report.read_report_meta(b"<html>other</html>") is None
+
+
+def test_F10_R9_orphan_report_same_data_is_adopted(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+    move_clock: Callable[[datetime], None],
+    frozen_clock: datetime,
+) -> None:
+    """I1: a crash after the report.html write leaves an orphan; the next finalise of the same
+    data adopts it with its stored instant and actor, so the printed time is finalised_at."""
+    _transition_fails_once(pack_run, monkeypatch)
+    client = api_client_as("controller")
+    resp = _finalise(client, pack_run)
+    assert resp.status_code == 500 and resp.json()["error"]["stage"] == "finalise"
+    assert pack_run.repo.get_run(pack_run.run_id).status is RunStatus.AWAITING_REVIEW
+    orphan = _html(pack_run)
+    assert len(fake_notifier.texts(OPS_CHAT)) == 1  # ops hear of the failed transition
+    move_clock(frozen_clock + timedelta(minutes=5))
+    body = _ok(_finalise(client, pack_run))
+    assert body["notification"]["status"] == "SENT"
+    run = pack_run.repo.get_run(pack_run.run_id)
+    assert run.status is RunStatus.FINALISED and run.finalised_at == frozen_clock
+    assert run.finalised_by == "controller@kestrel.example"
+    assert _html(pack_run) == orphan
+    assert _printed_finalised_at(pack_run) == report.fmt_instant(run.finalised_at)
+    assert len(fake_notifier.texts(CONTROLLER_CHAT)) == 1
+    (audit,) = _audits(pack_run, AuditAction.RUN_FINALISED)
+    assert audit.after["finalised_at"] == frozen_clock.isoformat()
+
+
+def test_F10_R9_orphan_report_other_data_is_409_and_alerts_once(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+    move_clock: Callable[[datetime], None],
+    frozen_clock: datetime,
+) -> None:
+    """I1: the orphan was rendered before a later decision: it must not be frozen as this
+    run's report; 409 and one ops alert (`orphan-report`), the run unchanged."""
+    _transition_fails_once(pack_run, monkeypatch)
+    client = api_client_as("controller")
+    assert _finalise(client, pack_run).status_code == 500
+    (item,) = [
+        i
+        for i in pack_run.repo.list_review_items(pack_run.run_id)
+        if i.item_key == "CELL:REG-p2-r05:qty"
+    ]
+    decided = client.post(f"{API}/review-items/{item.id}/resolve", json={"action": "ACCEPT_READ"})
+    assert decided.status_code == 200, decided.text
+    before = pack_run.repo.get_run(pack_run.run_id)
+    move_clock(frozen_clock + timedelta(minutes=1))
+    for _ in range(2):
+        error = _error(_finalise(client, pack_run), 409, "RUN_STATE_CONFLICT")
+        assert "ops must remove it" in error["message"]
+    assert pack_run.repo.get_run(pack_run.run_id) == before
+    keys = [a.idempotency_key for a in _alerts(pack_run)]
+    assert keys.count(f"ALERT:{pack_run.run_id}:finalise:orphan-report") == 1
+    assert len(fake_notifier.texts(OPS_CHAT)) == 2  # the failed transition, the orphan
+    assert fake_notifier.texts(CONTROLLER_CHAT) == [] and _summaries(pack_run) == []
+
+
+def _during_report_write(
+    pack: PackRun, monkeypatch: pytest.MonkeyPatch, change: Callable[[], object]
+) -> None:
+    write = finalise_service.write_report_files
+
+    def racing(*args: Any, **kwargs: Any) -> tuple[str, str]:
+        paths = write(*args, **kwargs)
+        change()
+        return paths
+
+    monkeypatch.setattr(finalise_service, "write_report_files", racing)
+
+
+def test_F10_R2_decision_during_finalise_is_409(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+    frozen_clock: datetime,
+) -> None:
+    """I2: a decision lands after the report was rendered: no freeze with a stale report."""
+    repo = pack_run.repo
+    (item,) = [
+        i for i in repo.list_review_items(pack_run.run_id) if i.item_key == "CELL:REG-p2-r05:qty"
+    ]
+
+    def decide() -> object:
+        return repo.resolve_review_item(
+            item.id,
+            status=ReviewStatus.RESOLVED,
+            resolved_value="66",
+            resolved_by="reviewer@kestrel.example",
+            resolved_at=frozen_clock,
+            note=None,
+        )
+
+    _during_report_write(pack_run, monkeypatch, decide)
+    _error(_finalise(api_client_as("controller"), pack_run), 409, "RUN_STATE_CONFLICT")
+    assert repo.get_run(pack_run.run_id).status is RunStatus.AWAITING_REVIEW
+    assert fake_notifier.texts(CONTROLLER_CHAT) == [] and _summaries(pack_run) == []
+
+
+def test_F10_R2_status_change_during_finalise_is_409(
+    pack_run: PackRun, api_client_as: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """I2: the transition expects the status read at the start, not any finalisable one."""
+    repo = pack_run.repo
+
+    def to_ready() -> object:
+        return repo.transition_run(
+            pack_run.run_id, RunStatus.READY, expected={RunStatus.AWAITING_REVIEW}
+        )
+
+    _during_report_write(pack_run, monkeypatch, to_ready)
+    _error(_finalise(api_client_as("controller"), pack_run), 409, "RUN_STATE_CONFLICT")
+    assert repo.get_run(pack_run.run_id).status is RunStatus.READY
+
+
+def test_F10_R2_missing_finalised_audit_is_backfilled(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M4: a crash between `FINALISED` and its audit; the next call back-fills RUN_FINALISED."""
+    real = audit_service.audit
+    calls: list[AuditAction] = []
+
+    def flaky(repo: Any, actor: str, action: AuditAction, *args: Any, **kwargs: Any) -> Any:
+        if action is AuditAction.RUN_FINALISED and not calls:
+            calls.append(action)
+            raise OSError("connection reset")
+        return real(repo, actor, action, *args, **kwargs)
+
+    monkeypatch.setattr(finalise_service, "audit", flaky)
+    client = api_client_as("controller")
+    assert _finalise(client, pack_run).status_code == 500
+    run = pack_run.repo.get_run(pack_run.run_id)
+    assert run.status is RunStatus.FINALISED
+    assert _audits(pack_run, AuditAction.RUN_FINALISED) == []
+    assert _ok(_finalise(client, pack_run))["notification"]["status"] == "SENT"
+    (audit,) = _audits(pack_run, AuditAction.RUN_FINALISED)
+    assert audit.actor == "controller@kestrel.example"
+    assert audit.after["finalised_at"] == run.finalised_at.isoformat()  # type: ignore[union-attr]
+    assert audit.after["backfilled"] is True
+    _ok(_finalise(client, pack_run))
+    assert len(_audits(pack_run, AuditAction.RUN_FINALISED)) == 1
+    assert len(fake_notifier.texts(CONTROLLER_CHAT)) == 1
