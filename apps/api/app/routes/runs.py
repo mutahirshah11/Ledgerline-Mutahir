@@ -1,20 +1,23 @@
-"""Runs and uploads: EP-03 to EP-07 (F-01; data-model.md §2, contracts/openapi.yaml, C25).
+"""Runs, uploads and stages: EP-03 to EP-10 (F-01 to F-07; data-model.md §2, contracts/openapi.yaml,
+C25).
 
 EP-03, EP-06 and EP-07 are CONTROLLER only (Clarification 4); EP-04 and EP-05 are open to every
 allow-listed role. Upload logic lives in `app.services.stages`.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import BaseModel
 
 from app.core.auth import require_role
 from app.core.config import get_settings
 from app.core.db import Repo, get_repo
-from app.core.deps import get_notifier
+from app.core.deps import get_extract_sleep, get_model_client, get_notifier
+from app.core.faults import Fault, active_fault
 from app.core.storage import BlobStore, get_blobstore
 from app.domain.enums import (
     Outcome,
@@ -28,9 +31,10 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.models import AllowedUser, Run, RunEvent
+from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.services import stages
-from app.services.stages import UploadFileIn, UploadSlot
+from app.services.stages import ExtractPageResult, ReconcileResult, UploadFileIn, UploadSlot
 from app.services.telegram import Notifier
 
 router = APIRouter()
@@ -40,6 +44,9 @@ BlobsDep = Annotated[BlobStore, Depends(get_blobstore)]
 NotifierDep = Annotated[Notifier, Depends(get_notifier)]
 Controller = Annotated[AllowedUser, Depends(require_role(Role.CONTROLLER))]
 StageCaller = Annotated[AllowedUser, Depends(require_role(Role.CONTROLLER, ops_retry=True))]
+ModelClientDep = Annotated[ModelClient, Depends(get_model_client)]
+SleepDep = Annotated[Callable[[float], None], Depends(get_extract_sleep)]
+FaultDep = Annotated[Fault | None, Depends(active_fault)]
 
 
 # --- models (data-model.md §2) ---------------------------------------------------------
@@ -265,3 +272,35 @@ def validate_run(
     validate itself has no retry from `FAILED` (data-model.md §3, FR-024)."""
     problems = stages.validate_stage(repo, blobs, notifier, repo.get_run(id), user)
     return ValidateResponse(ok=True, problems=problems)
+
+
+@router.post("/runs/{id}/pages/{page_no}/extract", response_model=ExtractPageResult)
+def extract_page(
+    id: UUID,
+    page_no: Annotated[int, Path(ge=1, le=10)],
+    user: StageCaller,
+    repo: RepoDep,
+    blobs: BlobsDep,
+    notifier: NotifierDep,
+    client: ModelClientDep,
+    sleep: SleepDep,
+    fault: FaultDep,
+) -> ExtractPageResult:
+    """EP-09 (F-03, FR-019, FR-020); CONTROLLER, or OPS to retry a `FAILED` run; idempotent."""
+    run = repo.get_run(id)
+    return stages.extract_stage(
+        repo, blobs, notifier, run, page_no, user, fault, client=client, sleep=sleep
+    )
+
+
+@router.post("/runs/{id}/reconcile", response_model=ReconcileResult)
+def reconcile(
+    id: UUID,
+    user: StageCaller,
+    repo: RepoDep,
+    blobs: BlobsDep,
+    notifier: NotifierDep,
+    fault: FaultDep,
+) -> ReconcileResult:
+    """EP-10 (F-04 to F-07, FR-021, FR-022, C25); CONTROLLER, or OPS to retry a `FAILED` run."""
+    return stages.reconcile_stage(repo, blobs, notifier, repo.get_run(id), user, fault)
