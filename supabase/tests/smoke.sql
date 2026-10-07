@@ -587,6 +587,25 @@ drop function public.smoke_probe_definer_fn();
 
 
 -- =============================================================================================
+-- 10. 0003: no review decision on a FINALISED run (F-08.R8)
+-- =============================================================================================
+insert into public.review_items (run_id, kind, item_key, reason, context, status)
+values (smoke.finalised_run(), 'CELL', 'CELL:REG-p1-r01:qty', 'CORRECTED',
+        '{"page_no": 1, "row_index": 1}', 'OPEN');
+do $$
+begin
+    perform smoke.expect_error('decision on a FINALISED run',
+        format($q$update public.review_items set status = 'RESOLVED', resolved_value = '12',
+                  resolved_by = 'reviewer@kestrel.example', resolved_at = now()
+                  where run_id = %L$q$, smoke.finalised_run()),
+        '55000', null, 'service_role', 'RUN_STATE_CONFLICT%');
+    update public.review_items set note = note where run_id = smoke.run_id();
+    raise notice 'ok   review items of an unfinalised run can be updated';
+end;
+$$;
+
+
+-- =============================================================================================
 -- Done
 -- =============================================================================================
 drop schema smoke cascade;

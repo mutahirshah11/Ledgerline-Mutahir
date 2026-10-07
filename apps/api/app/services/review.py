@@ -455,6 +455,8 @@ def resolve(
             note=request.note,
         )
     except StateConflict as exc:
+        if isinstance(exc.current, Run):  # finalised since the guard (migration 0003): no audit
+            raise
         raise ItemAlreadyResolved(exc.current) from exc
     group_outcome: Outcome | None = None
     group_key: str | None = None
