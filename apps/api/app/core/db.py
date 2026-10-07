@@ -4,10 +4,9 @@ Every method returns copies of models. Errors come from `app.core.errors`: `NotF
 `UniqueViolation`, `StateConflict(current)`, `AppendOnlyViolation`, `UpstreamFailed`.
 """
 
-import importlib
 from datetime import datetime
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from app.core.config import get_settings
@@ -207,9 +206,10 @@ def shared_memory_repo() -> "MemoryRepo":
 
 @lru_cache(maxsize=1)
 def _supabase_repo() -> Repo:
-    # imported lazily: `app.core.supabase_repo` is built in T064 (`SupabaseRepo(settings)`)
-    module = importlib.import_module("app.core.supabase_repo")
-    return cast(Repo, module.SupabaseRepo(get_settings()))
+    # imported lazily: the memory backend (tests, local runs) never loads the Supabase client
+    from app.core.supabase_repo import SupabaseRepo
+
+    return SupabaseRepo(get_settings())
 
 
 def get_repo() -> Repo:
