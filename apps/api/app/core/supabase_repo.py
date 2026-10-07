@@ -5,12 +5,20 @@ Service-role client, created on first use (never logged). Quantities travel as s
 ways: models are dumped in JSON mode and `source_rows` reads cast `qty`/`qty_base` to text.
 Compare-and-set = filtered update on the status read + returned row count (0 rows → re-read →
 `StateConflict`). Postgres `23505` → `UniqueViolation(constraint)` or "existing returned";
-`23503` (missing parent run) → `NotFound`. `replace_reconciliation` is one `rpc` call (one
-transaction, F-05.R10). Transient failures (network, 429/5xx, PostgREST `PGRST000-003`,
-Postgres connection/resource/serialization errors) are retried by `retrying("supabase", 3,
-(1, 2))` and end in `UpstreamFailed`. List orders follow `MemoryRepo` (G3): `seq` for insertion
-order; text keys (`source_row_id`, `group_key`, review order) are sorted in Python so the order
-never depends on the database collation.
+`23503` (missing parent run) → `NotFound`; `55000` (run state, from the RPCs and the 0002
+triggers) → `StateConflict(run)`. `replace_reconciliation` and `upsert_review_items` are one
+`rpc` call each (one transaction). Transient failures (network, 429/5xx, PostgREST
+`PGRST000-003`, Postgres connection/resource/serialization errors) are retried by
+`retrying("supabase", 3, (1, 2))` and end in `UpstreamFailed`.
+
+A retried write may have landed on an earlier attempt. Only then (attempts > 1): a primary-key
+`23505` whose stored row equals ours is success, and a CAS matching 0 rows whose stored values
+equal the intended update is success. `append_audit` (no natural key) retries only errors raised
+before the request reached the server.
+
+Lists page past the PostgREST row cap with `.range()` over a total order (G3: `seq`, or `id`).
+Text keys (`source_row_id`, `group_key`, review order) are sorted in Python so the order never
+depends on the database collation.
 """
 
 import logging
@@ -21,6 +29,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
+import httpx
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
 
@@ -28,7 +37,6 @@ from app.core.config import Settings
 from app.core.errors import NotFound, StateConflict, UniqueViolation, UpstreamFailed
 from app.core.memory_repo import (
     _NOTIFICATION_FIXED_FIELDS,
-    _REVIEW_REFRESHED_FIELDS,
     _RUN_TRANSITION_FIELDS,
     _RUN_UPDATABLE_FIELDS,
     _SOURCE_ORDER,
@@ -62,17 +70,21 @@ from app.domain.models import (
     RunEvent,
     SourceFile,
 )
-from app.services.runlog import retrying, transient_cause
+from app.services.runlog import CauseOf, retrying, transient_cause
 
 logger = logging.getLogger(__name__)
 
 M = TypeVar("M", bound=BaseModel)
+T = TypeVar("T")
 
 SERVICE = "supabase"
 ATTEMPTS = 3
 WAITS_S = (1, 2)
 TIMEOUT_S = 10
+PAGE_ROWS = 1000
+"""PostgREST's default `max-rows`; lists read pages of this size until a short page."""
 
+_CONNECT_CODES = ("PGRST000", "PGRST001", "PGRST002", "PGRST003")
 _CONSTRAINT = re.compile(r'constraint "([^"]+)"|\(([a-z0-9_]+)\)\s*$')
 _SOURCE_ROW_COLUMNS = ",".join(
     f"{name}::text" if name in ("qty", "qty_base") else name for name in CanonicalRow.model_fields
@@ -86,7 +98,7 @@ def supabase_cause(error: BaseException | None) -> str | None:
         code = str(error.code or "")
         if len(code) == 3 and code.isdigit():  # no JSON body: the HTTP status (e.g. 502)
             return _http_cause(int(code))
-        if code in ("PGRST000", "PGRST001", "PGRST002", "PGRST003") or code.startswith("08"):
+        if code in _CONNECT_CODES or code.startswith("08"):
             return "connection error"
         if code.startswith(("53", "57P")) or code in ("40001", "40P01"):
             return "server error"
@@ -97,8 +109,47 @@ def supabase_cause(error: BaseException | None) -> str | None:
     return transient_cause(error)
 
 
+def before_server_cause(error: BaseException | None) -> str | None:
+    """Retry cause for writes that must not repeat (`append_audit`): only failures that
+    happened before the request reached the database."""
+    if isinstance(error, httpx.ConnectTimeout):
+        return "timeout"
+    if isinstance(error, httpx.ConnectError):
+        return "connection error"
+    if isinstance(error, APIError) and error.code in _CONNECT_CODES:
+        return "connection error"
+    return None
+
+
 def _http_cause(status: int) -> str | None:
     return "rate limited" if status == 429 else "server error" if status >= 500 else None
+
+
+def send_counted(
+    fn: Callable[[], T],
+    *,
+    sleep: Callable[[float], None],
+    cause_of: CauseOf = supabase_cause,
+) -> tuple[T, int]:
+    """`fn` under the Supabase retry policy; returns (result, attempts made). An error raised
+    carries the attempts in `attempts_of(error)`."""
+    made = 0
+
+    def attempt() -> T:
+        nonlocal made
+        made += 1
+        return fn()
+
+    retry = retrying(SERVICE, ATTEMPTS, WAITS_S, cause_of=cause_of, sleep=sleep)
+    try:
+        return retry(attempt), made
+    except Exception as error:
+        error.ledgerline_attempts = made  # type: ignore[attr-defined]
+        raise
+
+
+def attempts_of(error: BaseException) -> int:
+    return int(getattr(error, "ledgerline_attempts", 1))
 
 
 def create_service_client(settings: Settings) -> Any:
@@ -137,6 +188,12 @@ def _values(fields: dict[str, Any], model: BaseModel) -> dict[str, Any]:
     return {k: v for k, v in _json(model).items() if k in fields}
 
 
+def _applied(stored: BaseModel, new: BaseModel, fields: dict[str, Any]) -> bool:
+    """Whether `stored` already holds the values of `fields` in `new` (compared as models,
+    so time zones do not matter)."""
+    return all(getattr(stored, k) == getattr(new, k) for k in fields)
+
+
 class SupabaseRepo:
     """`Repo` over PostgREST. `client` and `sleep` are for tests."""
 
@@ -164,17 +221,21 @@ class SupabaseRepo:
     def _table(self, name: str) -> Any:
         return self._client().table(name)
 
-    def _send(self, build: Callable[[], Any]) -> Any:
-        """Build and execute one query, retrying transient failures; returns `.data`.
-        APIError (non-transient) is left to the caller."""
-        retry = retrying(SERVICE, ATTEMPTS, WAITS_S, cause_of=supabase_cause, sleep=self._sleep)
-        return retry(lambda: build().execute()).data
+    def _send(
+        self, build: Callable[[], Any], cause_of: CauseOf = supabase_cause
+    ) -> tuple[Any, int]:
+        """Build and execute one query under the retry policy: (`.data`, attempts).
+        A non-transient APIError is left to the caller (see `attempts_of`)."""
+        response, made = send_counted(
+            lambda: build().execute(), sleep=self._sleep, cause_of=cause_of
+        )
+        return response.data, made
 
     def _call(self, build: Callable[[], Any], missing: tuple[str, object] | None = None) -> Any:
         """`_send` with the generic error mapping: 23505 → UniqueViolation, 23503 → NotFound
-        (`missing` = the parent entity), anything else → UpstreamFailed."""
+        (`missing` = the parent entity), 22023 → ValueError, anything else → UpstreamFailed."""
         try:
-            return self._send(build)
+            return self._send(build)[0]
         except APIError as error:
             raise self._mapped(error, missing) from None
 
@@ -182,7 +243,7 @@ class SupabaseRepo:
     def _mapped(error: APIError, missing: tuple[str, object] | None = None) -> Exception:
         if error.code == "23505":
             return UniqueViolation(_constraint(error))
-        if error.code == "23503" and missing is not None:
+        if error.code in ("23503", "P0002") and missing is not None:
             return NotFound(*missing)
         if error.code == "22023":
             return ValueError(error.message or "invalid parameter")
@@ -192,9 +253,100 @@ class SupabaseRepo:
     def _rows(self, build: Callable[[], Any], model: type[M]) -> list[M]:
         return [_model(model, r) for r in self._call(build) or []]
 
+    def _rows_all(
+        self, build: Callable[[], Any], model: type[M], limit: int | None = None
+    ) -> list[M]:
+        """Every row of `build` (which must end in a total order), `PAGE_ROWS` per request."""
+        out: list[M] = []
+        while True:
+            start = len(out)
+            size = PAGE_ROWS if limit is None else min(PAGE_ROWS, limit - start)
+            if size <= 0:
+                return out
+            page = self._rows(lambda: build().range(start, start + size - 1), model)
+            out.extend(page)
+            if len(page) < size:
+                return out
+
     def _one(self, build: Callable[[], Any], model: type[M]) -> M | None:
         rows = self._rows(build, model)
         return rows[0] if rows else None
+
+    def _insert(
+        self, table: str, item: M, missing: tuple[str, object] | None = None, key: str = "id"
+    ) -> M:
+        """Insert `item`. A retried insert that already landed (primary-key 23505 and the
+        stored row equals `item`) counts as success."""
+        try:
+            rows = self._send(lambda: self._table(table).insert(_json(item)))[0]
+        except APIError as error:
+            if error.code == "23505" and attempts_of(error) > 1:
+                stored = self._one(
+                    lambda: self._table(table).select("*").eq(key, str(getattr(item, key))),
+                    type(item),
+                )
+                if stored == item:
+                    return stored
+            raise self._mapped(error, missing) from None
+        return _model(type(item), rows[0])
+
+    def _insert_or_existing(
+        self,
+        table: str,
+        item: M,
+        existing: Callable[[], M | None],
+        ours: Callable[[M], bool],
+        missing: tuple[str, object],
+    ) -> tuple[M, bool]:
+        """"Existing returned" insert: on 23505 return (existing, False), or (existing, True)
+        when a retry hit our own earlier insert (`ours`)."""
+        try:
+            rows = self._send(lambda: self._table(table).insert(_json(item)))[0]
+        except APIError as error:
+            if error.code != "23505":
+                raise self._mapped(error, missing) from None
+            found = existing()
+            if found is None:  # the id collided, not the natural key
+                raise self._mapped(error, missing) from None
+            return found, attempts_of(error) > 1 and ours(found)
+        return _model(type(item), rows[0]), True
+
+    def _cas(
+        self,
+        table: str,
+        current: M,
+        new: M,
+        fields: dict[str, Any],
+        guard: tuple[str, str],
+        reread: Callable[[], M],
+    ) -> M:
+        """Update `fields` (values from `new`) only while `guard` (column, value) still holds.
+        0 rows → `StateConflict(reread())`, unless a retry already applied the update."""
+        values = _values(fields, new)
+        rows, made = self._send_mapped(
+            lambda: self._table(table)
+            .update(values)
+            .eq("id", str(getattr(current, "id")))
+            .eq(*guard)
+        )
+        if rows:
+            return _model(type(current), rows[0])
+        stored = reread()
+        if made > 1 and _applied(stored, new, fields):
+            return stored
+        raise StateConflict(stored)
+
+    def _send_mapped(self, build: Callable[[], Any]) -> tuple[Any, int]:
+        try:
+            return self._send(build)
+        except APIError as error:
+            raise self._mapped(error) from None
+
+    def _run_conflict(self, error: APIError, run_id: UUID) -> Exception:
+        """55000 (run state, raised by the RPCs and 0002 triggers) → StateConflict(run)."""
+        if error.code == "55000":
+            return StateConflict(self.get_run(run_id))
+        return self._mapped(error, ("run", run_id))
 
     # --- health --------------------------------------------------------------------------
 
@@ -222,8 +374,7 @@ class SupabaseRepo:
     # --- runs ----------------------------------------------------------------------------
 
     def create_run(self, run: Run) -> Run:
-        rows = self._call(lambda: self._table("runs").insert(_json(run)))
-        return _model(Run, rows[0])
+        return self._insert("runs", run)
 
     def _find_run(self, run_id: UUID) -> Run | None:
         return self._one(lambda: self._table("runs").select("*").eq("id", str(run_id)), Run)
@@ -235,30 +386,22 @@ class SupabaseRepo:
         return run
 
     def list_runs(self, limit: int = 20) -> list[Run]:
-        return self._rows(
-            lambda: (
-                self._table("runs")
-                .select("*")
-                .order("created_at", desc=True)
-                .order("id")
-                .limit(limit)
-            ),
+        return self._rows_all(
+            lambda: self._table("runs").select("*").order("created_at", desc=True).order("id"),
             Run,
+            limit,
         )
 
-    def _cas_run(self, current: Run, values: dict[str, Any]) -> Run:
-        """Update `values` only while the run still has the status read (compare-and-set)."""
-        rows = self._call(
-            lambda: (
-                self._table("runs")
-                .update(values)
-                .eq("id", str(current.id))
-                .eq("status", current.status.value)
-            )
+    def _cas_run(self, current: Run, new: Run, fields: dict[str, Any]) -> Run:
+        """Compare-and-set on the status read."""
+        return self._cas(
+            "runs",
+            current,
+            new,
+            fields,
+            ("status", current.status.value),
+            lambda: self.get_run(current.id),
         )
-        if not rows:
-            raise StateConflict(self.get_run(current.id))
-        return _model(Run, rows[0])
 
     def transition_run(
         self, run_id: UUID, to: RunStatus, *, expected: set[RunStatus], **fields: Any
@@ -277,7 +420,7 @@ class SupabaseRepo:
             updates.update(failed_stage=None, error_message=None)
         updates["status"] = to
         new = _updated(current, updates)  # validates (FAILED <=> failed_stage)
-        return self._cas_run(current, _values(updates, new))
+        return self._cas_run(current, new, updates)
 
     def update_run_fields(self, run_id: UUID, **fields: Any) -> Run:
         current = self.get_run(run_id)
@@ -286,27 +429,21 @@ class SupabaseRepo:
             raise ValueError(f"update_run_fields cannot set {sorted(bad)}")
         if current.status is RunStatus.FINALISED:
             raise StateConflict(current)
-        new = _updated(current, fields)
-        return self._cas_run(current, _values(fields, new))
+        return self._cas_run(current, _updated(current, fields), fields)
 
     def find_finalised_run_by_key(self, run_key: str) -> Run | None:
         return self._one(
-            lambda: (
-                self._table("runs")
-                .select("*")
-                .eq("status", RunStatus.FINALISED.value)
-                .eq("run_key", run_key)
-            ),
+            lambda: self._table("runs")
+            .select("*")
+            .eq("status", RunStatus.FINALISED.value)
+            .eq("run_key", run_key),
             Run,
         )
 
     # --- source files --------------------------------------------------------------------
 
     def add_source_file(self, file: SourceFile) -> SourceFile:
-        rows = self._call(
-            lambda: self._table("source_files").insert(_json(file)), ("run", file.run_id)
-        )
-        return _model(SourceFile, rows[0])
+        return self._insert("source_files", file, ("run", file.run_id))
 
     def list_source_files(self, run_id: UUID, source: Source | None = None) -> list[SourceFile]:
         def build() -> Any:
@@ -315,7 +452,7 @@ class SupabaseRepo:
                 q = q.eq("source", source.value)
             return q.order("seq")
 
-        return self._rows(build, SourceFile)
+        return self._rows_all(build, SourceFile)
 
     def _file(self, file_id: UUID) -> SourceFile:
         found = self._one(
@@ -326,23 +463,23 @@ class SupabaseRepo:
         return found
 
     def confirm_source_file(self, file_id: UUID, at: datetime) -> SourceFile:
+        new = _updated(self._file(file_id), {"confirmed_at": at})  # rejects a naive time
         rows = self._call(
-            lambda: (
-                self._table("source_files")
-                .update({"confirmed_at": at.isoformat()})
-                .eq("id", str(file_id))
-            )
+            lambda: self._table("source_files")
+            .update(_values({"confirmed_at": at}, new))
+            .eq("id", str(file_id))
         )
         if not rows:
             raise NotFound("source_file", file_id)
         return _model(SourceFile, rows[0])
 
     def delete_source_file(self, file_id: UUID) -> None:
+        """Only while the run is CREATED: the 0002 trigger refuses otherwise (55000)."""
         file = self._file(file_id)
-        run = self.get_run(file.run_id)
-        if run.status is not RunStatus.CREATED:
-            raise StateConflict(run)
-        self._call(lambda: self._table("source_files").delete().eq("id", str(file_id)))
+        try:
+            self._send(lambda: self._table("source_files").delete().eq("id", str(file_id)))
+        except APIError as error:
+            raise self._run_conflict(error, file.run_id) from None
 
     # --- page manifest -------------------------------------------------------------------
 
@@ -353,17 +490,13 @@ class SupabaseRepo:
         )
 
     def add_page_if_new(self, entry: PageManifestEntry) -> tuple[PageManifestEntry, bool]:
-        try:
-            rows = self._call(
-                lambda: self._table("page_manifest").insert(_json(entry)),
-                ("run", entry.first_seen_run_id),
-            )
-        except UniqueViolation:
-            existing = self.get_page(entry.sha256)
-            if existing is None:
-                raise
-            return existing, False
-        return _model(PageManifestEntry, rows[0]), True
+        return self._insert_or_existing(
+            "page_manifest",
+            entry,
+            lambda: self.get_page(entry.sha256),
+            lambda found: found.first_seen_run_id == entry.first_seen_run_id,
+            ("run", entry.first_seen_run_id),
+        )
 
     # --- extraction cache ----------------------------------------------------------------
 
@@ -371,31 +504,24 @@ class SupabaseRepo:
         self, page_sha256: str, variant: ReadVariant, model: str, prompt_version: str
     ) -> Extraction | None:
         return self._one(
-            lambda: (
-                self._table("extractions")
-                .select("*")
-                .eq("page_sha256", page_sha256)
-                .eq("read_variant", variant.value)
-                .eq("model", model)
-                .eq("prompt_version", prompt_version)
-            ),
+            lambda: self._table("extractions")
+            .select("*")
+            .eq("page_sha256", page_sha256)
+            .eq("read_variant", variant.value)
+            .eq("model", model)
+            .eq("prompt_version", prompt_version),
             Extraction,
         )
 
     def put_extraction(self, extraction: Extraction) -> tuple[Extraction, bool]:
-        try:
-            rows = self._call(lambda: self._table("extractions").insert(_json(extraction)))
-        except UniqueViolation:
-            existing = self.get_extraction(
-                extraction.page_sha256,
-                extraction.read_variant,
-                extraction.model,
-                extraction.prompt_version,
-            )
-            if existing is None:  # the id collided, not the cache key
-                raise
-            return existing, False
-        return _model(Extraction, rows[0]), True
+        e = extraction
+        return self._insert_or_existing(
+            "extractions",
+            e,
+            lambda: self.get_extraction(e.page_sha256, e.read_variant, e.model, e.prompt_version),
+            lambda found: found.id == e.id,
+            ("extraction", e.id),
+        )
 
     # --- reconciliation ------------------------------------------------------------------
 
@@ -404,29 +530,23 @@ class SupabaseRepo:
         try:
             self._send(lambda: self._client().rpc("replace_reconciliation", params))
         except APIError as error:
-            if error.code == "P0002":
-                raise NotFound("run", run_id) from None
-            if error.code == "55000":
-                raise StateConflict(self.get_run(run_id)) from None
-            raise self._mapped(error) from None
+            raise self._run_conflict(error, run_id) from None
 
     def list_source_rows(self, run_id: UUID, source: Source | None = None) -> list[CanonicalRow]:
         def build() -> Any:
             q = self._table("source_rows").select(_SOURCE_ROW_COLUMNS).eq("run_id", str(run_id))
-            return q if source is None else q.eq("source", source.value)
+            return (q if source is None else q.eq("source", source.value)).order("id")
 
-        rows = self._rows(build, CanonicalRow)
+        rows = self._rows_all(build, CanonicalRow)
         rows.sort(key=lambda r: (_SOURCE_ORDER[r.source], r.source_row_id))
         return rows
 
     def get_source_row(self, run_id: UUID, source_row_id: str) -> CanonicalRow:
         row = self._one(
-            lambda: (
-                self._table("source_rows")
-                .select(_SOURCE_ROW_COLUMNS)
-                .eq("run_id", str(run_id))
-                .eq("source_row_id", source_row_id)
-            ),
+            lambda: self._table("source_rows")
+            .select(_SOURCE_ROW_COLUMNS)
+            .eq("run_id", str(run_id))
+            .eq("source_row_id", source_row_id),
             CanonicalRow,
         )
         if row is None:
@@ -436,20 +556,18 @@ class SupabaseRepo:
     def list_groups(self, run_id: UUID, outcome: Outcome | None = None) -> list[Group]:
         def build() -> Any:
             q = self._table("groups").select("*").eq("run_id", str(run_id))
-            return q if outcome is None else q.eq("outcome", outcome.value)
+            return (q if outcome is None else q.eq("outcome", outcome.value)).order("id")
 
-        groups = self._rows(build, Group)
+        groups = self._rows_all(build, Group)
         groups.sort(key=lambda g: (g.grn_no is None, g.grn_no or 0, g.group_key))
         return groups
 
     def get_group(self, run_id: UUID, group_key: str) -> Group:
         group = self._one(
-            lambda: (
-                self._table("groups")
-                .select("*")
-                .eq("run_id", str(run_id))
-                .eq("group_key", group_key)
-            ),
+            lambda: self._table("groups")
+            .select("*")
+            .eq("run_id", str(run_id))
+            .eq("group_key", group_key),
             Group,
         )
         if group is None:
@@ -457,7 +575,7 @@ class SupabaseRepo:
         return group
 
     def list_flags(self, run_id: UUID) -> list[ControlFlag]:
-        return self._rows(
+        return self._rows_all(
             lambda: self._table("control_flags").select("*").eq("run_id", str(run_id)).order("seq"),
             ControlFlag,
         )
@@ -469,18 +587,18 @@ class SupabaseRepo:
                 q = q.eq("source_row_id", source_row_id)
             return q.order("seq")
 
-        return self._rows(build, NormLogEntry)
+        return self._rows_all(build, NormLogEntry)
 
     # --- proof ---------------------------------------------------------------------------
 
     def save_proof(self, proof: Proof) -> Proof:
-        run = self.get_run(proof.run_id)
-        if run.status is RunStatus.FINALISED:
-            raise StateConflict(run)
-        rows = self._call(
-            lambda: self._table("proofs").upsert(_json(proof), on_conflict="run_id"),
-            ("run", proof.run_id),
-        )
+        """Upsert; the 0002 trigger refuses a FINALISED run (55000 → StateConflict)."""
+        try:
+            rows = self._send(
+                lambda: self._table("proofs").upsert(_json(proof), on_conflict="run_id")
+            )[0]
+        except APIError as error:
+            raise self._run_conflict(error, proof.run_id) from None
         return _model(Proof, rows[0])
 
     def get_proof(self, run_id: UUID) -> Proof | None:
@@ -489,70 +607,32 @@ class SupabaseRepo:
     # --- review --------------------------------------------------------------------------
 
     def upsert_review_items(self, run_id: UUID, items: list[ReviewItem]) -> list[ReviewItem]:
-        """New item_keys are inserted OPEN in one statement (all or nothing; a used id fails
-        it with 23505), then each existing item gets only the refreshed columns, so a decision
-        made meanwhile is never overwritten. Validation precedes every write."""
+        """One `upsert_review_items` RPC (migration 0002, one transaction): new item_keys are
+        inserted OPEN; existing ones get only the refreshed columns, so decisions are kept."""
         self.get_run(run_id)
         if any(i.run_id != run_id for i in items):
             raise ValueError("every review item must belong to the run")
         keys = [i.item_key for i in items]
         if len(set(keys)) != len(keys):
             raise UniqueViolation("review_items_run_item_key_uq")
-        stored = {
-            r.item_key: r
-            for r in self._rows(
-                lambda: self._table("review_items").select("*").eq("run_id", str(run_id)),
-                ReviewItem,
-            )
-        }
-        fresh = [
-            _updated(
-                i,
-                {
-                    "status": ReviewStatus.OPEN,
-                    "resolved_value": None,
-                    "resolved_by": None,
-                    "resolved_at": None,
-                    "note": None,
-                },
-            )
-            for i in items
-            if i.item_key not in stored
-        ]
-        new_ids = [i.id for i in fresh]
-        if len(set(new_ids)) != len(new_ids):
-            raise UniqueViolation("review_items_pkey")
-        result: dict[str, ReviewItem] = {}
-        if fresh:
-            rows = self._call(
-                lambda: self._table("review_items").insert([_json(i) for i in fresh]),
-                ("run", run_id),
-            )
-            result.update((r.item_key, r) for r in (_model(ReviewItem, row) for row in rows))
-        for item in items:
-            existing = stored.get(item.item_key)
-            if existing is None:
-                continue
-            refreshed = _updated(
-                existing, {name: getattr(item, name) for name in _REVIEW_REFRESHED_FIELDS}
-            )
-            values = _values(dict.fromkeys(_REVIEW_REFRESHED_FIELDS), refreshed)
-            result[item.item_key] = self._refresh_review(existing.id, values) or refreshed
-        return [result[k] for k in keys]
-
-    def _refresh_review(self, item_id: UUID, values: dict[str, Any]) -> ReviewItem | None:
-        return self._one(
-            lambda: self._table("review_items").update(values).eq("id", str(item_id)), ReviewItem
-        )
+        if not items:
+            return []
+        params = {"p_run_id": str(run_id), "p_items": [_json(i) for i in items]}
+        try:
+            rows = self._send(lambda: self._client().rpc("upsert_review_items", params))[0]
+        except APIError as error:
+            raise self._run_conflict(error, run_id) from None
+        stored = {r.item_key: r for r in (_model(ReviewItem, row) for row in rows or [])}
+        return [stored[k] for k in keys]
 
     def list_review_items(
         self, run_id: UUID, status: ReviewStatus | None = None
     ) -> list[ReviewItem]:
         def build() -> Any:
             q = self._table("review_items").select("*").eq("run_id", str(run_id))
-            return q if status is None else q.eq("status", status.value)
+            return (q if status is None else q.eq("status", status.value)).order("id")
 
-        items = self._rows(build, ReviewItem)
+        items = self._rows_all(build, ReviewItem)
         items.sort(key=_review_sort_key)
         return items
 
@@ -588,36 +668,31 @@ class SupabaseRepo:
             "resolved_at": resolved_at,
             "note": note,
         }
-        new = _updated(current, decision)
-        rows = self._call(
-            lambda: (
-                self._table("review_items")
-                .update(_values(decision, new))
-                .eq("id", str(item_id))
-                .eq("status", ReviewStatus.OPEN.value)
-            )
+        return self._cas(
+            "review_items",
+            current,
+            _updated(current, decision),
+            decision,
+            ("status", ReviewStatus.OPEN.value),
+            lambda: self.get_review_item(item_id),
         )
-        if not rows:
-            raise StateConflict(self.get_review_item(item_id))
-        return _model(ReviewItem, rows[0])
 
     # --- notifications -------------------------------------------------------------------
 
     def insert_notification(self, n: Notification) -> tuple[Notification, bool]:
-        try:
-            rows = self._call(
-                lambda: self._table("notifications").insert(_json(n)), ("run", n.run_id)
-            )
-        except UniqueViolation:
-            existing = self.get_notification_by_key(n.idempotency_key)
-            if existing is None:
-                raise
-            return existing, False
-        return _model(Notification, rows[0]), True
+        return self._insert_or_existing(
+            "notifications",
+            n,
+            lambda: self.get_notification_by_key(n.idempotency_key),
+            lambda found: found.id == n.id,
+            ("run", n.run_id),
+        )
 
     def get_notification_by_key(self, idempotency_key: str) -> Notification | None:
         return self._one(
-            lambda: self._table("notifications").select("*").eq("idempotency_key", idempotency_key),
+            lambda: self._table("notifications")
+            .select("*")
+            .eq("idempotency_key", idempotency_key),
             Notification,
         )
 
@@ -641,75 +716,73 @@ class SupabaseRepo:
             raise ValueError("update_notification needs updated_at (caller passes clock time)")
         if current.status not in expected:
             raise StateConflict(current)
-        new = _updated(current, fields)
-        rows = self._call(
-            lambda: (
-                self._table("notifications")
-                .update(_values(fields, new))
-                .eq("id", str(notification_id))
-                .eq("status", current.status.value)
-            )
+        return self._cas(
+            "notifications",
+            current,
+            _updated(current, fields),
+            fields,
+            ("status", current.status.value),
+            lambda: self._notification(notification_id),
         )
-        if not rows:
-            raise StateConflict(self._notification(notification_id))
-        return _model(Notification, rows[0])
 
     def list_notifications(self, run_id: UUID) -> list[Notification]:
-        return self._rows(
+        return self._rows_all(
             lambda: self._table("notifications").select("*").eq("run_id", str(run_id)).order("seq"),
             Notification,
         )
 
     def list_stale_sending(self, older_than: datetime) -> list[Notification]:
-        return self._rows(
-            lambda: (
-                self._table("notifications")
-                .select("*")
-                .eq("status", NotificationStatus.SENDING.value)
-                .lt("updated_at", older_than.isoformat())
-                .order("seq")
-            ),
+        return self._rows_all(
+            lambda: self._table("notifications")
+            .select("*")
+            .eq("status", NotificationStatus.SENDING.value)
+            .lt("updated_at", older_than.isoformat())
+            .order("seq"),
             Notification,
         )
 
     def get_latest_notification(self, kind: NotificationKind) -> Notification | None:
         return self._one(
-            lambda: (
-                self._table("notifications")
-                .select("*")
-                .eq("kind", kind.value)
-                .order("updated_at", desc=True)
-                .order("id", desc=True)
-                .limit(1)
-            ),
+            lambda: self._table("notifications")
+            .select("*")
+            .eq("kind", kind.value)
+            .order("updated_at", desc=True)
+            .order("id", desc=True)
+            .limit(1),
             Notification,
         )
 
     # --- run events ----------------------------------------------------------------------
 
     def add_run_event(self, event: RunEvent) -> RunEvent:
-        rows = self._call(
-            lambda: self._table("run_events").insert(_json(event)), ("run", event.run_id)
-        )
-        return _model(RunEvent, rows[0])
+        return self._insert("run_events", event, ("run", event.run_id))
 
     def list_run_events(self, run_id: UUID) -> list[RunEvent]:
-        """Newest first: `at` desc, then `seq` desc (C27: newest insertion first on ties)."""
-        return self._rows(
-            lambda: (
-                self._table("run_events")
-                .select("*")
-                .eq("run_id", str(run_id))
-                .order("at", desc=True)
-                .order("seq", desc=True)
-            ),
+        """Newest first: `at` desc, then newest insertion first (`seq` desc, C27)."""
+        return self._rows_all(
+            lambda: self._table("run_events")
+            .select("*")
+            .eq("run_id", str(run_id))
+            .order("at", desc=True)
+            .order("seq", desc=True),
             RunEvent,
         )
 
     # --- audit (append-only: insert only; the database trigger refuses update/delete) ----
 
     def append_audit(self, entry: AuditEntry) -> AuditEntry:
-        rows = self._call(lambda: self._table("audit_log").insert(_json(entry, exclude={"id"})))
+        """No natural key to detect a repeat, so only pre-server failures are retried."""
+        row = _json(entry, exclude={"id"})
+        try:
+            rows = self._send(
+                lambda: self._table("audit_log").insert(row), cause_of=before_server_cause
+            )[0]
+        except APIError as error:
+            raise self._mapped(error) from None
+        except httpx.HTTPError as error:
+            raise UpstreamFailed(
+                SERVICE, f"{type(error).__name__} (not retried)", attempts=attempts_of(error)
+            ) from None
         return _model(AuditEntry, rows[0])
 
     def list_audit(self, run_id: UUID | None = None, actor: str | None = None) -> list[AuditEntry]:
@@ -721,7 +794,7 @@ class SupabaseRepo:
                 q = q.eq("actor", actor)
             return q.order("at", desc=True).order("id", desc=True)
 
-        return self._rows(build, AuditEntry)
+        return self._rows_all(build, AuditEntry)
 
 
 if TYPE_CHECKING:  # static conformance check (mypy)

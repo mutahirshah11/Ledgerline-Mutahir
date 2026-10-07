@@ -91,3 +91,54 @@ def test_bucket_ok_never_raises() -> None:
     assert store.bucket_ok("reports") is False
     assert store.bucket_ok("missing") is False  # unknown name: no request
     assert SupabaseBlobStore(Settings(_env_file=None)).bucket_ok("inputs") is False
+
+
+# --- review fixes ---------------------------------------------------------------------------
+
+
+def test_retried_reports_put_that_landed_is_success() -> None:
+    """409 after a retry: our earlier attempt may have stored it; identical bytes = success."""
+    import httpx
+
+    dup = StorageApiError("The resource already exists", "Duplicate", 409)
+    store, storage = _store(httpx.ConnectError("refused"), dup, b"<p/>")
+    store.put("reports", "r1/report.html", b"<p/>", "text/html")
+    assert storage.calls[-1][1] == "download"
+    store, _ = _store(httpx.ConnectError("refused"), dup, b"<p>other</p>")
+    with pytest.raises(UniqueViolation):
+        store.put("reports", "r1/report.html", b"<p/>", "text/html")
+
+
+def test_storage_errors_mapped() -> None:
+    from app.core.errors import UpstreamFailed
+
+    store, _ = _store(
+        StorageApiError("Object not found", "not_found", "404"),
+        StorageApiError("Invalid key", "InvalidKey", 400),
+    )
+    with pytest.raises(NotFound):
+        store.get("inputs", "gone.csv")
+    with pytest.raises(UpstreamFailed) as exc:  # a 400 is no longer read as "not found"
+        store.get("inputs", "bad key")
+    assert exc.value.detail == "rejected: 400"
+
+
+def test_signed_upload_never_upserts_and_download_url_checked() -> None:
+    from app.core.errors import UpstreamFailed
+
+    store, storage = _store({"signed_url": "https://x/upload?token=t"}, {"signedURL": None})
+    assert store.signed_upload_url("inputs", "r1/a.csv") == "https://x/upload?token=t"
+    assert storage.calls[0][2][1].upsert == "false"
+    with pytest.raises(UpstreamFailed):
+        store.signed_download_url("inputs", "r1/a.csv")
+
+
+def test_memory_signed_download_default_follows_settings() -> None:
+    """The Protocol default is None = `DOWNLOAD_URL_S` (Section 10) for both stores."""
+    import inspect
+
+    from app.core.storage import MemoryBlobStore
+
+    for cls in (BlobStore, MemoryBlobStore, SupabaseBlobStore):
+        default = inspect.signature(cls.signed_download_url).parameters["expires_s"].default
+        assert default is None, cls
