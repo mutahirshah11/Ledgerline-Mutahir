@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.pipeline.model_client import ReplayModelClient
     from tests.fakes.api import FakeJwksFetcher, FakeNotifier
     from tests.support.pack_pages import PackPages
+    from tests.support.pack_run import PackRun
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = API_DIR.parents[1]
@@ -435,3 +436,76 @@ def pack_upload(
         return body
 
     return upload
+
+
+# --- Phase 4 (005 T012) ------------------------------------------------------------------
+
+
+@pytest.fixture
+def zero_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry backoffs (`TELEGRAM_BACKOFF_S`, `EXTRACT_BACKOFF_S`) of 0 s for this test, so a
+    real notifier under `TELEGRAM_DOWN` retries without sleeping (research R17)."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("TELEGRAM_BACKOFF_S", "[0]")
+    monkeypatch.setenv("EXTRACT_BACKOFF_S", "[0]")
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def fake_notifier(notifier: "FakeNotifier") -> "FakeNotifier":
+    """The app's notifier in `client` / `api_client_as` (the same object as `notifier`): set
+    `.down` / `.fail_document`, read `.texts(chat)` / `.documents_to(chat)`."""
+    return notifier
+
+
+@pytest.fixture(scope="session")
+def pack_run_template(cached_extraction_records: list["Extraction"], pack_dir: Path) -> "PackRun":
+    """The reconciled pack run built once per session (hermetic settings, frozen scenario
+    clock) in its own MemoryRepo / MemoryBlobStore. Read-only: tests use `pack_run`."""
+    from app.core.memory_repo import MemoryRepo
+    from app.core.storage import MemoryBlobStore
+    from tests.factories import T0
+    from tests.support.pack_pages import hermetic_settings_context
+    from tests.support.pack_run import build_reconciled_pack_run, frozen_scenario_clock
+
+    with hermetic_settings_context(), frozen_scenario_clock():
+        return build_reconciled_pack_run(
+            MemoryRepo(),
+            MemoryBlobStore(now=lambda: T0),
+            pack_dir=pack_dir,
+            reads=cached_extraction_records,
+        )
+
+
+@pytest.fixture
+def pack_run(
+    pack_run_template: "PackRun",
+    memory_repo: "MemoryRepo",
+    memory_blobs: "MemoryBlobStore",
+    frozen_clock: datetime,
+    zero_waits: None,
+) -> "PackRun":
+    """A fresh copy per test of the pack run reconciled to `AWAITING_REVIEW` (21/4/2/2, proof
+    PASS), in `memory_repo` / `memory_blobs` (the stores behind `client` and `api_client_as`),
+    with the clock frozen at the scenario instant. Nothing was sent to `fake_notifier`."""
+    from tests.support.pack_run import clone_pack_run
+
+    return clone_pack_run(pack_run_template, memory_repo, memory_blobs)
+
+
+@pytest.fixture
+def api_client_as(
+    client: TestClient, tokens: dict[str, dict[str, str]], zero_waits: None
+) -> Callable[[str], TestClient]:
+    """`api_client_as(role)`: a TestClient on the `client` app (same repo, blobs, notifier)
+    that sends the bearer token of `controller`, `reviewer`, `ops` or `stranger` (not on the
+    allowlist) on every request. One client per role per test."""
+    made: dict[str, TestClient] = {}
+
+    def as_role(role: str) -> TestClient:
+        if role not in made:
+            made[role] = TestClient(client.app, headers=tokens[role])
+        return made[role]
+
+    return as_role
