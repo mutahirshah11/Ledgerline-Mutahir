@@ -562,3 +562,83 @@ def test_F11_R5_alert_failure_marks_run_and_health(
     health = client.get("/api/v1/health")
     assert health.json()["telegram"] == "failing"
     assert health.status_code == 503
+
+
+# --- final review: unexpected-error text never reaches API reads (constitution VIII) -----
+
+_SECRETISH = "SECRET-ish detail"
+
+
+def _reads_text(client: TestClient, headers: dict[str, str], run_id: str) -> str:
+    """EP-05 and EP-19 bodies of the run, as one text."""
+    run = client.get(f"{API}/runs/{run_id}", headers=headers)
+    events = client.get(f"{API}/runs/{run_id}/events", headers=headers)
+    assert run.status_code == 200 and events.status_code == 200
+    return run.text + events.text
+
+
+def test_F11_unexpected_reconcile_error_text_not_in_reads(
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    pack_upload: Any,
+    _replay: ReplayModelClient,
+    _cached: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected error inside the engine is stored by type name only: EP-05 and EP-19
+    never carry its message."""
+    from app.pipeline import engine
+
+    def broken(*_: Any, **__: Any) -> Any:
+        raise RuntimeError(_SECRETISH)
+
+    headers = tokens["controller"]
+    run_id: str = pack_upload()["run"]["id"]
+    assert client.post(f"{API}/runs/{run_id}/validate", headers=headers).status_code == 200
+    for page in (1, 2):
+        resp = client.post(f"{API}/runs/{run_id}/pages/{page}/extract", headers=headers)
+        assert resp.status_code == 200, resp.text
+    monkeypatch.setattr(engine, "run_pipeline", broken)
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    resp = lenient.post(f"{API}/runs/{run_id}/reconcile", headers=headers)
+    assert resp.status_code == 500
+    text = _reads_text(client, headers, run_id)
+    assert "FAILED" in text and "internal error (RuntimeError)" in text
+    assert _SECRETISH not in text
+
+
+def test_F11_unexpected_extract_error_text_not_in_reads(
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    pack_upload: Any,
+    _replay: ReplayModelClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected error in a page read: the extract FAILED event names its type only."""
+    from app.services import stages
+
+    def broken(**_: Any) -> Any:
+        raise RuntimeError(_SECRETISH)
+
+    headers = tokens["controller"]
+    run_id: str = pack_upload()["run"]["id"]
+    assert client.post(f"{API}/runs/{run_id}/validate", headers=headers).status_code == 200
+    monkeypatch.setattr(stages, "extract_page", broken)
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    resp = lenient.post(f"{API}/runs/{run_id}/pages/1/extract", headers=headers)
+    assert resp.status_code == 500
+    text = _reads_text(client, headers, run_id)
+    assert "RuntimeError" in text
+    assert _SECRETISH not in text
+
+
+def test_F11_run_event_error_text_coded_errors_only() -> None:
+    """`stage_step`'s FAILED detail: a coded error keeps its curated message; anything else is
+    its type name."""
+    from app.core.errors import ApiError
+    from app.domain.enums import ErrorCode, Stage
+    from app.services.runlog import _error_text
+
+    coded = ApiError(ErrorCode.INTERNAL_ERROR, 500, "Run inputs are missing", Stage.VALIDATE)
+    assert _error_text(coded) == str(coded)
+    assert _error_text(RuntimeError(_SECRETISH)) == "RuntimeError"

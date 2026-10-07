@@ -31,7 +31,7 @@ from tenacity import (
 
 from app.core import clock
 from app.core.db import Repo
-from app.core.errors import InvalidReadOutput, UpstreamFailed
+from app.core.errors import InvalidReadOutput, LedgerlineError, UpstreamFailed
 from app.domain.enums import RunEventStatus, Stage
 from app.domain.models import RunEvent
 
@@ -75,12 +75,14 @@ class StepLog:
 
 
 def _error_text(exc: BaseException) -> str:
-    """The FAILED detail; an httpx error is named by type and status only (its text has the URL)."""
+    """The FAILED detail. Only a coded error (`LedgerlineError`, incl. `ApiError`) keeps its
+    curated message; an httpx error is named by type and status, anything else by type name
+    only, so no unexpected error text reaches EP-19 (constitution VIII)."""
     if isinstance(exc, httpx.HTTPStatusError):
         return f"{type(exc).__name__}: HTTP {exc.response.status_code}"
-    if isinstance(exc, httpx.HTTPError):
-        return type(exc).__name__
-    return str(exc) or type(exc).__name__
+    if isinstance(exc, LedgerlineError):
+        return str(exc) or type(exc).__name__
+    return type(exc).__name__
 
 
 @contextmanager

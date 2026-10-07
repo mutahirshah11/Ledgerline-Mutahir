@@ -119,7 +119,7 @@ def test_engine_atomic_write_keeps_previous(
     }
     run = memory_repo.get_run(extracted_run.id)
     assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.RECONCILE)
-    assert run.error_message == repr(RuntimeError("write failed on the last group"))
+    assert run.error_message == "internal error (RuntimeError)"
     assert memory_repo.get_group(extracted_run.id, "GRN:4419").outcome is Outcome.NEEDS_REVIEW
     assert len(memory_repo.list_audit(extracted_run.id)) == audit_before
     events = _oldest_first(memory_repo, extracted_run.id)
@@ -156,7 +156,7 @@ def test_engine_failure_after_replace_marks_run_failed(
     assert (run.status, run.failed_stage, run.error_message) == (
         RunStatus.FAILED,
         Stage.RECONCILE,
-        repr(error),
+        "internal error (RuntimeError)",
     )
     events = _oldest_first(memory_repo, extracted_run.id)
     assert [(e.stage, e.status) for e in events] == [
@@ -164,7 +164,7 @@ def test_engine_failure_after_replace_marks_run_failed(
         (Stage.PROOF, RunEventStatus.STARTED),
         (Stage.RECONCILE, RunEventStatus.FAILED),
     ]
-    assert events[-1].detail == {"error": repr(error)}
+    assert events[-1].detail == {"error": "internal error (RuntimeError)"}
     assert memory_repo.list_audit(extracted_run.id) == []
 
 
@@ -179,7 +179,7 @@ def test_engine_pipeline_error_marks_run_failed_at_reconcile(
     events_before = _oldest_first(memory_repo, extracted_run.id)
     audit_before = memory_repo.list_audit(extracted_run.id)
 
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="not a readable"):
         reconcile_run(memory_repo, replace(engine_inputs, sheet_bytes=b"not a zip"))
 
     after = _state(memory_repo, extracted_run.id)
@@ -190,7 +190,7 @@ def test_engine_pipeline_error_marks_run_failed_at_reconcile(
     assert (run.status, run.failed_stage, run.error_message) == (
         RunStatus.FAILED,
         Stage.RECONCILE,
-        repr(exc.value),
+        "internal error (ValueError)",
     )
     events = _oldest_first(memory_repo, extracted_run.id)
     assert events[: len(events_before)] == events_before
@@ -198,7 +198,7 @@ def test_engine_pipeline_error_marks_run_failed_at_reconcile(
         (Stage.RECONCILE, RunEventStatus.STARTED),
         (Stage.RECONCILE, RunEventStatus.FAILED),
     ]
-    assert events[-1].detail == {"error": repr(exc.value)}
+    assert events[-1].detail == {"error": "internal error (ValueError)"}
     assert memory_repo.list_audit(extracted_run.id) == audit_before
 
 

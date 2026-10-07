@@ -326,8 +326,8 @@ def _fail_on_proof(repo: Repo, log: _Log, run: Run, proof: Proof) -> None:
 def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> None:
     """The pipeline (step 2) or a write in steps 4 to 7 failed: log `reconcile/FAILED` and move
     the run to `FAILED` at stage `reconcile` if its current status allows (a run finalised
-    meanwhile stays put)."""
-    message = repr(exc)
+    meanwhile stays put). The stored text is the error's type name only (constitution VIII)."""
+    message = f"internal error ({type(exc).__name__})"
     log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
     current = repo.get_run(run_id)
     if can_transition(current.status, RunStatus.FAILED):
