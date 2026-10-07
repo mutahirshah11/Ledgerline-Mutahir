@@ -19,8 +19,8 @@ from app.routes import health, runs
 
 API_PREFIX = "/api/v1"
 
-PUBLIC_ROUTERS: tuple[APIRouter, ...] = ()
-"""No auth; EP-01 adds `health.public_router` here (T052)."""
+PUBLIC_ROUTERS: tuple[APIRouter, ...] = (health.public_router,)
+"""No auth: EP-01 `GET /health` (F-11.R7)."""
 
 PROTECTED_ROUTERS: tuple[APIRouter, ...] = (health.protected_router, runs.router)
 """Behind `PROTECTED_DEPENDENCIES`: EP-02 `/me`; EP-03 to EP-07 `runs`."""

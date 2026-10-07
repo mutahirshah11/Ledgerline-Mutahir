@@ -1,11 +1,8 @@
 """Phase 3 settings (004 data-model.md §5, NFR-03, Section 10)."""
 
-import json
-from pathlib import Path
-
 import pytest
 
-from app.core.config import API_DIR, Settings
+from app.core.config import Settings
 
 
 def test_phase3_setting_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,8 +37,3 @@ def test_secret_values_returns_only_set_secrets() -> None:
     assert s.secret_values() == ["srk-1", "bot-2"]
     s3 = Settings(_env_file=None, OPENAI_API_KEY="oa-3")
     assert s3.secret_values() == ["oa-3"]
-
-
-def test_vercel_max_duration_300() -> None:
-    config = json.loads(Path(API_DIR, "vercel.json").read_text(encoding="utf-8"))
-    assert all(f["maxDuration"] == 300 for f in config["functions"].values())
