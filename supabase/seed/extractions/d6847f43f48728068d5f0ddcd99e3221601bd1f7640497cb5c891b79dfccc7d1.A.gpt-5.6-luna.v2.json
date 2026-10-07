@@ -1,0 +1,874 @@
+{
+  "id": "0f4ad4cc-2858-4071-852b-d1e52f6b8d87",
+  "page_sha256": "d6847f43f48728068d5f0ddcd99e3221601bd1f7640497cb5c891b79dfccc7d1",
+  "read_variant": "A",
+  "model": "gpt-5.6-luna",
+  "prompt_version": "v2",
+  "result": {
+    "month_written": "Sep 2026",
+    "page_no_written": "1",
+    "table_top": 0.129,
+    "table_bottom": 0.839,
+    "blank_row_slots": 2,
+    "rows": [
+      {
+        "row_index": 1,
+        "cells": {
+          "date": {
+            "value": "01/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4401",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Qasr Pkg",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Cartons 5-ply",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-001",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "2000",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 2,
+        "cells": {
+          "date": {
+            "value": "01/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4402",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Taraz Poly",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Polybags 12x16",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-002",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "25000",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 3,
+        "cells": {
+          "date": {
+            "value": "02/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4403",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Zarnab Chem",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Caustic soda flakes",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-003",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "50",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "bags",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 4,
+        "cells": {
+          "date": {
+            "value": "03/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4404",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Rehbar Threads",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Thread cones 40/2",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-004",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "600",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "cones",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "S.A.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 5,
+        "cells": {
+          "date": {
+            "value": "04/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4405",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Saahil Pallets",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Wooden pallets",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-005",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "120",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "S.A.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 6,
+        "cells": {
+          "date": {
+            "value": "05/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4406",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Nayab Labels",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Woven labels",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-006",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "10000",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 7,
+        "cells": {
+          "date": {
+            "value": "07/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4407",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Qasr Pkg",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Cartons 3-ply",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-007",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "1500",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 8,
+        "cells": {
+          "date": {
+            "value": "07/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4408",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Zarnab Chem",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "H2O2 50%",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-008",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "40",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "drums",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "S.A.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 9,
+        "cells": {
+          "date": {
+            "value": "08/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4409",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Taraz Poly",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Stretch film",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-009",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "80",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "rolls",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 10,
+        "cells": {
+          "date": {
+            "value": "09/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4410",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Rehbar Threads",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Thread cones 20/2",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-010",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "450",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "cones",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "S.A.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 11,
+        "cells": {
+          "date": {
+            "value": "10/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4411",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Qasr Pkg",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Cartons 5-ply",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-011",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "1800",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 12,
+        "cells": {
+          "date": {
+            "value": "11/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4412",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Saahil Pallets",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Wooden pallets",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-012",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "90",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "S.A.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 13,
+        "cells": {
+          "date": {
+            "value": "11/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4413",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Nayab Labels",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Care labels",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-013",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "15000",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "pcs",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "B.H.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      },
+      {
+        "row_index": 14,
+        "cells": {
+          "date": {
+            "value": "12/09",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "grn_no": {
+            "value": "4414",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "supplier": {
+            "value": "Zarnab Chem",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "item": {
+            "value": "Soda ash",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "lot_no": {
+            "value": "L2609-014",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "qty": {
+            "value": "30",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "unit": {
+            "value": "bags",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          },
+          "recd_by": {
+            "value": "S.A.",
+            "status": "CLEAR",
+            "struck": null,
+            "candidates": [],
+            "note": null
+          }
+        }
+      }
+    ]
+  },
+  "input_tokens": 4726,
+  "output_tokens": 4169,
+  "latency_ms": 34924,
+  "created_at": "2026-10-15T08:30:00+05:00"
+}

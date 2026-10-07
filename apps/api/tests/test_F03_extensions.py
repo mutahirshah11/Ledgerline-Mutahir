@@ -193,7 +193,7 @@ def test_F03_E7_upstream_failed_two_argument_form_still_works() -> None:
 def test_F03_E6_extract_settings_defaults() -> None:
     settings = Settings()
     assert settings.EXTRACT_MODEL == "gpt-5.6-luna"
-    assert settings.PROMPT_VERSION == "v1"
+    assert settings.PROMPT_VERSION == "v3"
 
 
 def test_F03_E6_extract_retry_constants() -> None:

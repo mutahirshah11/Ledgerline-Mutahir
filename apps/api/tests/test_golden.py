@@ -482,7 +482,7 @@ def test_F03_golden_adapter_cache_source_uses_current_model_and_prompt_version(
     for the same image are ignored, and a cache holding only stale files has no current reads,
     so it skips (saying the reads are for another model/prompt version)."""
     current = Settings()
-    stale_version = current.model_copy(update={"PROMPT_VERSION": "v2"})
+    stale_version = current.model_copy(update={"PROMPT_VERSION": f"{current.PROMPT_VERSION}-stale"})
     stale_model = current.model_copy(update={"EXTRACT_MODEL": "other-model"})
     gt: PageReads = {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
     shorter: PageReads = {

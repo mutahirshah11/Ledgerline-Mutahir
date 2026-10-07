@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: SecretStr | None = None
     EXTRACT_MODEL: str = "gpt-5.6-luna"
-    PROMPT_VERSION: str = "v1"
+    PROMPT_VERSION: str = "v3"
     EXTRACT_PRICE_INPUT_PER_MTOK: Decimal | None = None
     EXTRACT_PRICE_OUTPUT_PER_MTOK: Decimal | None = None
 
