@@ -564,9 +564,10 @@ class MemoryRepo:
         return _copy(event)
 
     def list_run_events(self, run_id: UUID) -> list[RunEvent]:
-        events = [e for e in self._events if e.run_id == run_id]
-        events.sort(key=lambda e: e.at, reverse=True)  # stable: insertion order on ties
-        return [_copy(e) for e in events]
+        # at desc, then newest insertion first (C27: the Postgres `seq` desc)
+        events = [(e.at, i, e) for i, e in enumerate(self._events) if e.run_id == run_id]
+        events.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return [_copy(e) for _, _, e in events]
 
     # --- audit ---------------------------------------------------------------------------
 

@@ -1033,8 +1033,8 @@ def test_run_events_newest_first(repo: Repo) -> None:
     t1 = repo.add_run_event(make_event(run.id, at=at(2), stage=Stage.VALIDATE))
     t2 = repo.add_run_event(make_event(run.id, at=at(2), stage=Stage.EXTRACT))
     repo.add_run_event(make_event(other.id, at=at(9)))
-    # at desc, then insertion order for equal `at`
-    assert [e.id for e in repo.list_run_events(run.id)] == [e3.id, t1.id, t2.id, e1.id]
+    # at desc, then newest insertion first for equal `at` (C27 seq; a frozen clock ties all)
+    assert [e.id for e in repo.list_run_events(run.id)] == [e3.id, t2.id, t1.id, e1.id]
 
 
 def test_audit_append_assigns_increasing_ids(repo: Repo) -> None:
