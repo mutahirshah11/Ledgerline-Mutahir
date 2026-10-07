@@ -4,8 +4,7 @@ Alerts and health (US5, F-11.AC2, F-11.R4, F-11.R5, F-11.R7) land here first; an
 later adds the F-11.AC1 (scenario-clock timestamps) and F-11.AC4 (no secrets in logs) tests
 to this same module (T057) once logging and the full pipeline wiring exist. The stage-driven
 alert tests (`test_F11_AC2_*`, `test_F11_R4_retry_same_minute_no_second_alert`,
-`test_F11_R5_alert_failure_marks_run_and_health`) need EP-09/EP-10 and stay open for US4/US5;
-only the health-level view of F-11.R5 is tested here.
+`test_F11_R5_alert_failure_marks_run_and_health`) drive EP-09 under `EXTRACT_TIMEOUT` (US4).
 """
 
 from collections.abc import Iterator
@@ -252,3 +251,99 @@ def test_F11_R5_health_failing_when_alert_stuck_sending(
         resp = client.get("/api/v1/health")
     assert resp.status_code == 503
     assert resp.json()["telegram"] == "failing"
+
+
+# --- stage-driven alerts (US4: EP-09 under a fault; contracts/alerts.md) -------------------
+
+
+@pytest.fixture
+def telegram_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Every Telegram setting set (fake values), before the app is built."""
+    env = _telegram_settings()
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    get_settings.cache_clear()
+    return env
+
+
+@pytest.fixture
+def failing_extract(
+    telegram_env: dict[str, str],
+    faults_on: None,
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    pack_upload: Any,
+) -> Any:
+    """`failing_extract()`: EP-09 page 1 of a VALIDATED pack run (no cached reads) under
+    `EXTRACT_TIMEOUT`, backoff skipped; returns `(run_id, response)`. Call again with the run
+    id to retry it."""
+    from app.core.deps import get_extract_sleep, get_model_client
+    from tests.fakes.model_clients import ScriptedModelClient
+
+    overrides: dict[Any, Any] = client.app.dependency_overrides  # type: ignore[attr-defined]
+    overrides[get_model_client] = lambda: ScriptedModelClient()
+    overrides[get_extract_sleep] = lambda: lambda _s: None
+    headers = tokens["controller"]
+
+    def call(run_id: str | None = None) -> tuple[str, Any]:
+        if run_id is None:
+            run_id = pack_upload()["run"]["id"]
+            ok = client.post(f"/api/v1/runs/{run_id}/validate", headers=headers)
+            assert ok.status_code == 200, ok.text
+        resp = client.post(
+            f"/api/v1/runs/{run_id}/pages/1/extract",
+            params={"fault": "EXTRACT_TIMEOUT"},
+            headers=headers,
+        )
+        assert resp.status_code == 502, resp.text
+        return run_id, resp
+
+    return call
+
+
+def _alerts(repo: MemoryRepo, run_id: str) -> list[Any]:
+    from uuid import UUID
+
+    return [n for n in repo.list_notifications(UUID(run_id)) if n.kind is NotificationKind.ALERT]
+
+
+def test_F11_AC2_one_ops_alert_no_controller_message(
+    telegram_env: dict[str, str],
+    failing_extract: Any,
+    memory_repo: MemoryRepo,
+    notifier: Any,
+) -> None:
+    """F-11.AC2: a forced extraction failure sends one ops alert; the controller chat is never
+    messaged (F-11.R4)."""
+    run_id, _ = failing_extract()
+    assert [chat for chat, _ in notifier.attempted] == [telegram_env["TELEGRAM_OPS_CHAT_ID"]]
+    (alert,) = _alerts(memory_repo, run_id)
+    assert alert.status is NotificationStatus.SENT
+    assert "Stage: extract (page 1)" in notifier.sent[0][1]
+
+
+def test_F11_R4_retry_same_minute_no_second_alert(
+    failing_extract: Any, memory_repo: MemoryRepo, notifier: Any
+) -> None:
+    """F-11.R4: retrying the same failure in the same scenario minute adds no alert."""
+    run_id, _ = failing_extract()
+    failing_extract(run_id)  # retry: FAILED(extract) → EXTRACTING → FAILED again
+    assert len(_alerts(memory_repo, run_id)) == 1
+    assert len(notifier.attempted) == 1
+
+
+def test_F11_R5_alert_failure_marks_run_and_health(
+    failing_extract: Any, client: TestClient, memory_repo: MemoryRepo, notifier: Any
+) -> None:
+    """F-11.R5: Telegram down → the run's error_message records it and EP-01 says failing."""
+    from uuid import UUID
+
+    notifier.fail = True
+    run_id, _ = failing_extract()
+    (alert,) = _alerts(memory_repo, run_id)
+    assert alert.status is NotificationStatus.FAILED
+    message = memory_repo.get_run(UUID(run_id)).error_message
+    assert message is not None and "ops alert not delivered" in message
+    health = client.get("/api/v1/health")
+    assert health.json()["telegram"] == "failing"
+    assert health.status_code == 503

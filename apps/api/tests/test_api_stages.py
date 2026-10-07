@@ -459,3 +459,54 @@ def test_reconcile_writes_reconciled_audit(
     assert entry.after["groups"]["MATCHED"] == 21
     assert body["status"] == entry.after["status"]
     assert entry.after["open_review_items"] == body["open_review_items"]  # incl. CELL items
+
+
+# --- T053: every stage failure path alerts once, ops chat only ----------------------------
+
+
+def test_reconcile_write_failure_fails_at_reconcile_with_alert(
+    ops_chat: str,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    notifier: FakeNotifier,
+    extracted: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FM-08: a write failure mid-reconcile → `FAILED(reconcile)`, one ops alert; retryable."""
+
+    def broken(*_: Any, **__: Any) -> None:
+        raise ConnectionError("db went away")
+
+    monkeypatch.setattr(memory_repo, "replace_reconciliation", broken)
+    with pytest.raises(ConnectionError):  # TestClient re-raises; the app answers 500
+        reconcile(client, tokens["controller"], extracted)
+    run = memory_repo.get_run(UUID(extracted))
+    assert run.status is RunStatus.FAILED and run.failed_stage is Stage.RECONCILE
+    assert [chat for chat, _ in notifier.attempted] == [ops_chat]
+    assert "Stage: reconcile" in notifier.sent[0][1]
+    monkeypatch.undo()
+    retried = reconcile(client, tokens["ops"], extracted)  # FR-024: retryable
+    assert retried.status_code == 200 and retried.json()["status"] == "AWAITING_REVIEW"
+
+
+def test_extract_missing_page_blob_500_state_unchanged_one_alert(
+    ops_chat: str,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    memory_blobs: Any,
+    notifier: FakeNotifier,
+    validated: Callable[[], str],
+    cached: int,
+) -> None:
+    """Infrastructure failure (as EP-08): 500, run state unchanged, one ops alert."""
+    from app.core.storage import INPUTS_BUCKET
+
+    run_id = validated()
+    (page1,) = [f for f in memory_repo.list_source_files(UUID(run_id)) if f.page_no == 1]
+    memory_blobs.delete(INPUTS_BUCKET, page1.storage_path)
+    resp = extract(client, tokens["controller"], run_id, 1)
+    assert resp.status_code == 500 and _error(resp)["stage"] == "extract"
+    assert _status(memory_repo, run_id) is RunStatus.VALIDATED
+    assert [chat for chat, _ in notifier.attempted] == [ops_chat]
