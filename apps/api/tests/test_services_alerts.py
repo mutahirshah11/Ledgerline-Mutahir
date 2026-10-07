@@ -242,6 +242,20 @@ def test_F11_R5_failure_note_without_previous_message(
     assert memory_repo.get_run(RUN_ID).error_message == "ops alert not delivered (UPSTREAM_FAILED)"
 
 
+@pytest.mark.parametrize("status", [RunStatus.UPLOADED, RunStatus.VALIDATED])
+def test_F11_R5_failure_not_noted_on_run_not_failed(
+    memory_repo: MemoryRepo, settings: Settings, status: RunStatus
+) -> None:
+    """A stage that answered 500 with the run's state unchanged (e.g. inputs missing) keeps the
+    run's error_message empty: only a FAILED run carries the note; the notification records
+    the delivery failure (F-11.R5)."""
+    run = memory_repo.create_run(make_run(id=RUN_ID, status=status))
+    _alert(memory_repo, FakeNotifier(fail=True), run, settings)
+    (n,) = memory_repo.list_notifications(RUN_ID)
+    assert n.status is NotificationStatus.FAILED
+    assert memory_repo.get_run(RUN_ID).error_message is None
+
+
 def test_F11_R5_run_update_conflict_swallowed(settings: Settings) -> None:
     repo = _BrokenRepo(run_update_fails=True)
     run = _failed_run(repo)
