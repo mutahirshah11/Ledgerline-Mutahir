@@ -1,6 +1,6 @@
 -- =============================================================================================
 -- Ledgerline 0002_api_guards.sql: database guards for SupabaseRepo (Phase 3, research R12).
--- Additive only: one RPC, two trigger functions, two triggers. Apply after 0001_init.sql.
+-- Additive only: one RPC, three trigger functions, three triggers. Apply after 0001_init.sql.
 --
 --   1. upsert_review_items(p_run_id, p_items): Repo.upsert_review_items in one transaction.
 --      New item_keys are inserted OPEN; existing ones get only the refreshed columns (reason,
@@ -8,6 +8,8 @@
 --      is never overwritten (F-08.R1).
 --   2. proofs: no insert or update while the run is FINALISED (Repo.save_proof).
 --   3. source_files: no delete unless the run is CREATED (Repo.delete_source_file, FM-02).
+--   4. source_files: no insert unless the run is CREATED (Repo.add_source_file): EP-06 cannot
+--      add a file after EP-07 confirmed the set (F-01).
 --
 -- Errors (message prefix = API error code), mapped by SupabaseRepo:
 --   NOT_FOUND           (P0002) run does not exist                  → NotFound
@@ -169,5 +171,34 @@ create trigger source_files_delete_only_created
     before delete on source_files
     for each row execute function source_files_delete_only_created();
 
+
+
+-- ---------------------------------------------------------------------------------------------
+-- 4. source_files: files are added only while the run is CREATED (EP-06 racing EP-07)
+-- ---------------------------------------------------------------------------------------------
+create or replace function source_files_insert_only_created()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+    v_status run_status;
+begin
+    -- lock first, then check (see proofs_refuse_finalised_run): EP-07's move to UPLOADED
+    -- waits for this insert to commit, or this insert sees UPLOADED and is refused
+    select r.status into v_status from runs r where r.id = new.run_id for share;
+    if v_status is distinct from 'CREATED' then
+        raise exception 'RUN_STATE_CONFLICT: run % is not CREATED', new.run_id
+            using errcode = 'object_not_in_prerequisite_state';
+    end if;
+    return new;
+end;
+$$;
+
+create trigger source_files_insert_only_created
+    before insert on source_files
+    for each row execute function source_files_insert_only_created();
+
 revoke all on function proofs_refuse_finalised_run() from public, anon, authenticated;
 revoke all on function source_files_delete_only_created() from public, anon, authenticated;
+revoke all on function source_files_insert_only_created() from public, anon, authenticated;

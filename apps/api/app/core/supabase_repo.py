@@ -280,10 +280,17 @@ class SupabaseRepo:
         return rows[0] if rows else None
 
     def _insert(
-        self, table: str, item: M, missing: tuple[str, object] | None = None, key: str = "id"
+        self,
+        table: str,
+        item: M,
+        missing: tuple[str, object] | None = None,
+        key: str = "id",
+        *,
+        guarded_run: UUID | None = None,
     ) -> M:
         """Insert `item`. A retried insert that already landed (primary-key 23505 and the
-        stored row equals `item`) counts as success."""
+        stored row equals `item`) counts as success. With `guarded_run`, a 0002 trigger's
+        55000 is `StateConflict(run)`."""
         try:
             rows = self._send(lambda: self._table(table).insert(_json(item)))[0]
         except APIError as error:
@@ -294,6 +301,8 @@ class SupabaseRepo:
                 )
                 if stored == item:
                     return stored
+            if guarded_run is not None:
+                raise self._run_conflict(error, guarded_run) from None
             raise self._mapped(error, missing) from None
         return _model(type(item), rows[0])
 
@@ -450,7 +459,8 @@ class SupabaseRepo:
     # --- source files --------------------------------------------------------------------
 
     def add_source_file(self, file: SourceFile) -> SourceFile:
-        return self._insert("source_files", file, ("run", file.run_id))
+        """Only while the run is CREATED: the 0002 trigger refuses otherwise (55000)."""
+        return self._insert("source_files", file, ("run", file.run_id), guarded_run=file.run_id)
 
     def list_source_files(self, run_id: UUID, source: Source | None = None) -> list[SourceFile]:
         def build() -> Any:

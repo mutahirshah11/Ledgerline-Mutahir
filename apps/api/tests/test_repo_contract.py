@@ -390,6 +390,17 @@ def test_source_file_unique_run_sha(repo: Repo) -> None:
     assert len(repo.list_source_files(run.id)) == 1
 
 
+def test_source_file_add_only_while_created(repo: Repo) -> None:
+    """EP-06 racing EP-07: no file is added once the run left CREATED (0002 insert trigger)."""
+    run = _new_run(repo)
+    repo.add_source_file(make_file(run.id, sha256=sha(1)))
+    repo.transition_run(run.id, S.UPLOADED, expected={S.CREATED})
+    with pytest.raises(StateConflict) as exc:
+        repo.add_source_file(make_file(run.id, sha256=sha(2)))
+    assert exc.value.current.status is S.UPLOADED
+    assert len(repo.list_source_files(run.id)) == 1
+
+
 def test_source_files_list_confirm_delete(repo: Repo) -> None:
     run = _new_run(repo)
     erp = repo.add_source_file(make_file(run.id, sha256=sha(1)))

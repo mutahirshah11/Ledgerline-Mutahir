@@ -328,6 +328,18 @@ def test_save_proof_and_delete_file_map_trigger_conflict() -> None:
     assert exc.value.current.status is RunStatus.UPLOADED
 
 
+def test_add_source_file_maps_trigger_conflict() -> None:
+    """0002 `source_files_insert_only_created` (55000) → StateConflict(run)."""
+    from tests.factories import make_file
+
+    run = make_run()
+    uploaded = _run_row(id=run.id, status=RunStatus.UPLOADED)
+    repo, _ = _repo(_conflict("RUN_STATE_CONFLICT: run is not CREATED"), [uploaded])
+    with pytest.raises(StateConflict) as exc:
+        repo.add_source_file(make_file(run.id))
+    assert exc.value.current.status is RunStatus.UPLOADED
+
+
 def test_confirm_source_file_rejects_naive_datetime() -> None:
     from datetime import datetime
 

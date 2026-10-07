@@ -56,6 +56,7 @@ def test_run_state_triggers() -> None:
     for fn_name, table, event, state in (
         ("proofs_refuse_finalised_run", "proofs", "insert or update", "'finalised'"),
         ("source_files_delete_only_created", "source_files", "delete", "'created'"),
+        ("source_files_insert_only_created", "source_files", "insert", "'created'"),
     ):
         fn = _function(fn_name)
         assert "returns trigger" in fn and state in fn
@@ -85,3 +86,9 @@ def test_functions_executable_by_service_role_only() -> None:
     assert re.search(
         r"grant execute on function upsert_review_items\(uuid, ?jsonb\) to service_role;", text
     )
+    for trigger_fn in (
+        "proofs_refuse_finalised_run",
+        "source_files_delete_only_created",
+        "source_files_insert_only_created",
+    ):
+        assert f"revoke all on function {trigger_fn}() from public, anon, authenticated;" in text

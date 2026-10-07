@@ -242,7 +242,9 @@ class MemoryRepo:
     # --- source files --------------------------------------------------------------------
 
     def add_source_file(self, file: SourceFile) -> SourceFile:
-        self._run(file.run_id)
+        run = self._run(file.run_id)
+        if run.status is not RunStatus.CREATED:  # as the 0002 insert trigger
+            raise StateConflict(_copy(run))
         if file.id in self._files:
             raise UniqueViolation("source_files_pkey")
         key = (file.run_id, file.sha256)
