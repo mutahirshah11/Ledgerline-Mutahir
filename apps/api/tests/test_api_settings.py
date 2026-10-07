@@ -14,6 +14,7 @@ def test_phase3_setting_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (s.OPENAI_TIMEOUT_S, s.EXTRACT_ATTEMPTS, s.EXTRACT_BACKOFF_S) == (60, 3, (2, 8))
     assert (s.TELEGRAM_ATTEMPTS, s.TELEGRAM_BACKOFF_S, s.TELEGRAM_TIMEOUT_S) == (3, (1, 4), 10)
     assert (s.UPLOAD_WINDOW_S, s.DOWNLOAD_URL_S, s.JWKS_CACHE_S) == (600, 300, 600)
+    assert s.JWKS_MIN_REFETCH_S == 30
     assert s.REPO_BACKEND == "supabase"
 
 

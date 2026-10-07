@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     """Section 10 / C19: seconds a signed upload stays valid for EP-07."""
     DOWNLOAD_URL_S: int = 300
     JWKS_CACHE_S: int = 600
+    JWKS_MIN_REFETCH_S: int = 30
+    """F-12.R3: least seconds between JWKS refetches forced by an unknown `kid` or a failure."""
 
     REPO_BACKEND: RepoBackend = "supabase"
     """Tests select `memory`; anything else uses Supabase (004 data-model §5)."""

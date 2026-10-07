@@ -68,16 +68,19 @@ def make_token(
     kid: str = TEST_KID,
     key: Any = None,
     extra: dict[str, Any] | None = None,
+    omit: tuple[str, ...] = (),
 ) -> str:
-    """A signed access token like Supabase's. `email=None` omits the claim; `key` defaults to
-    the test key (pass another key, or an HS256 secret with `alg="HS256"`, for bad tokens)."""
+    """A signed access token like Supabase's. `email=None` omits the claim, as does naming any
+    claim in `omit`; `key` defaults to the test key (pass another key, or an HS256 secret with
+    `alg="HS256"`, for bad tokens); `alg="none"` gives an unsigned token."""
     claims: dict[str, Any] = {"iss": iss, "aud": aud, "exp": exp or TEST_EXP, "sub": "test-user"}
     if email is not None:
         claims["email"] = email
     claims |= extra or {}
-    return jwt.encode(
-        claims, key if key is not None else TEST_PRIVATE_KEY, algorithm=alg, headers={"kid": kid}
-    )
+    for name in omit:
+        claims.pop(name, None)
+    signing_key: Any = None if alg == "none" else key if key is not None else TEST_PRIVATE_KEY
+    return jwt.encode(claims, signing_key, algorithm=alg, headers={"kid": kid})
 
 
 def fake_jwks_fetcher(url: str = "") -> dict[str, Any]:

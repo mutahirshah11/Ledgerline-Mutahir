@@ -7,27 +7,38 @@ added later are covered automatically.
 
 import re
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 import httpx
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ec
-from fastapi import APIRouter, Depends
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
+from jwt.algorithms import RSAAlgorithm
 
-from app.core.auth import JwksCache, http_jwks_fetcher, require_role
+from app.core.auth import JwksCache, RoleGuard, current_user, http_jwks_fetcher, require_role
+from app.core.config import get_settings
 from app.core.errors import UpstreamFailed
 from app.core.memory_repo import MemoryRepo
 from app.domain.enums import Role, RunStatus, Stage
 from tests.conftest import SEEDED_USERS
 from tests.factories import make_run
-from tests.fakes.api import TEST_ISS, FakeJwksFetcher, make_token, public_jwk
+from tests.fakes.api import TEST_ISS, TEST_KID, FakeJwksFetcher, make_token, public_jwk
+from tests.support.routes import api_routes
 
 CTRL, REV, OPS = Role.CONTROLLER, Role.REVIEWER, Role.OPS
 
 OTHER_KEY = ec.generate_private_key(ec.SECP256R1())
+RSA_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+CONTROLLER_EMAIL = SEEDED_USERS["controller"][0]
+JWKS_URL = f"{TEST_ISS}/.well-known/jwks.json"
+
+
+def rsa_jwk(kid: str, alg: str | None = "RS256") -> dict[str, Any]:
+    jwk: dict[str, Any] = RSAAlgorithm.to_jwk(RSA_KEY.public_key(), as_dict=True)
+    return jwk | {"kid": kid, "use": "sig"} | ({"alg": alg} if alg else {})
 
 
 def _error(resp: Any) -> dict[str, Any]:
@@ -43,19 +54,20 @@ def _bearer(token: str) -> dict[str, str]:
 
 
 def test_F12_AC1_every_endpoint_requires_token(client: TestClient) -> None:
-    """The route table comes from the OpenAPI schema: FastAPI mounts included routers lazily,
-    so `app.routes` does not list them."""
-    paths: dict[str, dict[str, Any]] = client.app.openapi()["paths"]  # type: ignore[attr-defined]
-    routes = {p: ops for p, ops in paths.items() if p != "/api/v1/health"}
-    assert "/api/v1/me" in routes
-    assert all(p.startswith("/api/v1/") for p in routes)
-    for template, ops in routes.items():
-        path = template.replace("{page_no}", "1")
+    app: FastAPI = client.app  # type: ignore[assignment]
+    routes = [r for r in api_routes(app) if r.path != "/api/v1/health"]
+    paths = {r.path for r in routes}
+    assert routes and "/api/v1/me" in paths
+    assert set(app.openapi()["paths"]) - {"/api/v1/health"} <= paths
+    assert all(p.startswith("/api/v1/") for p in paths)
+    for route in routes:
+        path = route.path.replace("{page_no}", "1")
         path = re.sub(r"\{[^}]+\}", str(uuid4()), path)
-        for method in ops:
-            resp = client.request(method.upper(), path)
-            assert resp.status_code == 401, (method, template)
+        for method in sorted(route.methods):
+            resp = client.request(method, path)
+            assert resp.status_code == 401, (method, route.path)
             assert _error(resp)["code"] == "UNAUTHENTICATED"
+            assert resp.headers["WWW-Authenticate"] == "Bearer"
 
 
 def test_F12_AC2_unlisted_email_forbidden(
@@ -95,11 +107,26 @@ def test_F12_AC2_unlisted_email_forbidden(
             lambda: make_token(SEEDED_USERS["controller"][0], kid="nope"), id="unknown-kid"
         ),
         pytest.param(lambda: "not-a-jwt", id="garbage"),
+        pytest.param(lambda: make_token(CONTROLLER_EMAIL, alg="none"), id="alg-none"),
+        pytest.param(
+            lambda: make_token(CONTROLLER_EMAIL, alg="RS256", key=RSA_KEY, kid=TEST_KID),
+            id="RS256-header-EC-kid",
+        ),
+        pytest.param(lambda: make_token(CONTROLLER_EMAIL, omit=("exp",)), id="no-exp"),
+        pytest.param(
+            # the JWK for this kid declares RS256; the header says ES256
+            lambda: make_token(CONTROLLER_EMAIL, kid="rsa-declared"),
+            id="jwk-alg-differs",
+        ),
     ],
 )
-def test_F12_R3_rejects_bad_tokens(client: TestClient, token: Any) -> None:
+def test_F12_R3_rejects_bad_tokens(
+    client: TestClient, jwks_fetcher: FakeJwksFetcher, token: Any
+) -> None:
+    jwks_fetcher.keys = [public_jwk(), rsa_jwk("rsa"), rsa_jwk("rsa-declared")]
     resp = client.get("/api/v1/me", headers=_bearer(token()))
     assert resp.status_code == 401
+    assert resp.headers["WWW-Authenticate"] == "Bearer"
     assert _error(resp) == {
         "code": "UNAUTHENTICATED",
         "message": "Sign in again",
@@ -112,6 +139,32 @@ def test_F12_R3_non_bearer_header_401(client: TestClient) -> None:
     resp = client.get("/api/v1/me", headers={"Authorization": "Basic abc"})
     assert resp.status_code == 401
     assert _error(resp)["code"] == "UNAUTHENTICATED"
+
+
+def test_F12_R3_accepts_rs256(client: TestClient, jwks_fetcher: FakeJwksFetcher) -> None:
+    jwks_fetcher.keys = [public_jwk(), rsa_jwk("rsa")]
+    token = make_token(CONTROLLER_EMAIL, alg="RS256", key=RSA_KEY, kid="rsa")
+    resp = client.get("/api/v1/me", headers=_bearer(token))
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "CONTROLLER"
+
+
+def test_F12_R3_supabase_url_trailing_slash(
+    client: TestClient, tokens: dict[str, dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SUPABASE_URL", TEST_ISS.removesuffix("/auth/v1") + "/")
+    get_settings.cache_clear()
+    assert client.get("/api/v1/me", headers=tokens["controller"]).status_code == 200
+
+
+def test_F12_R3_supabase_url_unset_502(
+    client: TestClient, tokens: dict[str, dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SUPABASE_URL")
+    get_settings.cache_clear()
+    resp = client.get("/api/v1/me", headers=tokens["controller"])
+    assert resp.status_code == 502
+    assert _error(resp)["details"]["service"] == "supabase-auth"
 
 
 def test_F12_R3_email_case_insensitive(client: TestClient) -> None:
@@ -141,24 +194,83 @@ def test_F12_R3_unknown_kid_refetches_once(
     assert len(jwks_fetcher.calls) == 2
     assert client.get("/api/v1/me", headers=_bearer(rotated)).status_code == 200
     assert len(jwks_fetcher.calls) == 2
+    # a second unknown kid inside JWKS_MIN_REFETCH_S does not refetch (no DoS by bad kids)
     unknown = make_token(SEEDED_USERS["controller"][0], kid="never")
     assert client.get("/api/v1/me", headers=_bearer(unknown)).status_code == 401
-    assert len(jwks_fetcher.calls) == 3
+    assert len(jwks_fetcher.calls) == 2
+
+
+class Mono:
+    """A monotonic-clock stand-in the tests advance by hand."""
+
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
 
 
 def test_F12_R3_jwks_cache_expires_after_ttl() -> None:
-    t = [datetime(2026, 10, 15, tzinfo=UTC)]
+    mono = Mono()
     fetcher = FakeJwksFetcher()
-    cache = JwksCache(fetcher, ttl_s=600, now=lambda: t[0])
-    url = f"{TEST_ISS}/.well-known/jwks.json"
-    kid = public_jwk()["kid"]
-    assert cache.get_key(url, kid) is not None
-    t[0] += timedelta(seconds=599)
-    assert cache.get_key(url, kid) is not None
+    cache = JwksCache(fetcher, ttl_s=600, min_refetch_s=30, mono=mono)
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None
+    mono.t += 599
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None
     assert len(fetcher.calls) == 1
-    t[0] += timedelta(seconds=2)
-    assert cache.get_key(url, kid) is not None
+    mono.t += 2
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None
     assert len(fetcher.calls) == 2
+
+
+def test_F12_R3_unknown_kids_refetch_at_most_once_per_interval() -> None:
+    mono = Mono()
+    fetcher = FakeJwksFetcher()
+    cache = JwksCache(fetcher, ttl_s=600, min_refetch_s=30, mono=mono)
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None
+    assert cache.get_key(JWKS_URL, "unknown-a") is None
+    assert cache.get_key(JWKS_URL, "unknown-b") is None
+    assert len(fetcher.calls) == 2
+    mono.t += 29
+    assert cache.get_key(JWKS_URL, "unknown-c") is None
+    assert len(fetcher.calls) == 2
+    mono.t += 2
+    assert cache.get_key(JWKS_URL, "unknown-d") is None
+    assert len(fetcher.calls) == 3
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None
+    assert len(fetcher.calls) == 3
+
+
+def test_F12_R3_outage_costs_one_fetch_per_interval() -> None:
+    mono = Mono()
+    fetcher = FakeJwksFetcher(fail=UpstreamFailed("supabase-auth", "unreachable"))
+    cache = JwksCache(fetcher, ttl_s=600, min_refetch_s=30, mono=mono)
+    for _ in range(3):
+        with pytest.raises(UpstreamFailed):
+            cache.get_key(JWKS_URL, TEST_KID)
+    assert len(fetcher.calls) == 1
+    mono.t += 30
+    fetcher.fail = None
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None
+    assert len(fetcher.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        pytest.param(["not", "a", "dict"], id="not-a-dict"),
+        pytest.param({"keys": "nope"}, id="keys-not-a-list"),
+        pytest.param({"keys": [public_jwk() | {"kid": 7}]}, id="kid-not-a-str"),
+        pytest.param(
+            {"keys": [{k: v for k, v in public_jwk().items() if k != "kid"}]}, id="no-kid"
+        ),
+    ],
+)
+def test_F12_R3_bad_jwks_document_upstream_failed(doc: Any) -> None:
+    cache = JwksCache(lambda url: doc, ttl_s=600, min_refetch_s=30, mono=Mono())
+    with pytest.raises(UpstreamFailed) as info:
+        cache.get_key(JWKS_URL, TEST_KID)
+    assert info.value.service == "supabase-auth"
 
 
 def test_F12_R3_http_jwks_fetch_failure_upstream_failed() -> None:
@@ -272,6 +384,82 @@ def test_F12_R4_ops_retry_unknown_run_404(
     _stub_routes(client)
     resp = client.post(_url("/runs/{id}/validate", uuid4()), headers=tokens["ops"])
     assert resp.status_code == 404
+
+
+ALL_ROLES = frozenset(Role)
+
+STATIC_MATRIX: dict[tuple[str, str], tuple[frozenset[Role], bool]] = {
+    ("GET", "/me"): (ALL_ROLES, False),
+    **{(m, p): (frozenset(roles), retry) for _ep, m, p, roles, retry in ROLE_MATRIX},
+    # Phase 4 rows (contracts/auth.md), checked as soon as the routes exist
+    ("GET", "/runs/{id}/groups"): (ALL_ROLES, False),
+    ("GET", "/runs/{id}/flags"): (ALL_ROLES, False),
+    ("GET", "/runs/{id}/proof"): (ALL_ROLES, False),
+    ("GET", "/runs/{id}/review-items"): (ALL_ROLES, False),
+    ("POST", "/review-items/{id}/resolve"): (frozenset({CTRL, REV}), False),
+    ("GET", "/runs/{id}/pages/{page_no}/image"): (ALL_ROLES, False),
+    ("POST", "/runs/{id}/finalise"): (frozenset({CTRL}), False),
+    ("GET", "/runs/{id}/report"): (ALL_ROLES, False),
+}
+"""(method, path under /api/v1) -> (roles allowed, OPS retry when FAILED); EP-01 has no token."""
+
+
+def _shape(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", "{}", path)
+
+
+def guard_problems(app: FastAPI) -> list[str]:
+    """Every /api/v1 route must be in the matrix, depend on `current_user`, and carry the
+    `require_role` guard its row asks for (none needed when all roles are allowed)."""
+    matrix = {(m, "/api/v1" + _shape(p)): row for (m, p), row in STATIC_MATRIX.items()}
+    problems: list[str] = []
+    for route in api_routes(app):
+        if route.path == "/api/v1/health":
+            continue
+        calls = list(route.calls())
+        guards = {(c.allowed, c.ops_retry) for c in calls if isinstance(c, RoleGuard)}
+        for method in sorted(route.methods):
+            row = matrix.get((method, _shape(route.path)))
+            where = f"{method} {route.path}"
+            if row is None:
+                problems.append(f"{where}: not in the roles matrix")
+                continue
+            if current_user not in calls:
+                problems.append(f"{where}: no current_user")
+            if row == (ALL_ROLES, False) and guards <= {row}:
+                continue
+            if guards != {row}:
+                problems.append(f"{where}: guard {guards} != {row}")
+    return problems
+
+
+def test_F12_R4_routes_carry_matrix_guards(client: TestClient) -> None:
+    app: FastAPI = client.app  # type: ignore[assignment]
+    assert guard_problems(app) == []
+
+
+def test_F12_R4_guard_check_catches_missing_guard() -> None:
+    app = FastAPI()
+    router = APIRouter(prefix="/api/v1")
+    router.add_api_route("/runs", lambda: {}, methods=["POST"])  # EP-03 with no guard
+    router.add_api_route(
+        "/runs/{id}/validate",
+        lambda: {},
+        methods=["POST"],
+        dependencies=[Depends(require_role(CTRL))],  # OPS retry missing
+    )
+    router.add_api_route("/unlisted", lambda: {}, methods=["GET"])
+    app.include_router(router)
+    problems = guard_problems(app)
+    assert any(p.startswith("POST /api/v1/runs: no current_user") for p in problems)
+    assert any(p.startswith("POST /api/v1/runs: guard") for p in problems)
+    assert any(p.startswith("POST /api/v1/runs/{id}/validate: guard") for p in problems)
+    assert any(p.startswith("GET /api/v1/unlisted: not in") for p in problems)
+
+
+def test_F12_R4_require_role_exposes_its_rule() -> None:
+    guard = require_role(CTRL, ops_retry=True)
+    assert (guard.allowed, guard.ops_retry) == (frozenset({CTRL}), True)
 
 
 # --- EP-02 -------------------------------------------------------------------------------

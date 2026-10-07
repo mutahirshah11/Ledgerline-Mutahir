@@ -128,7 +128,9 @@ def error_response(err: ApiError) -> JSONResponse:
             "details": err.details,
         }
     }
-    return JSONResponse(status_code=err.http_status, content=body)
+    # RFC 6750: a 401 names the scheme the client must use.
+    headers = {"WWW-Authenticate": "Bearer"} if err.http_status == 401 else None
+    return JSONResponse(status_code=err.http_status, content=body, headers=headers)
 
 
 def _field(current: Any, name: str) -> Any:

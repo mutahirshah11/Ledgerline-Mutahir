@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
@@ -24,11 +23,14 @@ def test_app_object_is_fastapi() -> None:
 
 def test_app_routes_live_under_api_v1() -> None:
     """Phase 0 had no product routes; from Phase 3 (T025) every one is under `/api/v1`.
-    Included routers are mounted lazily, so the paths come from the OpenAPI schema."""
+    Included routers are mounted lazily, so the table comes from their effective routes."""
     from app.main import API_PREFIX, app
+    from tests.support.routes import api_routes
 
-    assert not [r for r in app.routes if isinstance(r, APIRoute)]
-    assert all(p.startswith(f"{API_PREFIX}/") for p in app.openapi()["paths"])
+    paths = {r.path for r in api_routes(app)}
+    assert paths and f"{API_PREFIX}/me" in paths
+    assert set(app.openapi()["paths"]) <= paths
+    assert all(p.startswith(f"{API_PREFIX}/") for p in paths)
 
 
 def test_pack_files_unchanged(pack_dir: Path) -> None:
