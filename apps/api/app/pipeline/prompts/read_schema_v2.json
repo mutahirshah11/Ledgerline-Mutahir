@@ -1,0 +1,54 @@
+{
+  "$comment": "Strict Structured Outputs schema for ONE model read of ONE register page (F-03.R4). Shipped verbatim as apps/api/app/pipeline/prompts/read_schema_v1.json. Strict-mode subset only: every property required, additionalProperties false, nullable via type arrays, no if/then/allOf/pattern/bounds. Ranges and cell invariants are enforced by the PageRead model after parsing (data-model.md Section 1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["month_written", "page_no_written", "table_top", "table_bottom", "blank_row_slots", "rows"],
+  "properties": {
+    "month_written": { "type": ["string", "null"], "description": "Month exactly as handwritten in the header, e.g. 'Sep 2026'" },
+    "page_no_written": { "type": ["string", "null"], "description": "Page number exactly as handwritten, e.g. '2'" },
+    "table_top": { "type": ["number", "null"], "description": "Top edge of printed data row slot 1 as a fraction of image height (0 to 1); excludes the header row" },
+    "table_bottom": { "type": ["number", "null"], "description": "Bottom edge of printed data row slot 16 as a fraction of image height (0 to 1)" },
+    "blank_row_slots": { "type": "integer", "description": "Number of printed row slots with nothing written in them" },
+    "rows": {
+      "type": "array",
+      "description": "One entry per row slot that has anything written in it, in slot order",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["row_index", "cells"],
+        "properties": {
+          "row_index": { "type": "integer", "description": "Printed slot number counted from 1 at the top" },
+          "cells": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["date", "grn_no", "supplier", "item", "lot_no", "qty", "unit", "recd_by"],
+            "properties": {
+              "date": { "$ref": "#/$defs/cell" },
+              "grn_no": { "$ref": "#/$defs/cell" },
+              "supplier": { "$ref": "#/$defs/cell" },
+              "item": { "$ref": "#/$defs/cell" },
+              "lot_no": { "$ref": "#/$defs/cell" },
+              "qty": { "$ref": "#/$defs/cell" },
+              "unit": { "$ref": "#/$defs/cell" },
+              "recd_by": { "$ref": "#/$defs/cell" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "status", "struck", "candidates", "note"],
+      "properties": {
+        "value": { "type": ["string", "null"], "description": "Exactly what is written; null when blank, ILLEGIBLE or UNCLEAR" },
+        "status": { "type": "string", "enum": ["CLEAR", "UNCLEAR", "CORRECTED", "ILLEGIBLE"] },
+        "struck": { "type": ["string", "null"], "description": "Struck-through value; only when status is CORRECTED" },
+        "candidates": { "type": "array", "items": { "type": "string" }, "description": "Possible readings; only when status is UNCLEAR" },
+        "note": { "type": ["string", "null"], "description": "What you see, e.g. 'ink blot', 'overwritten', 'leading 2 visible, rest covered'" }
+      }
+    }
+  }
+}

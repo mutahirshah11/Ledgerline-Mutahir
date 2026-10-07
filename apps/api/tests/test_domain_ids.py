@@ -135,3 +135,12 @@ def test_parse_month_valid() -> None:
 def test_parse_month_invalid_raises(month: str) -> None:
     with pytest.raises(ValueError, match="month"):
         ids.parse_month(month)
+
+
+def test_F03_cache_file_name_in_ids() -> None:
+    from app.domain.enums import ReadVariant
+    from app.pipeline import extract
+
+    sha = "ab" * 32
+    assert ids.cache_file_name(sha, ReadVariant.A, "m-1", "v1") == f"{sha}.A.m-1.v1.json"
+    assert extract.cache_file_name is ids.cache_file_name  # contract §5 name still works

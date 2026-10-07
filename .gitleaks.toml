@@ -7,4 +7,6 @@ description = "Hex digests in test fixtures are not secrets"
 paths = [
   '''apps/api/tests/pack_hashes\.json''',
   '''apps/api/tests/ground_truth/.*\.json''',
+  # Cached model reads (research R10): each record names its page image by SHA-256 hex digest.
+  '''supabase/seed/extractions/.*\.json''',
 ]

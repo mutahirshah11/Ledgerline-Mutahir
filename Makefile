@@ -3,7 +3,7 @@
 API := apps/api
 WEB := apps/web
 
-.PHONY: setup dev test lint seed
+.PHONY: setup dev test lint seed eval
 
 setup:
 	cd $(API) && uv sync
@@ -16,7 +16,7 @@ dev:
 
 # Same checks as CI (.github/workflows/ci.yml). lint also runs tsc, which CI covers via pnpm build.
 test:
-	cd $(API) && uv run pytest -m "not integration"
+	cd $(API) && uv run pytest -m "not integration and not live"
 
 lint:
 	cd $(API) && uv run ruff check
@@ -27,3 +27,8 @@ lint:
 
 seed:
 	cd $(API) && uv run python -m scripts.seed_users $(BUILDER_EMAIL)
+
+# Extraction eval (003 research R11): offline on the committed reads by default.
+# Pass flags with ARGS, e.g. make eval ARGS="--live --pages 1 --price-in 1.25 --price-out 10".
+eval:
+	cd $(API) && uv run python -m scripts.eval_extraction $(ARGS)

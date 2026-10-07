@@ -1,9 +1,13 @@
 """Golden expectations GE-01 to GE-12 and the Section 8 counts on the full engine (blueprint
 Section 8, Section 28; spec US5, FR-036). Every assertion reads what `reconcile_run` stored in a
-MemoryRepo, with the ground truth as the register reads. The reconciled runs are shared per module
-because these tests only read them."""
+MemoryRepo. The register reads come from two sources (003 FR-035, research R12): `ground_truth`
+(the ground-truth pages as both reads) and `cache` (the committed real reads in
+`supabase/seed/extractions/` for the current `EXTRACT_MODEL` and `PROMPT_VERSION`, read and
+merged by the real `extract_page`); every expectation must hold for both.
+The reconciled runs are shared per module and source because these tests only read them."""
 
 from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -12,6 +16,8 @@ from pathlib import Path
 import pytest
 
 from app.core.clock import KARACHI
+from app.core.config import Settings
+from app.core.errors import PageUnreadable
 from app.core.memory_repo import MemoryRepo
 from app.domain.enums import (
     CellStatus,
@@ -21,14 +27,30 @@ from app.domain.enums import (
     Outcome,
     ProofStatus,
     RegisterField,
+    ReviewReason,
+    ReviewStatus,
     RunStatus,
     Source,
 )
-from app.domain.models import Group
+from app.domain.ids import register_row_id
+from app.domain.models import Cell, Group, PageRead, ReviewItem
 from app.pipeline.engine import EngineInputs, PipelineResult, reconcile_run
+from app.pipeline.extract import merge_reads
+from app.pipeline.proof import register_counts
 from tests.factories import make_run
+from tests.support.extracted import (
+    PageReads,
+    build_engine_inputs_from_pages,
+    build_engine_inputs_from_reads,
+    cached_pack_pages,
+    cached_pack_reads,
+    committed_read_files,
+    ground_truth_read,
+    require_committed_reads,
+)
 from tests.support.normalised import PACK_RUN_ID
-from tests.support.pack import build_engine_inputs, resolved_cell
+from tests.support.pack import PAGES, build_engine_inputs, resolved_cell
+from tests.support.pack_pages import hermetic_settings_context, write_cache_files
 
 NOW = datetime(2026, 10, 15, 8, 30, tzinfo=KARACHI)
 REG, ERP, SHEET = Source.REGISTER, Source.ERP, Source.SHEET
@@ -55,26 +77,58 @@ def _extracted_repo() -> MemoryRepo:
     return repo
 
 
+InputsFor = Callable[[Sequence[ReviewItem]], EngineInputs]
+"""Engine inputs for the pack from one register-read source, given the review decisions."""
+
+READ_SOURCES = ["ground_truth", "cache"]
+
+
+@pytest.fixture(scope="module", params=READ_SOURCES)
+def inputs_for(
+    request: pytest.FixtureRequest, pack_dir: Path, ground_truth_dir: Path, cached_reads_dir: Path
+) -> InputsFor:
+    """FR-035 / research R12: the register input from the ground truth or the committed cache.
+    `cache` fails when no read is committed for the current model and prompt version (T042)."""
+    if request.param == "ground_truth":
+        return lambda decisions: build_engine_inputs(
+            pack_dir, ground_truth_dir, PACK_RUN_ID, decisions
+        )
+    with hermetic_settings_context():  # module scope: runs before the autouse fixture
+        require_committed_reads(cached_reads_dir)  # T042: fail, never skip
+        pages = cached_pack_pages(cached_reads_dir, pack_dir, PACK_RUN_ID)
+    return lambda decisions: build_engine_inputs_from_pages(pack_dir, pages, PACK_RUN_ID, decisions)
+
+
+AFTER_REVIEW = [
+    resolved_cell(PACK_RUN_ID, "REG-p2-r05", RegisterField.QTY, "66"),
+    resolved_cell(PACK_RUN_ID, "REG-p2-r14", RegisterField.QTY, "250"),
+]
+"""4419 → 66 and 4428 → 250 RESOLVED (GE-06, GE-09)."""
+
+
+def _reconcile_before(inputs_for: InputsFor) -> Reconciled:
+    repo = _extracted_repo()
+    inputs = inputs_for([])
+    return Reconciled(repo, inputs, reconcile_run(repo, inputs, now=lambda: NOW))
+
+
+def _reconcile_after(inputs_for: InputsFor) -> Reconciled:
+    repo = _extracted_repo()
+    reconcile_run(repo, inputs_for([]), now=lambda: NOW)
+    inputs = inputs_for(AFTER_REVIEW)
+    return Reconciled(repo, inputs, reconcile_run(repo, inputs, now=lambda: NOW))
+
+
 @pytest.fixture(scope="module")
-def before(pack_dir: Path, ground_truth_dir: Path) -> Reconciled:
+def before(inputs_for: InputsFor) -> Reconciled:
     """The pack reconciled once, no review decisions."""
-    repo = _extracted_repo()
-    inputs = build_engine_inputs(pack_dir, ground_truth_dir, PACK_RUN_ID)
-    return Reconciled(repo, inputs, reconcile_run(repo, inputs, now=lambda: NOW))
+    return _reconcile_before(inputs_for)
 
 
 @pytest.fixture(scope="module")
-def after(pack_dir: Path, ground_truth_dir: Path) -> Reconciled:
+def after(inputs_for: InputsFor) -> Reconciled:
     """The pack reconciled, then re-reconciled with 4419 → 66 and 4428 → 250 RESOLVED."""
-    repo = _extracted_repo()
-    first = build_engine_inputs(pack_dir, ground_truth_dir, PACK_RUN_ID)
-    reconcile_run(repo, first, now=lambda: NOW)
-    decisions = [
-        resolved_cell(PACK_RUN_ID, "REG-p2-r05", RegisterField.QTY, "66"),
-        resolved_cell(PACK_RUN_ID, "REG-p2-r14", RegisterField.QTY, "250"),
-    ]
-    inputs = build_engine_inputs(pack_dir, ground_truth_dir, PACK_RUN_ID, decisions)
-    return Reconciled(repo, inputs, reconcile_run(repo, inputs, now=lambda: NOW))
+    return _reconcile_after(inputs_for)
 
 
 def _diff_fields(group: Group) -> list[tuple[ComparedField, Source | None]]:
@@ -293,3 +347,156 @@ def test_not_a_problem_items_unflagged(before: Reconciled) -> None:
     assert all(d.field is not None for g in before.repo.list_groups(PACK_RUN_ID) for d in g.diffs)
     bundles_erp = before.repo.get_source_row(PACK_RUN_ID, "ERP-0027")
     assert bundles_erp.item == "POLYBAGS 12X16 (BUNDLES)"
+
+
+# --- F-03 golden adapter (003 FR-035): the cache path, proven offline on the ground truth -
+
+
+def _stored_state(r: Reconciled) -> tuple[object, ...]:
+    """Everything the golden tests read: counts, proof and run status, groups, rows, flags and
+    review items."""
+    proof = r.repo.get_proof(PACK_RUN_ID)
+    assert proof is not None
+    groups = sorted(
+        (g.group_key, g.model_dump_json(exclude={"id"})) for g in r.repo.list_groups(PACK_RUN_ID)
+    )
+    rows = sorted(
+        (row.source_row_id, row.model_dump_json()) for row in r.repo.list_source_rows(PACK_RUN_ID)
+    )
+    flags = sorted(f.model_dump_json(exclude={"id"}) for f in r.repo.list_flags(PACK_RUN_ID))
+    items = sorted(
+        (i.item_key, i.model_dump_json(exclude={"id"}))
+        for i in r.repo.list_review_items(PACK_RUN_ID)
+    )
+    status = r.repo.get_run(PACK_RUN_ID).status
+    return (r.result.counts, proof.status, status, groups, rows, flags, items)
+
+
+def _self_merged(pack_dir: Path, ground_truth_dir: Path) -> InputsFor:
+    """The `cache` code path (replay files → `extract_page`) fed the ground truth as both reads
+    (F-03.R7)."""
+    reads: PageReads = {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
+    return lambda decisions: build_engine_inputs_from_reads(pack_dir, reads, PACK_RUN_ID, decisions)
+
+
+def test_F03_golden_adapter_ground_truth_matches_direct(
+    pack_dir: Path, ground_truth_dir: Path
+) -> None:
+    """The cache path (replay files → `extract_page` → `MergedPage` → `RegisterPageInput` plus
+    its review items) on the ground truth stores exactly what the `ground_truth` source stores,
+    before and after review: evidence the adapter is wired correctly before real reads exist."""
+
+    def direct(decisions: Sequence[ReviewItem]) -> EngineInputs:
+        return build_engine_inputs(pack_dir, ground_truth_dir, PACK_RUN_ID, decisions)
+
+    adapted = _self_merged(pack_dir, ground_truth_dir)
+    adapted_before = _reconcile_before(adapted)
+    assert _stored_state(adapted_before) == _stored_state(_reconcile_before(direct))
+    assert _stored_state(_reconcile_after(adapted)) == _stored_state(_reconcile_after(direct))
+    # The adapter carries the extraction's review items as decisions, like a real run.
+    decisions = adapted_before.inputs.decisions
+    open_items = {
+        (d.source_row_id, d.field, d.reason) for d in decisions if d.status is ReviewStatus.OPEN
+    }
+    assert ("REG-p2-r05", "qty", ReviewReason.CORRECTED) in open_items
+    assert ("REG-p2-r14", "qty", ReviewReason.ILLEGIBLE) in open_items
+    # Identical reads: no row is seen by one read only.
+    assert all(d.reason is not ReviewReason.ROW_IN_ONE_READ for d in decisions)
+
+
+def test_F03_golden_adapter_maps_per_read_counts_and_one_read_rows(
+    pack_dir: Path, ground_truth_dir: Path
+) -> None:
+    """MergedPage `blank_row_slots_a/b`, `row_count_a/b` map to RegisterPageInput
+    `blank_slots_a/b`, `row_count_a/b`; a row seen by read A only carries a `ROW_IN_ONE_READ`
+    item, so C3 passes and its group is `NEEDS_REVIEW` (blueprint C23)."""
+    gt1 = ground_truth_read(ground_truth_dir, 1)
+    last = gt1.rows[-1]
+    shorter = gt1.model_copy(
+        update={"rows": gt1.rows[:-1], "blank_row_slots": gt1.blank_row_slots + 1}
+    )
+    reads: PageReads = {1: (gt1, shorter), 2: (ground_truth_read(ground_truth_dir, 2),) * 2}
+    inputs = build_engine_inputs_from_reads(pack_dir, reads, PACK_RUN_ID, [])
+
+    (page1,) = [p for p in inputs.register_pages if p.page_no == 1]
+    assert (page1.row_count_a, page1.row_count_b) == (len(gt1.rows), len(gt1.rows) - 1)
+    assert (page1.blank_slots_a, page1.blank_slots_b) == (
+        gt1.blank_row_slots,
+        gt1.blank_row_slots + 1,
+    )
+    assert page1.page_sha256 is not None
+    assert register_counts(inputs.register_pages)[1] == []
+
+    row_id = register_row_id(1, last.row_index)
+    one_read = [d for d in inputs.decisions if d.reason is ReviewReason.ROW_IN_ONE_READ]
+    assert [d.source_row_id for d in one_read] == [row_id]
+
+    repo = _extracted_repo()
+    reconcile_run(repo, inputs, now=lambda: NOW)
+    proof = repo.get_proof(PACK_RUN_ID)
+    assert proof is not None
+    assert proof.status is ProofStatus.PASS
+    (group,) = [
+        g for g in repo.list_groups(PACK_RUN_ID) if row_id in g.row_ids.get(Source.REGISTER, [])
+    ]
+    assert group.outcome is Outcome.NEEDS_REVIEW
+
+
+def test_F03_golden_adapter_rejects_unreadable_page(pack_dir: Path, ground_truth_dir: Path) -> None:
+    """The cache path goes through `extract_page`, so FM-06 applies: a page whose reads are all
+    ILLEGIBLE raises `PageUnreadable` instead of reaching the engine."""
+    gt1 = ground_truth_read(ground_truth_dir, 1)
+    blot = Cell(value=None, status=CellStatus.ILLEGIBLE)
+    rows = [r.model_copy(update={"cells": dict.fromkeys(RegisterField, blot)}) for r in gt1.rows]
+    unreadable = gt1.model_copy(update={"rows": rows})
+    reads: PageReads = {1: (unreadable,) * 2, 2: (ground_truth_read(ground_truth_dir, 2),) * 2}
+    with pytest.raises(PageUnreadable):
+        build_engine_inputs_from_reads(pack_dir, reads, PACK_RUN_ID, [])
+
+
+def test_F03_golden_adapter_cache_source_reads_files_by_image_sha(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path
+) -> None:
+    """`cached_pack_reads` finds each page's read A and B by the image's SHA-256 in files named
+    `{sha}.{variant}.{model}.{prompt_version}.json` (research R10); `.gitkeep` is not a read."""
+    (tmp_path / ".gitkeep").write_text("")
+    assert committed_read_files(tmp_path) == []
+    want: dict[int, tuple[PageRead, PageRead]] = {}
+    for p in PAGES:
+        gt = ground_truth_read(ground_truth_dir, p)
+        b = gt.model_copy(update={"rows": gt.rows[1:], "blank_row_slots": gt.blank_row_slots + 1})
+        want[p] = (gt, b)
+    write_cache_files(tmp_path, pack_dir, want, Settings())
+    assert len(committed_read_files(tmp_path)) == 4
+    assert cached_pack_reads(tmp_path, pack_dir) == want
+
+
+def test_F03_golden_adapter_cache_source_uses_current_model_and_prompt_version(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path
+) -> None:
+    """The cache source reads exactly what a real run reads: files for the current
+    `EXTRACT_MODEL` and `PROMPT_VERSION` only. Stale files (another prompt version or model)
+    for the same image are ignored, and a cache holding only stale files has no current reads,
+    so the gating fails (T042, `require_committed_reads`)."""
+    current = Settings()
+    stale_version = current.model_copy(update={"PROMPT_VERSION": f"{current.PROMPT_VERSION}-stale"})
+    stale_model = current.model_copy(update={"EXTRACT_MODEL": "other-model"})
+    gt: PageReads = {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
+    shorter: PageReads = {
+        p: (a.model_copy(update={"rows": a.rows[1:], "blank_row_slots": a.blank_row_slots + 1}),)
+        * 2
+        for p, (a, _) in gt.items()
+    }
+    write_cache_files(tmp_path, pack_dir, shorter, stale_version)
+    write_cache_files(tmp_path, pack_dir, shorter, stale_model)
+    assert committed_read_files(tmp_path) == []
+
+    write_cache_files(tmp_path, pack_dir, gt, current)
+    assert len(list(tmp_path.glob("*.json"))) == 12
+    assert len(committed_read_files(tmp_path)) == 4
+    assert cached_pack_reads(tmp_path, pack_dir) == gt
+    pages = cached_pack_pages(tmp_path, pack_dir, PACK_RUN_ID)
+    assert {p: r.page.rows for p, r in pages.items()} == {
+        p: merge_reads(a, b, page_no=p, page_sha256=pages[p].page.page_sha256).rows
+        for p, (a, b) in gt.items()
+    }
