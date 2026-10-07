@@ -37,7 +37,15 @@ def test_upsert_review_items_rpc() -> None:
     conflict = re.search(r"on conflict ?\(run_id, ?item_key\) do update set (.*?);", fn)
     assert conflict, "upsert on the natural key"
     refreshed = set(re.findall(r"(\w+) = excluded\.\w+", conflict.group(1)))
-    assert refreshed == {"reason", "read_a", "read_b", "context", "grn_no", "source_row_id", "field"}
+    assert refreshed == {
+        "reason",
+        "read_a",
+        "read_b",
+        "context",
+        "grn_no",
+        "source_row_id",
+        "field",
+    }
     assert "'open'" in fn  # new items start OPEN
     assert "errcode = 'no_data_found'" in fn  # NOT_FOUND for a missing run
     assert "constraint = 'review_items_run_item_key_uq'" in fn  # batch repeats: 23505
@@ -51,6 +59,14 @@ def test_run_state_triggers() -> None:
     ):
         fn = _function(fn_name)
         assert "returns trigger" in fn and state in fn
+        # lock the run row unconditionally, then check: a status filter in the locking
+        # query would skip the lock exactly when the write is allowed
+        row = "old" if event == "delete" else "new"
+        assert re.search(
+            rf"select r\.status into v_status from runs r where r\.id = {row}\.run_id for share;",
+            fn,
+        ), fn_name
+        assert not re.search(r"where[^;]*status[^;]*for share", fn), fn_name
         assert "errcode = 'object_not_in_prerequisite_state'" in fn  # 55000 → StateConflict
         assert re.search(
             rf"create trigger \w+ before {event} on {table} for each row "

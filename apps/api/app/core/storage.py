@@ -129,9 +129,10 @@ class SupabaseBlobStore:
 
     `inputs` writes upsert; `reports` writes never do, so Storage itself refuses an existing
     path (409 → `UniqueViolation`, F-09.R5); a 409 after a retry whose stored bytes equal ours
-    is our own earlier attempt, so success. Signed upload URLs never upsert: `request_uploads`
-    deletes a stale object before it issues a link again. Supabase fixes signed upload URLs at
-    2 hours, so `signed_upload_url` ignores `expires_s`; EP-07 enforces the upload window (C19).
+    is our own earlier attempt, so success. Signed upload URLs never upsert:
+    `request_uploads` deletes an existing object at the path before issuing a link. Supabase
+    fixes signed upload URLs at 2 hours, so `signed_upload_url` ignores `expires_s`; EP-07
+    enforces the upload window (C19).
     """
 
     def __init__(

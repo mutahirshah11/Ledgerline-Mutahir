@@ -56,11 +56,11 @@ def load_test_project(env_test: Path = ENV_TEST, env_dev: Path = ENV_DEV) -> Sup
     return SupabaseTestProject(settings, ref)
 
 
-def _rpc(client: Any, name: str) -> Any:
+def _rpc(client: Any, name: str, params: dict[str, Any] | None = None) -> Any:
     from postgrest.exceptions import APIError
 
     try:
-        return client.rpc(name, {}).execute().data
+        return client.rpc(name, params or {}).execute().data
     except APIError as error:
         if error.code in ("PGRST202", "42883"):  # function not found
             pytest.skip(f"integration: apply {RESET_SQL} to the TEST project first")
@@ -76,4 +76,4 @@ def guard_test_project(client: Any, ref: str) -> None:
 def reset_test_project(client: Any, ref: str) -> None:
     """Empty every table (test project only), so each contract test starts fresh."""
     guard_test_project(client, ref)
-    _rpc(client, "ledgerline_test_reset")
+    _rpc(client, "ledgerline_test_reset", {"p_ref": ref})  # the database re-checks the ref

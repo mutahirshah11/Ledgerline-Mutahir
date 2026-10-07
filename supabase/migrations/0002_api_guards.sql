@@ -124,10 +124,14 @@ returns trigger
 language plpgsql
 set search_path = public, pg_temp
 as $$
+declare
+    v_status run_status;
 begin
-    -- share-lock the run: a concurrent finalise waits for this write, or this write sees it
-    perform 1 from runs r where r.id = new.run_id and r.status = 'FINALISED' for share;
-    if found then
+    -- share-lock the run row first, whatever its status (a status filter in this query would
+    -- skip the lock exactly when the write is allowed); a concurrent finalise then waits for
+    -- this transaction, and the status read below is the one that holds until commit
+    select r.status into v_status from runs r where r.id = new.run_id for share;
+    if v_status = 'FINALISED' then
         raise exception 'RUN_STATE_CONFLICT: run % is FINALISED', new.run_id
             using errcode = 'object_not_in_prerequisite_state';
     end if;
@@ -148,9 +152,12 @@ returns trigger
 language plpgsql
 set search_path = public, pg_temp
 as $$
+declare
+    v_status run_status;
 begin
-    perform 1 from runs r where r.id = old.run_id and r.status <> 'CREATED' for share;
-    if found then
+    -- lock first, then check (see proofs_refuse_finalised_run)
+    select r.status into v_status from runs r where r.id = old.run_id for share;
+    if v_status is distinct from 'CREATED' then
         raise exception 'RUN_STATE_CONFLICT: run % is not CREATED', old.run_id
             using errcode = 'object_not_in_prerequisite_state';
     end if;

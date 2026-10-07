@@ -63,3 +63,28 @@ def test_guard_compares_the_marked_ref() -> None:
     guard_test_project(_Rpc("testref"), "testref")
     with pytest.raises(pytest.fail.Exception):
         guard_test_project(_Rpc("devref"), "testref")
+
+
+class _Recorder:
+    """Answers `ledgerline_test_project` with a ref and records every rpc call."""
+
+    def __init__(self, ref: str) -> None:
+        self.ref = ref
+        self.calls: list[tuple[str, dict[str, object]]] = []
+        self.data: object = None
+
+    def rpc(self, name: str, params: dict[str, object]) -> "_Recorder":
+        self.calls.append((name, params))
+        self.data = self.ref if name == "ledgerline_test_project" else None
+        return self
+
+    def execute(self) -> "_Recorder":
+        return self
+
+
+def test_reset_passes_the_ref_to_the_database() -> None:
+    from tests.support.supabase_project import reset_test_project
+
+    client = _Recorder("testref")
+    reset_test_project(client, "testref")
+    assert client.calls[-1] == ("ledgerline_test_reset", {"p_ref": "testref"})
