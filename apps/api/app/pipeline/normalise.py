@@ -403,9 +403,10 @@ class _RowNormaliser:
         self.grn_no = self._grn()  # before the other fields: flags and review items carry it
 
     def _apply_overrides(self) -> None:
-        """F-04.R2, before any other step: a `RESOLVED` `CELL:{row}:{register_field}` or
-        `MAP:{row}:{field}` decision replaces the value and makes the cell `CLEAR`; `raw` keeps
-        the original. A MAP decision is applied after a CELL one for the same field."""
+        """F-04.R2, before any other step: a `RESOLVED` `CELL:{row}:{register_field}`,
+        `MAP:{row}:{field}` or `ROW:{row}` (GRN) decision replaces the value and makes the cell
+        `CLEAR`; `raw` keeps the original. A MAP decision is applied after a CELL one for the
+        same field."""
         keys: list[tuple[str, str]] = []
         if self.source is Source.REGISTER:
             keys += [
@@ -416,6 +417,8 @@ class _RowNormaliser:
             (name, review_item_key(ReviewKind.UNKNOWN_MAPPING, row_id=self.row_id, field=f))
             for name, f in _MAP_FIELDS.items()
         ]
+        # 005 data-model §1: an entered GRN on `ROW:{row}` (UNMATCHED_NO_KEY) sets the GRN
+        keys.append(("grn_no", review_item_key(ReviewKind.UNMATCHED_ROW, row_id=self.row_id)))
         for name, key in keys:
             if key in self.out.overrides:
                 self.cells[name] = _Cell(self.out.overrides[key])
@@ -743,7 +746,7 @@ def normalise_all(
         for d in decisions
         if d.status is ReviewStatus.RESOLVED
         and d.resolved_value is not None
-        and d.kind in (ReviewKind.CELL, ReviewKind.UNKNOWN_MAPPING)
+        and d.kind in (ReviewKind.CELL, ReviewKind.UNKNOWN_MAPPING, ReviewKind.UNMATCHED_ROW)
     }
     out = _Out(run_id=run_id, run_year=run_year, mappings=mappings, overrides=overrides)
     rows: list[CanonicalRow] = []
