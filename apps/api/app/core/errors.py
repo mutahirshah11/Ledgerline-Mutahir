@@ -2,7 +2,7 @@
 the API error model and handlers (004 data-model.md §1, blueprint Section 11, C17, FR-026)."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.domain.enums import ErrorCode, Stage
+
+if TYPE_CHECKING:  # models import nothing from here, but keep errors import-light
+    from app.domain.models import ReviewItem
 
 logger = logging.getLogger("ledgerline.api")
 
@@ -110,7 +113,7 @@ class ItemAlreadyResolved(LedgerlineError):
     """FM-09: a second reviewer raced the first; carries the already-decided item. Maps to 409
     ITEM_ALREADY_RESOLVED, stage review."""
 
-    def __init__(self, item: Any) -> None:
+    def __init__(self, item: "ReviewItem") -> None:
         super().__init__("review item is already resolved")
         self.item = item
 
@@ -218,13 +221,12 @@ def _to_api_error(exc: Exception) -> ApiError:
             details={"field": exc.field, "reason": exc.reason},
         )
     if isinstance(exc, ItemAlreadyResolved):
-        item = exc.item.model_dump(mode="json") if hasattr(exc.item, "model_dump") else exc.item
         return ApiError(
             ErrorCode.ITEM_ALREADY_RESOLVED,
             409,
             "This item was already decided",
             Stage.REVIEW,
-            details={"item": item},
+            details={"item": exc.item.model_dump(mode="json")},
         )
     if isinstance(exc, ConfirmRequired):
         return ApiError(
