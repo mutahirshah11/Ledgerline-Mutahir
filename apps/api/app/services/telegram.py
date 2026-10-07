@@ -9,7 +9,7 @@ import logging
 import mimetypes
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol, Self
@@ -32,11 +32,18 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.ids import summary_key
-from app.domain.models import Notification, Proof, Run, RunView
+from app.domain.models import ExceptionItem, Notification, Proof, Run, RunView
 from app.pipeline import report
 from app.pipeline.engine import ROW_ONLY_OUTCOMES
 from app.services.audit import audit
 from app.services.runlog import OnRetry, StepLog, retrying, stage_step
+
+MAY_HAVE_MESSAGED = (
+    "Controller MAY have been messaged. Check the controller chat before any resend: {url}"
+)
+"""Alert last line (`alerts.alert_text` `tail`) for a maybe-delivered or stale summary."""
+GOT_MESSAGE_ONLY = "Controller got the message but not report.html. Resend from {url}"
+"""Alert last line when the summary message was delivered and its report.html was not."""
 
 log = logging.getLogger(__name__)
 
@@ -58,8 +65,17 @@ class Notifier(Protocol):
     summary must be an approved template (headline and counts plus the SCR-04 link), so that
     sender would build its own short text from the same `SummaryMessage`."""
 
-    def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
-        """`on_retry` hears each of this call's own retries (the `notify` RETRY run events)."""
+    def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        *,
+        on_retry: OnRetry | None = None,
+        at_most_once: bool = False,
+    ) -> int:
+        """`on_retry` hears each of this call's own retries (the `notify` RETRY run events).
+        `at_most_once` (the controller summary only, C1): a failure that may have delivered the
+        text raises `MaybeDelivered` instead of being retried; ops alerts keep their retries."""
         ...
 
     def send_document(
@@ -130,11 +146,12 @@ def _retry_heard(detail: dict[str, Any], on_retry: OnRetry | None) -> None:
 class TelegramNotifier:
     """`sendMessage` as plain text (no `parse_mode`) and `sendDocument` (multipart), each with
     `TELEGRAM_ATTEMPTS` attempts, the `TELEGRAM_BACKOFF_S` waits and `TELEGRAM_TIMEOUT_S` per
-    call. 4xx answers are not retried. C1: `sendMessage` retries only failures that prove
-    nothing was delivered (connection refused or not made, 429); any other failure raises
-    `MaybeDelivered` at once. `sendDocument` retries those too (a duplicate document is
-    acceptable). `fault=TELEGRAM_DOWN` fails every attempt without a network call, as a refused
-    connection would (Section 25)."""
+    call. 4xx answers are not retried. C1: with `at_most_once` (the summary), `sendMessage`
+    retries only failures that prove nothing was delivered (connection refused or not made,
+    429); any other failure raises `MaybeDelivered` at once. Without it (ops alerts) and for
+    `sendDocument`, timeouts, dropped connections and 5xx are retried too (a duplicate alert
+    or document is acceptable). `fault=TELEGRAM_DOWN` fails every attempt without a network
+    call, as a refused connection would (Section 25)."""
 
     def __init__(
         self,
@@ -162,10 +179,17 @@ class TelegramNotifier:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
+    def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        *,
+        on_retry: OnRetry | None = None,
+        at_most_once: bool = False,
+    ) -> int:
         """Plain text, link previews off (research R11: the `Report:` link stays a line)."""
         body = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
-        return self._send("sendMessage", {"json": body}, on_retry, once=True)
+        return self._send("sendMessage", {"json": body}, on_retry, once=at_most_once)
 
     def send_document(
         self,
@@ -230,6 +254,10 @@ class TelegramNotifier:
             raise unsure("timeout") from None
         except httpx.TransportError:
             raise unsure("connection error") from None
+        except httpx.HTTPError:  # M-4: e.g. a decoding error after the request was sent
+            if once:
+                raise MaybeDelivered("telegram", "unexpected error, maybe delivered") from None
+            raise UpstreamFailed("telegram", "unexpected error") from None
         status = response.status_code
         if status == 429:
             raise _Retryable("rate limited")
@@ -324,24 +352,37 @@ class SummaryMessage:
 
 
 def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> SummaryMessage:
+    """`summary_message` of a run overview (EP-05 `RunView`)."""
+    return summary_message(view.id, view.month, view.counts, view.exceptions, app_base_url, proof)
+
+
+def summary_message(
+    run_id: UUID,
+    month: str,
+    counts: Mapping[Outcome, int],
+    exceptions: Sequence[ExceptionItem],
+    app_base_url: str,
+    proof: Proof,
+) -> SummaryMessage:
     """The summary from the exception list only (F-09.R1, F-10.R8, C4): categories 1 to 3
     numbered (at most 8, then `+N more`), categories 4 and 5 in the "Also:" line, the proof
     line from proof C2 and the link to the run overview (SCR-04). Item texts and the Also
-    line are one line each, capped at `ITEM_MAX` / `ALSO_MAX` (C2)."""
-    groups = sum(n for o, n in view.counts.items() if o not in ROW_ONLY_OUTCOMES)
-    matched = sum(view.counts.get(o, 0) for o in _MATCH)
+    line are one line each, capped at `ITEM_MAX` / `ALSO_MAX` (C2). `counts`: the flat
+    outcome counts (`OutcomeCounts.flat()`)."""
+    groups = sum(n for o, n in counts.items() if o not in ROW_ONLY_OUTCOMES)
+    matched = sum(counts.get(o, 0) for o in _MATCH)
     headline = (
-        f"{report.month_label(view.month)} receiving: {groups} GRNs, {matched} match, "
+        f"{report.month_label(month)} receiving: {groups} GRNs, {matched} match, "
         f"{groups - matched} need attention"
     )
-    numbered = [e for e in view.exceptions if e.category in SECTION_TITLES]
+    numbered = [e for e in exceptions if e.category in SECTION_TITLES]
     sections: list[MessageSection] = []
     for number, item in enumerate(numbered[:NUMBERED_MAX], start=1):
         title = SECTION_TITLES[item.category]
         if not sections or sections[-1].title != title:
             sections.append(MessageSection(title=title, items=[]))
         sections[-1].items.append((number, _one_line(item.text, ITEM_MAX)))
-    also = report.also_line(view.exceptions)
+    also = report.also_line(exceptions)
     c2 = proof.checks.C2
     return SummaryMessage(
         headline=headline,
@@ -349,7 +390,7 @@ def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> Sum
         more=max(0, len(numbered) - NUMBERED_MAX),
         also=None if also is None else _one_line(also, ALSO_MAX),
         proof_line=f"Proof: {c2.rows - len(c2.unplaced)} of {c2.rows} rows placed once.",
-        link=f"Report: {app_base_url.rstrip('/')}/runs/{view.id}",
+        link=f"Report: {app_base_url.rstrip('/')}/runs/{run_id}",
     )
 
 
@@ -358,12 +399,22 @@ def build_summary_message(view: RunView, app_base_url: str, proof: Proof) -> Sum
 
 class _NotifierFailed(LedgerlineError):
     """Wraps a notifier error so it is told apart from a repo error after a send; its text (the
-    `notify FAILED` event detail) is the coded error's own, else the type name only."""
+    `notify FAILED` event detail) is the coded error's own, else the type name only.
+    `message_sent`: the summary message was delivered (this pass or an earlier one), only the
+    document failed."""
 
-    def __init__(self, error: Exception) -> None:
+    def __init__(self, error: Exception, *, message_sent: bool = False) -> None:
         coded = isinstance(error, LedgerlineError)
         super().__init__(str(error) if coded else type(error).__name__)
         self.error = error
+        self.message_sent = message_sent
+
+
+@dataclass
+class _Pass:
+    """I-5: whether this send pass has called `send_message` yet."""
+
+    message_attempted: bool = False
 
 
 def send_summary(
@@ -385,7 +436,9 @@ def send_summary(
     raised. A message that may have reached Telegram (`MaybeDelivered`, C1) and a repo failure
     after a send both leave the row `SENDING`, never resent (a duplicate is worse than a
     delay): the first alerts ops at once under the stale key, the second propagates and the
-    stale check surfaces it. Run events: `notify` STARTED, RETRY per HTTP retry, OK or FAILED."""
+    stale check surfaces it. Any other error before `send_message` was called (e.g. writing
+    the STARTED event) sets `FAILED` like a notifier failure: nothing was sent (I-5). Run
+    events: `notify` STARTED, RETRY per HTTP retry, OK or FAILED."""
     settings = settings or get_settings()
     try:
         n = repo.update_notification(
@@ -400,13 +453,19 @@ def send_summary(
             ErrorCode.RUN_STATE_CONFLICT, 409, "The summary send is in progress", Stage.NOTIFY
         ) from exc
     detail = {"notification_id": str(n.id)}
+    this_pass = _Pass()
     try:
         with stage_step(repo, run.id, Stage.NOTIFY, detail, now=now) as step:
-            n = _deliver(repo, notifier, n, text, report_bytes, settings, now, step)
+            n = _deliver(repo, notifier, n, text, report_bytes, settings, now, step, this_pass)
     except MaybeDelivered as unsure:
         return _maybe_delivered(repo, notifier, run, n, unsure, settings, now)
     except _NotifierFailed as failed:
-        return _summary_failed(repo, notifier, run, n.id, failed.error, settings, now)
+        tail = GOT_MESSAGE_ONLY if failed.message_sent else None
+        return _summary_failed(repo, notifier, run, n.id, failed.error, settings, now, tail=tail)
+    except Exception as exc:
+        if this_pass.message_attempted or n.telegram_message_id is not None:
+            raise  # maybe or surely delivered: the row stays SENDING (R12)
+        return _summary_failed(repo, notifier, run, n.id, exc, settings, now)
     done = now()
     n = repo.update_notification(
         n.id,
@@ -443,16 +502,20 @@ def _deliver(
     settings: Settings,
     now: Callable[[], datetime],
     step: StepLog,
+    this_pass: _Pass,
 ) -> Notification:
-    """Message (unless already delivered; its id stored before anything else), then document;
-    each HTTP retry is a `RETRY` run event (FR-037). Notifier errors come out as
-    `_NotifierFailed`."""
+    """Message (unless already delivered; its id stored before anything else; at most once,
+    C1), then document; each HTTP retry is a `RETRY` run event (FR-037). Notifier errors come
+    out as `_NotifierFailed`."""
     chat_id = settings.TELEGRAM_CONTROLLER_CHAT_ID
     if not chat_id:
         raise _NotifierFailed(UpstreamFailed("telegram", "controller chat not set"))
     if n.telegram_message_id is None:
+        this_pass.message_attempted = True
         try:
-            message_id = notifier.send_message(chat_id, text, on_retry=step.retry)
+            message_id = notifier.send_message(
+                chat_id, text, on_retry=step.retry, at_most_once=True
+            )
         except MaybeDelivered:
             raise
         except Exception as exc:
@@ -466,7 +529,7 @@ def _deliver(
     try:
         notifier.send_document(chat_id, REPORT_FILENAME, report_bytes, on_retry=step.retry)
     except Exception as exc:
-        raise _NotifierFailed(exc) from exc
+        raise _NotifierFailed(exc, message_sent=True) from exc
     return n
 
 
@@ -510,9 +573,12 @@ def _summary_failed(
     now: Callable[[], datetime],
     expected: set[NotificationStatus] | None = None,
     before: NotificationStatus = NotificationStatus.SENDING,
+    *,
+    tail: str | None = None,
 ) -> Notification:
     """`FAILED` + `last_error` (code and token-free reason), audit `SUMMARY_FAILED`, one ops
-    alert (F-10.R6, FM-11, FR-035). The controller is never told about failures."""
+    alert (F-10.R6, FM-11, FR-035; `tail` as in `alerts.alert_text`). The controller is never
+    told about failures."""
     from app.services.alerts import error_parts, stage_failed_alert  # alerts imports Notifier
 
     code, reason = error_parts(exc)
@@ -536,7 +602,9 @@ def _summary_failed(
         channel=AuditChannel.TELEGRAM,
         now=lambda: at,
     )
-    stage_failed_alert(repo, notifier, run, Stage.NOTIFY, exc, settings=settings, now=now)
+    stage_failed_alert(
+        repo, notifier, run, Stage.NOTIFY, exc, settings=settings, now=now, tail=tail
+    )
     return n
 
 
@@ -569,6 +637,7 @@ def _maybe_delivered(
         settings=settings,
         now=now,
         attempt_group=STALE_GROUP,
+        tail=MAY_HAVE_MESSAGED,
     )
     return n
 
@@ -619,5 +688,6 @@ def check_stale_summary(
         settings=settings,
         now=now,
         attempt_group=STALE_GROUP,
+        tail=MAY_HAVE_MESSAGED,
     )
     return n

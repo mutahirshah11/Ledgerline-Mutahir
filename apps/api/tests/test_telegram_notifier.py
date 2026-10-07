@@ -118,7 +118,7 @@ def test_send_message_maybe_delivered_is_never_retried(
     handler = _Handler(answer, _ok(8))
     waits: list[float] = []
     with pytest.raises(MaybeDelivered) as info:
-        _notifier(handler, waits).send_message(CHAT, "hi")
+        _notifier(handler, waits).send_message(CHAT, "hi", at_most_once=True)
     assert len(handler.requests) == 1 and waits == []
     assert isinstance(info.value, UpstreamFailed)  # alerts and logs treat it as a failure
     assert info.value.attempts == 1

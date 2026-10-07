@@ -24,8 +24,9 @@ class FakeNotifier:
     failed calls. Delivered ids increase across texts and documents (1, 2, ...), like
     Telegram's `message_id`. `down` (alias `fail`, the Phase 3 name) makes every call raise
     UpstreamFailed("telegram", ...) as the real notifier does after its retries;
-    `fail_document` fails documents only (005 T009, research R17). It has no retries of its
-    own, so it never calls `on_retry`."""
+    `fail_document` fails documents only (005 T009, research R17); `once` records each
+    `send_message`'s `(chat_id, at_most_once)`. It has no retries of its own, so it never
+    calls `on_retry`."""
 
     def __init__(
         self, *, fail: bool = False, down: bool = False, fail_document: bool = False
@@ -36,6 +37,7 @@ class FakeNotifier:
         self.attempted: list[tuple[str, str]] = []
         self.documents: list[tuple[str, str, bytes, str | None]] = []
         self.attempted_documents: list[tuple[str, str, bytes, str | None]] = []
+        self.once: list[tuple[str, bool]] = []
         self._last_id = 0
 
     @property
@@ -50,8 +52,16 @@ class FakeNotifier:
         self._last_id += 1
         return self._last_id
 
-    def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
+    def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        *,
+        on_retry: OnRetry | None = None,
+        at_most_once: bool = False,
+    ) -> int:
         self.attempted.append((chat_id, text))
+        self.once.append((chat_id, at_most_once))
         if self.down:
             raise UpstreamFailed("telegram", "down after 3 attempts")
         self.sent.append((chat_id, text))

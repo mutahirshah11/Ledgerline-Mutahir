@@ -654,10 +654,10 @@ def test_F10_run_view_exceptions_skip_stale_open_items(pack_run: PackRun) -> Non
 class _RetryingNotifier(FakeNotifier):
     """Any notifier, not only TelegramNotifier, reports its HTTP retries through `on_retry`."""
 
-    def send_message(self, chat_id: str, text: str, *, on_retry: Any = None) -> int:
+    def send_message(self, chat_id: str, text: str, *, on_retry: Any = None, **kw: Any) -> int:
         if on_retry is not None and chat_id == CONTROLLER_CHAT:
             on_retry({"service": "telegram", "attempt": 2, "cause": "rate limited"})
-        return super().send_message(chat_id, text, on_retry=on_retry)
+        return super().send_message(chat_id, text, on_retry=on_retry, **kw)
 
 
 def test_F10_R5_any_notifier_retry_writes_retry_event(pack_run: PackRun) -> None:
@@ -816,7 +816,7 @@ class _RacingNotifier(FakeNotifier):
         self.pack = pack
         self.second: Exception | None = None
 
-    def send_message(self, chat_id: str, text: str, *, on_retry: Any = None) -> int:
+    def send_message(self, chat_id: str, text: str, *, on_retry: Any = None, **kw: Any) -> int:
         if chat_id == CONTROLLER_CHAT and self.second is None:
             run = self.pack.repo.get_run(self.pack.run_id)
             (row,) = _summaries(self.pack)
@@ -825,7 +825,7 @@ class _RacingNotifier(FakeNotifier):
                 telegram.send_summary(self.pack.repo, self, run, stale_copy, text, b"x")
             except Exception as exc:
                 self.second = exc
-        return super().send_message(chat_id, text, on_retry=on_retry)
+        return super().send_message(chat_id, text, on_retry=on_retry, **kw)
 
 
 def _finalised(pack: PackRun) -> Run:
