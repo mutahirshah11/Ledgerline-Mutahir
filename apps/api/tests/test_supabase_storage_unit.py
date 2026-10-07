@@ -142,3 +142,12 @@ def test_memory_signed_download_default_follows_settings() -> None:
     for cls in (BlobStore, MemoryBlobStore, SupabaseBlobStore):
         default = inspect.signature(cls.signed_download_url).parameters["expires_s"].default
         assert default is None, cls
+
+
+def test_get_bypasses_cdn_cache_with_a_fresh_query() -> None:
+    """Supabase's CDN serves an overwritten `inputs` object stale; each get must ask fresh."""
+    store, storage = _store(b"one", b"two")
+    assert store.get("inputs", "r1/erp.csv") == b"one"
+    assert store.get("inputs", "r1/erp.csv") == b"two"
+    first, second = (call[3].get("query_params") for call in storage.calls)
+    assert first and second and first != second
