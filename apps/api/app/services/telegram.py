@@ -20,7 +20,7 @@ import httpx
 from app.core import clock
 from app.core.config import Settings, get_settings
 from app.core.db import Repo
-from app.core.errors import ApiError, LedgerlineError, UpstreamFailed
+from app.core.errors import ApiError, LedgerlineError, StateConflict, UpstreamFailed
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
@@ -99,6 +99,22 @@ class _Retryable(Exception):
         self.cause = cause
 
 
+class MaybeDelivered(UpstreamFailed):
+    """C1 (research R11, R12): a `sendMessage` failure after the request may have reached
+    Telegram (read/write timeout, dropped connection, 5xx, an unreadable 200). Never retried:
+    a duplicate summary is worse than a delay (F-10.R7)."""
+
+
+_NOT_SENT = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+    httpx.UnsupportedProtocol,
+    httpx.LocalProtocolError,
+)
+"""Transport errors raised before any byte of the request left: proved not delivered."""
+
+
 def _cause_of(error: BaseException) -> str | None:
     """Only `_Retryable` retries; `_post` already turned every httpx error into a cause word."""
     return error.cause if isinstance(error, _Retryable) else None
@@ -113,8 +129,11 @@ def _retry_heard(detail: dict[str, Any], on_retry: OnRetry | None) -> None:
 class TelegramNotifier:
     """`sendMessage` as plain text (no `parse_mode`) and `sendDocument` (multipart), each with
     `TELEGRAM_ATTEMPTS` attempts, the `TELEGRAM_BACKOFF_S` waits and `TELEGRAM_TIMEOUT_S` per
-    call. 4xx answers are not retried.
-    `fault=TELEGRAM_DOWN` fails every attempt without a network call (Section 25)."""
+    call. 4xx answers are not retried. C1: `sendMessage` retries only failures that prove
+    nothing was delivered (connection refused or not made, 429); any other failure raises
+    `MaybeDelivered` at once. `sendDocument` retries those too (a duplicate document is
+    acceptable). `fault=TELEGRAM_DOWN` fails every attempt without a network call, as a refused
+    connection would (Section 25)."""
 
     def __init__(
         self,
@@ -145,7 +164,7 @@ class TelegramNotifier:
     def send_message(self, chat_id: str, text: str, *, on_retry: OnRetry | None = None) -> int:
         """Plain text, link previews off (research R11: the `Report:` link stays a line)."""
         body = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
-        return self._send("sendMessage", {"json": body}, on_retry)
+        return self._send("sendMessage", {"json": body}, on_retry, once=True)
 
     def send_document(
         self,
@@ -164,10 +183,13 @@ class TelegramNotifier:
         data = {"chat_id": chat_id} | ({} if caption is None else {"caption": caption})
         mime = _MIME.guess_type(filename)[0] or "application/octet-stream"
         files = {"document": (filename, content, mime)}
-        return self._send("sendDocument", {"data": data, "files": files}, on_retry)
+        return self._send("sendDocument", {"data": data, "files": files}, on_retry, once=False)
 
-    def _send(self, method: str, body: dict[str, Any], on_retry: OnRetry | None) -> int:
-        """One Bot API call with the retry policy; `body` is httpx's `post` keyword args."""
+    def _send(
+        self, method: str, body: dict[str, Any], on_retry: OnRetry | None, *, once: bool
+    ) -> int:
+        """One Bot API call with the retry policy; `body` is httpx's `post` keyword args;
+        `once`: a possibly delivered failure raises `MaybeDelivered` instead of retrying."""
         token = self._settings.TELEGRAM_BOT_TOKEN
         secret = "" if token is None else token.get_secret_value()
         if not secret and self._fault is not Fault.TELEGRAM_DOWN:
@@ -182,34 +204,51 @@ class TelegramNotifier:
             chain=False,
             cause_of=_cause_of,
         )
-        return policy(lambda: self._post(url, body))
+        return policy(lambda: self._post(url, body, once))
 
-    def _post(self, url: str, body: dict[str, Any]) -> int:
-        """One call: the message id, `_Retryable`, or UpstreamFailed for a final rejection.
-        Raised errors never chain the httpx exception (its text can hold the URL)."""
+    def _post(self, url: str, body: dict[str, Any], once: bool) -> int:
+        """One call: the message id, `_Retryable`, `MaybeDelivered` (`once`) or UpstreamFailed
+        for a final rejection. Raised errors never chain the httpx exception (its text can hold
+        the URL)."""
+
+        def unsure(cause: str) -> Exception:
+            if once:
+                return MaybeDelivered("telegram", f"{cause}, maybe delivered")
+            return _Retryable(cause)
+
         if self._fault is Fault.TELEGRAM_DOWN:
             raise _Retryable("down")
         if self._client is None:
             self._client = httpx.Client()
         try:
             response = self._client.post(url, timeout=self._settings.TELEGRAM_TIMEOUT_S, **body)
+        except _NOT_SENT as exc:
+            cause = "timeout" if isinstance(exc, httpx.TimeoutException) else "connection error"
+            raise _Retryable(cause) from None
         except httpx.TimeoutException:
-            raise _Retryable("timeout") from None
+            raise unsure("timeout") from None
         except httpx.TransportError:
-            raise _Retryable("connection error") from None
+            raise unsure("connection error") from None
         status = response.status_code
         if status == 429:
             raise _Retryable("rate limited")
         if status >= 500:
-            raise _Retryable("server error")
+            raise unsure("server error")
         if status >= 400:
             raise UpstreamFailed("telegram", f"rejected: HTTP {status}")
         try:
             answer = response.json()
-            message_id = answer["result"]["message_id"]
-        except (ValueError, KeyError, TypeError):
+        except ValueError:  # a 200 Telegram may have acted on
+            if once:
+                raise MaybeDelivered("telegram", "unexpected answer, maybe delivered") from None
             raise UpstreamFailed("telegram", "rejected: unexpected answer") from None
-        if answer.get("ok") is not True or not isinstance(message_id, int):
+        result = answer.get("result") if isinstance(answer, dict) else None
+        message_id = result.get("message_id") if isinstance(result, dict) else None
+        if not isinstance(answer, dict) or answer.get("ok") is not True:
+            raise UpstreamFailed("telegram", "rejected: unexpected answer")
+        if not isinstance(message_id, int):
+            if once:
+                raise MaybeDelivered("telegram", "unexpected answer, maybe delivered")
             raise UpstreamFailed("telegram", "rejected: unexpected answer")
         return message_id
 
@@ -324,24 +363,33 @@ def send_summary(
     now: Callable[[], datetime] = clock.now,
 ) -> Notification:
     """One send pass (research R12): CAS `PENDING`/`FAILED → SENDING` (attempts + 1; a lost
-    race is StateConflict); the message unless `telegram_message_id` is already set, its id
-    stored at once; then `report.html`; `SENT` with `sent_at` and audit `SUMMARY_SENT`. A
-    notifier failure (after its own retries) sets `FAILED` with `last_error`, audits
-    `SUMMARY_FAILED` and alerts ops; it is returned, not raised. A repo failure after a send
-    propagates and leaves the row `SENDING`, which the stale check then surfaces (a duplicate
-    is worse than a delay). Run events: `notify` STARTED, RETRY per HTTP retry, OK or FAILED."""
+    race is 409 "The summary send is in progress", I3); the message unless
+    `telegram_message_id` is already set, its id stored at once; then `report.html`; `SENT`
+    with `sent_at` and audit `SUMMARY_SENT`. A notifier failure (after its own retries) sets
+    `FAILED` with `last_error`, audits `SUMMARY_FAILED` and alerts ops; it is returned, not
+    raised. A message that may have reached Telegram (`MaybeDelivered`, C1) and a repo failure
+    after a send both leave the row `SENDING`, never resent (a duplicate is worse than a
+    delay): the first alerts ops at once under the stale key, the second propagates and the
+    stale check surfaces it. Run events: `notify` STARTED, RETRY per HTTP retry, OK or FAILED."""
     settings = settings or get_settings()
-    n = repo.update_notification(
-        notification.id,
-        expected={NotificationStatus.PENDING, NotificationStatus.FAILED},
-        status=NotificationStatus.SENDING,
-        attempts=notification.attempts + 1,
-        updated_at=now(),
-    )
+    try:
+        n = repo.update_notification(
+            notification.id,
+            expected={NotificationStatus.PENDING, NotificationStatus.FAILED},
+            status=NotificationStatus.SENDING,
+            attempts=notification.attempts + 1,
+            updated_at=now(),
+        )
+    except StateConflict as exc:  # another pass holds the row (I3)
+        raise ApiError(
+            ErrorCode.RUN_STATE_CONFLICT, 409, "The summary send is in progress", Stage.NOTIFY
+        ) from exc
     detail = {"notification_id": str(n.id)}
     try:
         with stage_step(repo, run.id, Stage.NOTIFY, detail, now=now) as step:
             n = _deliver(repo, notifier, n, text, report_bytes, settings, now, step)
+    except MaybeDelivered as unsure:
+        return _maybe_delivered(repo, notifier, run, n, unsure, settings, now)
     except _NotifierFailed as failed:
         return _summary_failed(repo, notifier, run, n.id, failed.error, settings, now)
     done = now()
@@ -390,6 +438,8 @@ def _deliver(
     if n.telegram_message_id is None:
         try:
             message_id = notifier.send_message(chat_id, text, on_retry=step.retry)
+        except MaybeDelivered:
+            raise
         except Exception as exc:
             raise _NotifierFailed(exc) from exc
         n = repo.update_notification(
@@ -440,6 +490,39 @@ def _summary_failed(
         now=lambda: at,
     )
     stage_failed_alert(repo, notifier, run, Stage.NOTIFY, exc, settings=settings, now=now)
+    return n
+
+
+def _maybe_delivered(
+    repo: Repo,
+    notifier: Notifier,
+    run: Run,
+    n: Notification,
+    exc: MaybeDelivered,
+    settings: Settings,
+    now: Callable[[], datetime],
+) -> Notification:
+    """C1: the row stays `SENDING` (no `FAILED`, so no resend); ops are alerted once under the
+    stale key, so the later stale check finds that alert and sends no second one (F-10.R7)."""
+    from app.services.alerts import stage_failed_alert  # alerts imports Notifier
+
+    log.warning("summary maybe delivered; left SENDING", extra={"run_id": str(run.id)})
+    error = ApiError(
+        ErrorCode.RUN_STATE_CONFLICT,
+        409,
+        f"summary may have reached Telegram ({exc.detail}); check Telegram by hand, do not resend",
+        Stage.NOTIFY,
+    )
+    stage_failed_alert(
+        repo,
+        notifier,
+        run,
+        Stage.NOTIFY,
+        error,
+        settings=settings,
+        now=now,
+        attempt_group=STALE_GROUP,
+    )
     return n
 
 

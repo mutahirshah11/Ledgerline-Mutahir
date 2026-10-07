@@ -12,7 +12,7 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.core.errors import UpstreamFailed
 from app.domain.enums import Fault
-from app.services.telegram import TelegramNotifier
+from app.services.telegram import MaybeDelivered, TelegramNotifier
 
 TOKEN = "".join(["987654", ":", "TEST", "x" * 30])  # built at runtime, never a literal token
 CHAT = "-100123"
@@ -65,14 +65,81 @@ def test_send_message_plain_text_no_parse_mode() -> None:
 
 
 def test_retries_then_upstream_failed() -> None:
-    handler = _Handler(httpx.Response(502), httpx.ReadTimeout("slow"), httpx.Response(503))
+    handler = _Handler(
+        httpx.ConnectError("refused"), httpx.ConnectTimeout("slow"), httpx.Response(429)
+    )
     waits: list[float] = []
     with pytest.raises(UpstreamFailed) as info:
         _notifier(handler, waits).send_message(CHAT, "hi")
+    assert not isinstance(info.value, MaybeDelivered)
     assert len(handler.requests) == 3
     assert waits == [1, 4]  # C21: 3 attempts, waits 1 s and 4 s
     assert info.value.service == "telegram"
-    assert info.value.detail == "server error after 3 attempts"
+    assert info.value.detail == "rate limited after 3 attempts"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.ConnectError("refused"),
+        httpx.ConnectTimeout("slow"),
+        httpx.PoolTimeout("busy"),
+        httpx.Response(429),
+    ],
+    ids=["connect-error", "connect-timeout", "pool-timeout", "429"],
+)
+def test_send_message_proved_not_delivered_is_retried(answer: httpx.Response | Exception) -> None:
+    """C1 (research R11): the request never reached Telegram, or Telegram refused it."""
+    handler = _Handler(answer, _ok(8))
+    waits: list[float] = []
+    assert _notifier(handler, waits).send_message(CHAT, "hi") == 8
+    assert len(handler.requests) == 2 and waits == [1]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.ReadTimeout("slow"),
+        httpx.WriteTimeout("slow"),
+        httpx.ReadError("reset"),
+        httpx.WriteError("reset"),
+        httpx.RemoteProtocolError("closed"),
+        httpx.Response(500),
+        httpx.Response(502),
+        httpx.Response(200, content=b"<html>not json</html>"),
+    ],
+    ids=["read-timeout", "write-timeout", "read", "write", "protocol", "500", "502", "bad-200"],
+)
+def test_send_message_maybe_delivered_is_never_retried(
+    answer: httpx.Response | Exception,
+) -> None:
+    """C1 (research R11, R12): the request may have reached Telegram; a retry could post the
+    summary twice, and a duplicate is worse than a delay (F-10.R7)."""
+    handler = _Handler(answer, _ok(8))
+    waits: list[float] = []
+    with pytest.raises(MaybeDelivered) as info:
+        _notifier(handler, waits).send_message(CHAT, "hi")
+    assert len(handler.requests) == 1 and waits == []
+    assert isinstance(info.value, UpstreamFailed)  # alerts and logs treat it as a failure
+    assert info.value.attempts == 1
+    assert "maybe delivered" in info.value.detail and TOKEN not in str(info.value)
+    assert info.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [httpx.ReadTimeout("slow"), httpx.Response(502), httpx.RemoteProtocolError("closed")],
+    ids=["read-timeout", "502", "protocol"],
+)
+def test_send_document_retries_maybe_delivered(answer: httpx.Response | Exception) -> None:
+    """A duplicate report.html is acceptable; at-most-once is for the summary text (C1)."""
+    handler = _Handler(answer)
+    waits: list[float] = []
+    with pytest.raises(UpstreamFailed) as info:
+        _notifier(handler, waits).send_document(CHAT, "report.html", b"x")
+    assert not isinstance(info.value, MaybeDelivered)
+    assert len(handler.requests) == 3 and waits == [1, 4]
+    assert info.value.detail.endswith("after 3 attempts")
 
 
 def test_retry_then_success() -> None:
@@ -147,19 +214,12 @@ def test_rate_limited_429_is_retried() -> None:
     assert len(handler.requests) == 2 and waits == [1]
 
 
-@pytest.mark.parametrize(
-    "answer",
-    [
-        httpx.Response(200, content=b"<html>not json</html>"),
-        httpx.Response(200, json={"ok": False, "result": {"message_id": 1}}),
-    ],
-    ids=["non-json", "ok-false"],
-)
-def test_bad_200_answer_rejected_without_retry(answer: httpx.Response) -> None:
-    handler = _Handler(answer)
+def test_ok_false_answer_rejected_without_retry() -> None:
+    handler = _Handler(httpx.Response(200, json={"ok": False, "result": {"message_id": 1}}))
     waits: list[float] = []
     with pytest.raises(UpstreamFailed) as info:
         _notifier(handler, waits).send_message(CHAT, "hi")
+    assert not isinstance(info.value, MaybeDelivered)
     assert len(handler.requests) == 1 and waits == []
     assert info.value.detail.startswith("rejected")
 
@@ -184,7 +244,7 @@ def test_log_filter_installed_once_by_constructor(monkeypatch: pytest.MonkeyPatc
 
 
 def test_upstream_failed_reports_attempts() -> None:
-    for answer, attempts in ((httpx.Response(503), 3), (httpx.Response(400), 1)):
+    for answer, attempts in ((httpx.Response(429), 3), (httpx.Response(400), 1)):
         with pytest.raises(UpstreamFailed) as info:
             _notifier(_Handler(answer), []).send_message(CHAT, "hi")
         assert info.value.attempts == attempts
@@ -229,7 +289,7 @@ def test_constructor_builds_no_http_client(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_no_backoff_retries_without_waiting() -> None:
-    handler = _Handler(httpx.Response(500))
+    handler = _Handler(httpx.Response(429))
     waits: list[float] = []
     with pytest.raises(UpstreamFailed):
         _notifier(handler, waits, TELEGRAM_BACKOFF_S=()).send_message(CHAT, "hi")

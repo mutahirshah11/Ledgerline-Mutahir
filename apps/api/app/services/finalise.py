@@ -16,6 +16,7 @@ from app.core.db import Repo
 from app.core.errors import (
     ApiError,
     ConfirmRequired,
+    LedgerlineError,
     StateConflict,
     UniqueViolation,
     UpstreamFailed,
@@ -294,7 +295,14 @@ def finalise(
         view = load_run_view(repo, run.id)
         text = telegram.build_summary_message(view, settings.APP_BASE_URL, proof).render()
         html = store.get(REPORTS_BUCKET, html_path)
-        n = telegram.send_summary(repo, notifier, run, n, text, html, settings=settings, now=now)
+        try:
+            n = telegram.send_summary(
+                repo, notifier, run, n, text, html, settings=settings, now=now
+            )
+        except LedgerlineError:
+            raise
+        except Exception as exc:  # e.g. the repo after a send: the row stays SENDING (R12)
+            raise ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error", Stage.NOTIFY) from exc
     report_url, _ = store.signed_download_url(REPORTS_BUCKET, html_path)
     return FinaliseResponse(run=load_run_view(repo, run.id), report_url=report_url, notification=n)
 

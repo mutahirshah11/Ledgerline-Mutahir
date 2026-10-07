@@ -5,20 +5,25 @@ Every test starts from `pack_run`: the pack reconciled to `AWAITING_REVIEW` (21/
 PASS), clock frozen at the scenario instant; `fake_notifier` is the app's notifier.
 """
 
+import json
 import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from app.core.config import get_settings
+from app.core.deps import get_notifier
+from app.core.errors import ApiError
 from app.core.storage import REPORTS_BUCKET, MemoryBlobStore
 from app.domain.enums import (
     AuditAction,
+    ErrorCode,
     NotificationKind,
     NotificationStatus,
     RunEventStatus,
@@ -26,7 +31,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.ids import summary_key
-from app.domain.models import ExceptionItem, Notification, Proof
+from app.domain.models import ExceptionItem, Notification, Proof, Run
 from app.pipeline import report
 from app.services import finalise as finalise_service
 from app.services import telegram
@@ -670,3 +675,178 @@ def test_F10_R5_any_notifier_retry_writes_retry_event(pack_run: PackRun) -> None
         RunEventStatus.RETRY,
         RunEventStatus.OK,
     ]
+
+
+class _Telegram:
+    """A Bot API stand-in for a real `TelegramNotifier`: the controller's `sendMessage` gets
+    `answers` in turn (then 200); every other call is 200. Records each request's method/chat."""
+
+    def __init__(self, *answers: httpx.Response | Exception) -> None:
+        self.answers = list(answers)
+        self.calls: list[tuple[str, str]] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        method = request.url.path.rsplit("/", 1)[-1]
+        chat = json.loads(request.content)["chat_id"] if method == "sendMessage" else "doc"
+        self.calls.append((method, chat))
+        if method == "sendMessage" and chat == CONTROLLER_CHAT and self.answers:
+            answer = self.answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": len(self.calls)}})
+
+    def summaries(self) -> int:
+        return self.calls.count(("sendMessage", CONTROLLER_CHAT))
+
+
+@pytest.fixture
+def real_telegram(
+    monkeypatch: pytest.MonkeyPatch, api_client_as: Client
+) -> Callable[..., _Telegram]:
+    """Swap the app's notifier for a real TelegramNotifier over `_Telegram` (no waits)."""
+
+    def install(*answers: httpx.Response | Exception) -> _Telegram:
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "".join(["1234", ":", "T" * 30]))
+        get_settings.cache_clear()
+        api = _Telegram(*answers)
+        http = httpx.Client(transport=httpx.MockTransport(api))
+        notifier = telegram.TelegramNotifier(get_settings(), client=http, sleep=lambda _: None)
+        app: Any = api_client_as("controller").app
+        app.dependency_overrides[get_notifier] = lambda: notifier
+        return api
+
+    return install
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [httpx.ReadTimeout("slow"), httpx.Response(502)],
+    ids=["read-timeout", "5xx"],
+)
+def test_F10_R7_maybe_delivered_summary_is_never_resent(
+    answer: httpx.Response | Exception,
+    pack_run: PackRun,
+    api_client_as: Client,
+    real_telegram: Callable[..., _Telegram],
+    move_clock: Callable[[datetime], None],
+    frozen_clock: datetime,
+) -> None:
+    """C1 (research R11, R12): a summary Telegram may have received is not retried, not FAILED
+    and never resent; ops are told once to check Telegram by hand (F-10.R7, FM-12)."""
+    api = real_telegram(answer)
+    client = api_client_as("controller")
+    body = _ok(_finalise(client, pack_run))
+    assert body["run"]["status"] == "FINALISED"
+    assert body["notification"]["status"] == "SENDING"
+    assert api.summaries() == 1
+    assert _audits(pack_run, AuditAction.SUMMARY_FAILED) == []
+    assert _events(pack_run, Stage.NOTIFY) == [RunEventStatus.STARTED, RunEventStatus.FAILED]
+    (alert,) = _alerts(pack_run)
+    assert alert.idempotency_key == f"ALERT:{pack_run.run_id}:notify:stale"
+    assert alert.status is NotificationStatus.SENT
+    error = _error(_finalise(client, pack_run), 409, "RUN_STATE_CONFLICT")
+    assert "in progress" in error["message"]
+    move_clock(frozen_clock + timedelta(minutes=3))
+    for _ in range(2):
+        error = _error(_finalise(client, pack_run), 409, "RUN_STATE_CONFLICT")
+        assert "by hand" in error["message"]
+    assert api.summaries() == 1
+    assert api.calls.count(("sendDocument", "doc")) == 0
+    assert len(_alerts(pack_run)) == 1
+
+
+def test_F10_R5_connection_refused_is_retried(
+    pack_run: PackRun, api_client_as: Client, real_telegram: Callable[..., _Telegram]
+) -> None:
+    """C1: a refused connection proves nothing was delivered, so it is retried (C21)."""
+    api = real_telegram(httpx.ConnectError("refused"))
+    body = _ok(_finalise(api_client_as("controller"), pack_run))
+    assert body["notification"]["status"] == "SENT"
+    assert api.summaries() == 2  # one refused attempt, one delivery
+    assert _events(pack_run, Stage.NOTIFY) == [
+        RunEventStatus.STARTED,
+        RunEventStatus.RETRY,
+        RunEventStatus.OK,
+    ]
+
+
+def test_F10_R7_store_after_send_fails_never_resent(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+    move_clock: Callable[[datetime], None],
+    frozen_clock: datetime,
+) -> None:
+    """I4: storing the message id fails after the text went out: the row stays SENDING, no
+    later call sends anything, and the stale check alerts ops once."""
+    update = pack_run.repo.update_notification
+
+    def lost(notification_id: Any, **fields: Any) -> Notification:
+        if "telegram_message_id" in fields:
+            raise OSError("database gone")
+        return update(notification_id, **fields)
+
+    monkeypatch.setattr(pack_run.repo, "update_notification", lost)
+    client = api_client_as("controller")
+    assert _finalise(client, pack_run).status_code == 500
+    monkeypatch.setattr(pack_run.repo, "update_notification", update)
+    (summary,) = _summaries(pack_run)
+    assert summary.status is NotificationStatus.SENDING
+    assert len(fake_notifier.texts(CONTROLLER_CHAT)) == 1
+    _error(_finalise(client, pack_run), 409, "RUN_STATE_CONFLICT")
+    move_clock(frozen_clock + timedelta(minutes=3))
+    for _ in range(2):
+        error = _error(_finalise(client, pack_run), 409, "RUN_STATE_CONFLICT")
+        assert "by hand" in error["message"]
+    assert len(fake_notifier.texts(CONTROLLER_CHAT)) == 1
+    assert fake_notifier.documents_to(CONTROLLER_CHAT) == []
+    assert len(fake_notifier.texts(OPS_CHAT)) == 1
+
+
+class _RacingNotifier(FakeNotifier):
+    """While the first pass sends the summary, a second pass on the same row starts (I4)."""
+
+    def __init__(self, pack: PackRun) -> None:
+        super().__init__()
+        self.pack = pack
+        self.second: Exception | None = None
+
+    def send_message(self, chat_id: str, text: str, *, on_retry: Any = None) -> int:
+        if chat_id == CONTROLLER_CHAT and self.second is None:
+            run = self.pack.repo.get_run(self.pack.run_id)
+            (row,) = _summaries(self.pack)
+            stale_copy = row.model_copy(update={"status": NotificationStatus.PENDING})
+            try:
+                telegram.send_summary(self.pack.repo, self, run, stale_copy, text, b"x")
+            except Exception as exc:
+                self.second = exc
+        return super().send_message(chat_id, text, on_retry=on_retry)
+
+
+def _finalised(pack: PackRun) -> Run:
+    pack.repo.transition_run(
+        pack.run_id,
+        RunStatus.FINALISED,
+        expected={RunStatus.AWAITING_REVIEW},
+        finalised_by="controller@kestrel.example",
+        finalised_at=pack.repo.get_run(pack.run_id).scenario_now,
+    )
+    return pack.repo.get_run(pack.run_id)
+
+
+def test_F10_R4_racing_send_passes_one_delivery(pack_run: PackRun) -> None:
+    """I3, I4: the second pass loses the PENDING/FAILED → SENDING CAS: 409, nothing sent."""
+    notifier = _RacingNotifier(pack_run)
+    run = _finalised(pack_run)
+    n = finalise_service._summary_row(pack_run.repo, run, lambda: run.scenario_now)
+    sent = telegram.send_summary(pack_run.repo, notifier, run, n, "text", b"<html></html>")
+    assert sent.status is NotificationStatus.SENT
+    assert isinstance(notifier.second, ApiError)
+    assert notifier.second.code is ErrorCode.RUN_STATE_CONFLICT
+    assert notifier.second.http_status == 409
+    assert notifier.second.message == "The summary send is in progress"
+    assert notifier.second.stage is Stage.NOTIFY
+    assert notifier.texts(CONTROLLER_CHAT) == ["text"]
+    assert len(notifier.documents) == 1
