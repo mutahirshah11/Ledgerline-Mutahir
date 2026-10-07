@@ -13,6 +13,7 @@ from app.core import clock
 from app.core.config import Settings, get_settings
 from app.core.db import Repo
 from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
+from app.domain import ids
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
@@ -85,15 +86,22 @@ def stage_failed_alert(
     *,
     settings: Settings | None = None,
     now: Callable[[], datetime] = clock.now,
+    attempt_group: str | None = None,
 ) -> Notification | None:
     """Send one ops alert for a stage that ended FAILED after its retries (contracts/alerts.md
     steps 1 to 5). A repeat in the same scenario minute returns the existing notification
-    without sending. Never raises: if anything else fails (e.g. the repo after the send) it
-    logs the error code, notes it on the run (best effort) and returns None."""
+    without sending; a fixed `attempt_group` (e.g. `stale`, F-10.R7) alerts once ever. Never
+    raises: if anything else fails (e.g. the repo after the send) it logs the error code, notes
+    it on the run (best effort) and returns None."""
     settings = settings or get_settings()
     at = now()
     try:
-        return _send_alert(repo, notifier, run, stage, error, page_no, settings, at, now)
+        key = (
+            alert_key(run.id, stage, at)
+            if attempt_group is None
+            else ids.alert_key(run.id, stage, attempt_group)
+        )
+        return _send_alert(repo, notifier, run, stage, error, page_no, settings, at, now, key)
     except Exception as exc:  # F-11.R5: the alert must never mask the stage's own error
         code = _failure_code(exc)
         log.warning("ops alert failed", extra={"run_id": str(run.id), "error_code": code})
@@ -111,13 +119,14 @@ def _send_alert(
     settings: Settings,
     at: datetime,
     now: Callable[[], datetime],
+    key: str,
 ) -> Notification:
     """Steps 1 to 5 of contracts/alerts.md; a delivery failure is recorded, not raised."""
     pending = Notification(
         id=uuid4(),
         run_id=run.id,
         kind=NotificationKind.ALERT,
-        idempotency_key=alert_key(run.id, stage, at),
+        idempotency_key=key,
         status=NotificationStatus.PENDING,
         attempts=0,
         last_error=None,
