@@ -14,6 +14,8 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from uuid import UUID
 
+import pytest
+
 from app.core.config import Settings
 from app.domain.enums import ReadVariant
 from app.domain.models import (
@@ -33,10 +35,6 @@ from tests.support.pack_pages import (
     write_cache_files,
 )
 
-NO_COMMITTED_READS = (
-    "no committed reads in supabase/seed/extractions/; run scripts.seed_cache --capture"
-)
-
 PageReads = Mapping[int, tuple[PageRead, PageRead]]
 """Page number → (read A, read B)."""
 
@@ -53,18 +51,17 @@ def committed_read_files(cache_dir: Path, settings: Settings | None = None) -> l
     )
 
 
-def cache_skip_reason(cache_dir: Path, settings: Settings | None = None) -> str | None:
-    """Why the `cache` source must skip (golden and pack gating), or None when reads for the
-    current `EXTRACT_MODEL` and `PROMPT_VERSION` exist."""
+def require_committed_reads(cache_dir: Path, settings: Settings | None = None) -> None:
+    """Fail the test (golden and pack `cache` gating, T042) unless reads for the current
+    `EXTRACT_MODEL` and `PROMPT_VERSION` are committed. Real reads are committed (T033), so a
+    missing or unmatched cache is an error, never a skip; stale files (another model or prompt
+    version) and `.gitkeep` alone count as none."""
     s = offline_settings() if settings is None else settings
-    if committed_read_files(cache_dir, s):
-        return None
-    if any(Path(cache_dir).glob("*.json")):
-        return (
-            "committed reads are for another model/prompt version "
-            f"(expected {s.EXTRACT_MODEL}/{s.PROMPT_VERSION})"
+    if not committed_read_files(cache_dir, s):
+        pytest.fail(
+            f"no committed reads for {s.EXTRACT_MODEL}/{s.PROMPT_VERSION}; "
+            "run scripts.seed_cache --capture"
         )
-    return NO_COMMITTED_READS
 
 
 def ground_truth_read(ground_truth_dir: Path, page_no: int) -> PageRead:

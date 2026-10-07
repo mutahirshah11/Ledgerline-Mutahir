@@ -2,13 +2,14 @@
 
 `pack_pages` (conftest) is parametrised: `cache` extracts from the committed real reads in
 `supabase/seed/extractions/` (MemoryRepo loaded by `load_cached_extractions`, ReplayModelClient)
-and skips until `scripts.seed_cache --capture` has run; `live` reads afresh with the model, is
-marked `live` and skips without OPENAI_API_KEY (research R13). The assertion helpers below also
-run, offline and always, on reads derived from the ground truth
+and fails when no read is committed for the current model and prompt version (T042); `live`
+reads afresh with the model, is marked `live` and skips without OPENAI_API_KEY (research R13).
+The assertion helpers below also run, offline and always, on reads derived from the ground truth
 (`test_F03_pack_assertions_hold_on_ground_truth_reads`), so their logic is exercised before any
 real read exists.
 """
 
+import re
 from fractions import Fraction
 from hashlib import sha256
 from pathlib import Path
@@ -23,7 +24,7 @@ from app.domain.models import Cell, PageExtractionResult
 from app.pipeline.extract import extract_page
 from scripts.eval_extraction import evaluate, load_ground_truth
 from tests.fakes.model_clients import ScriptedModelClient
-from tests.support.extracted import NO_COMMITTED_READS, cache_skip_reason, ground_truth_read
+from tests.support.extracted import ground_truth_read, require_committed_reads
 from tests.support.pack import PAGES
 from tests.support.pack_pages import (
     PackPages,
@@ -234,22 +235,29 @@ def test_F03_pack_live_source_backs_off_for_real(
     assert all("sleep" not in kwargs for kwargs in calls)
 
 
-def test_F03_pack_cache_skip_reason(tmp_path: Path, pack_dir: Path, ground_truth_dir: Path) -> None:
-    """No `*.json`: "no committed reads"; only reads for another model or prompt version: says
-    so and names the expected pair; reads for the current pair: no skip."""
+def test_F03_T042_missing_cache_fails_not_skips(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path
+) -> None:
+    """T042: with real reads committed, the `cache` source fails (never skips) when no read
+    exists for the current model and prompt version: an empty dir, `.gitkeep` only, or only
+    stale reads (another prompt version). Reads for the current pair pass."""
     current = offline_settings()
-    assert cache_skip_reason(tmp_path) == NO_COMMITTED_READS
+    expected = (
+        f"no committed reads for {current.EXTRACT_MODEL}/{current.PROMPT_VERSION}; "
+        "run scripts.seed_cache --capture"
+    )
+    with pytest.raises(pytest.fail.Exception, match=re.escape(expected)):
+        require_committed_reads(tmp_path)
     (tmp_path / ".gitkeep").write_text("")
-    assert cache_skip_reason(tmp_path) == NO_COMMITTED_READS
+    with pytest.raises(pytest.fail.Exception, match=re.escape(expected)):
+        require_committed_reads(tmp_path)
 
     reads = {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
     write_cache_files(
         tmp_path, pack_dir, reads, current.model_copy(update={"PROMPT_VERSION": "v0"})
     )
-    expected = f"{current.EXTRACT_MODEL}/{current.PROMPT_VERSION}"
-    assert cache_skip_reason(tmp_path) == (
-        f"committed reads are for another model/prompt version (expected {expected})"
-    )
+    with pytest.raises(pytest.fail.Exception, match=re.escape(expected)):
+        require_committed_reads(tmp_path)
 
     write_cache_files(tmp_path, pack_dir, reads, current)
-    assert cache_skip_reason(tmp_path) is None
+    require_committed_reads(tmp_path)  # no failure

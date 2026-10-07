@@ -174,7 +174,7 @@ PACK_PAGE_SOURCES = [
     pytest.param("cache", id="cache"),
     pytest.param("live", id="live", marks=pytest.mark.live),
 ]
-"""`cache`: committed real reads (skips until captured); `live`: the model (skips without key)."""
+"""`cache`: committed real reads (fails when none, T042); `live`: the model (skips without key)."""
 
 
 @pytest.fixture(scope="session")
@@ -204,7 +204,7 @@ def pack_pages(
     the reads behind them, extracted once per module and source.
 
     `cache` loads `supabase/seed/extractions/` into a MemoryRepo (`load_cached_extractions`)
-    and replays it; it skips while no read exists for the committed model and prompt version.
+    and replays it; it fails (T042) when no read exists for the current model and prompt version.
     It runs with settings made hermetic here (module fixtures run before the autouse
     `hermetic_settings`), so the OS env and .env change neither the files matched nor the clock.
     `live` reads afresh with `OpenAIModelClient` built from `live_settings` into a MemoryRepo,
@@ -212,14 +212,12 @@ def pack_pages(
     """
     from app.core.memory_repo import MemoryRepo
     from app.pipeline.model_client import OpenAIModelClient
-    from tests.support.extracted import cache_skip_reason
+    from tests.support.extracted import require_committed_reads
     from tests.support.pack_pages import cached_pack, extract_pack, hermetic_settings_context
 
     if request.param == "cache":
         with hermetic_settings_context():
-            skip_reason = cache_skip_reason(cached_reads_dir)
-            if skip_reason is not None:
-                pytest.skip(skip_reason)
+            require_committed_reads(cached_reads_dir)  # T042: fail, never skip
             return cached_pack(cached_reads_dir, pack_dir)
     settings: Settings = request.getfixturevalue("live_settings")
     assert settings.OPENAI_API_KEY is not None

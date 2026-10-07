@@ -42,11 +42,11 @@ from tests.support.extracted import (
     PageReads,
     build_engine_inputs_from_pages,
     build_engine_inputs_from_reads,
-    cache_skip_reason,
     cached_pack_pages,
     cached_pack_reads,
     committed_read_files,
     ground_truth_read,
+    require_committed_reads,
 )
 from tests.support.normalised import PACK_RUN_ID
 from tests.support.pack import PAGES, build_engine_inputs, resolved_cell
@@ -88,17 +88,13 @@ def inputs_for(
     request: pytest.FixtureRequest, pack_dir: Path, ground_truth_dir: Path, cached_reads_dir: Path
 ) -> InputsFor:
     """FR-035 / research R12: the register input from the ground truth or the committed cache.
-    `cache` skips while `supabase/seed/extractions/` holds no reads (before T033's capture)."""
+    `cache` fails when no read is committed for the current model and prompt version (T042)."""
     if request.param == "ground_truth":
         return lambda decisions: build_engine_inputs(
             pack_dir, ground_truth_dir, PACK_RUN_ID, decisions
         )
     with hermetic_settings_context():  # module scope: runs before the autouse fixture
-        skip_reason = cache_skip_reason(cached_reads_dir)
-        if skip_reason is not None:
-            # After the real reads are committed (T033), a missing cache must fail, not skip;
-            # see T042.
-            pytest.skip(skip_reason)
+        require_committed_reads(cached_reads_dir)  # T042: fail, never skip
         pages = cached_pack_pages(cached_reads_dir, pack_dir, PACK_RUN_ID)
     return lambda decisions: build_engine_inputs_from_pages(pack_dir, pages, PACK_RUN_ID, decisions)
 
@@ -468,7 +464,8 @@ def test_F03_golden_adapter_cache_source_reads_files_by_image_sha(
     want: dict[int, tuple[PageRead, PageRead]] = {}
     for p in PAGES:
         gt = ground_truth_read(ground_truth_dir, p)
-        want[p] = (gt, gt.model_copy(update={"rows": gt.rows[1:]}))
+        b = gt.model_copy(update={"rows": gt.rows[1:], "blank_row_slots": gt.blank_row_slots + 1})
+        want[p] = (gt, b)
     write_cache_files(tmp_path, pack_dir, want, Settings())
     assert len(committed_read_files(tmp_path)) == 4
     assert cached_pack_reads(tmp_path, pack_dir) == want
@@ -480,13 +477,15 @@ def test_F03_golden_adapter_cache_source_uses_current_model_and_prompt_version(
     """The cache source reads exactly what a real run reads: files for the current
     `EXTRACT_MODEL` and `PROMPT_VERSION` only. Stale files (another prompt version or model)
     for the same image are ignored, and a cache holding only stale files has no current reads,
-    so it skips (saying the reads are for another model/prompt version)."""
+    so the gating fails (T042, `require_committed_reads`)."""
     current = Settings()
     stale_version = current.model_copy(update={"PROMPT_VERSION": f"{current.PROMPT_VERSION}-stale"})
     stale_model = current.model_copy(update={"EXTRACT_MODEL": "other-model"})
     gt: PageReads = {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
     shorter: PageReads = {
-        p: (a.model_copy(update={"rows": a.rows[1:]}),) * 2 for p, (a, _) in gt.items()
+        p: (a.model_copy(update={"rows": a.rows[1:], "blank_row_slots": a.blank_row_slots + 1}),)
+        * 2
+        for p, (a, _) in gt.items()
     }
     write_cache_files(tmp_path, pack_dir, shorter, stale_version)
     write_cache_files(tmp_path, pack_dir, shorter, stale_model)
