@@ -137,6 +137,10 @@ INVALID: dict[str, Any] = {
     "illegible_with_value": _cell_case(value="2", status="ILLEGIBLE"),
     "top_not_above_bottom": lambda p: p | {"table_top": 0.9, "table_bottom": 0.9},
     "blank_row_slots_17": lambda p: p | {"blank_row_slots": 17},
+    # PR-11 / F-07.R3: rows plus blank_row_slots must equal the 16 printed slots
+    "slots_total_17": lambda p: p | {"blank_row_slots": 15},
+    "slots_total_15": lambda p: p | {"blank_row_slots": 13},
+    "row_dropped_slots_kept": lambda p: _with(p, lambda q: q["rows"].pop()),
     "row_index_string": lambda p: _with(p, lambda q: q["rows"][0].update(row_index="3")),
     "blank_row_slots_bool": lambda p: p | {"blank_row_slots": True},
     "blank_row_slots_string": lambda p: p | {"blank_row_slots": "14"},

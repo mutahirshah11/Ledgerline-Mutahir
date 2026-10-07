@@ -463,6 +463,21 @@ def test_F03_FM05_invalid_output_three_attempts(repo: MemoryRepo) -> None:
     assert [r.cause for r in retries] == ["invalid output", "invalid output"]
 
 
+def test_F03_FM05_seventeen_slots_retried_then_good_cached(repo: MemoryRepo) -> None:
+    seventeen = payload(blank_row_slots=15)  # 2 rows + 15 blank slots: PR-11 broken
+    client = ScriptedModelClient({A: [raw(payload())], B: [raw(seventeen), raw(payload())]})
+    retries = RetryLog()
+    result = run(repo, client, on_retry=retries)
+    assert list(retries) == [
+        RetryInfo(page_no=PAGE_NO, variant=B, attempt=2, cause="invalid output")
+    ]
+    cached = stored(repo, B)
+    assert cached is not None
+    assert cached.result.blank_row_slots == 14
+    assert len(cached.result.rows) + cached.result.blank_row_slots == 16
+    assert result.calls_made == 3
+
+
 @pytest.mark.parametrize(
     ("error", "cause"),
     [

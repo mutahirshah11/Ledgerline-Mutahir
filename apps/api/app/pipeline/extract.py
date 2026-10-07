@@ -30,6 +30,7 @@ from app.core.config import EXTRACT_ATTEMPTS, EXTRACT_WAITS_S, Settings
 from app.core.db import Repo
 from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
 from app.domain.enums import (
+    PRINTED_ROW_SLOTS,
     REVIEWABLE_REGISTER_FIELDS,
     CellStatus,
     ReadVariant,
@@ -89,7 +90,8 @@ def parse_read(payload: object) -> PageRead:
 
     Accepts the parsed JSON object (or its JSON text). Validation is strict JSON mode, so no
     type is coerced (`"3"` is not a row index, `true` is not a count; enum strings are fine).
-    A CORRECTED cell needs a non-blank current value and struck value. Any failure, including
+    Rows plus `blank_row_slots` must equal the 16 printed slots (PR-11, F-07.R3). A CORRECTED
+    cell needs a non-blank current value and struck value. Any failure, including
     text that is not a JSON object, raises `InvalidReadOutput`; rows come back sorted by
     `row_index`.
     """
@@ -108,6 +110,11 @@ def parse_read(payload: object) -> PageRead:
         read = PageRead.model_validate_json(text, strict=True)
     except ValidationError as exc:
         raise InvalidReadOutput(str(exc)) from exc
+    if len(read.rows) + read.blank_row_slots != PRINTED_ROW_SLOTS:
+        raise InvalidReadOutput(
+            f"{len(read.rows)} rows plus blank_row_slots {read.blank_row_slots} is not "
+            f"{PRINTED_ROW_SLOTS} printed slots (PR-11, F-07.R3)"
+        )
     for row in read.rows:
         for field, cell in row.cells.items():
             if cell.status is CellStatus.CORRECTED and (

@@ -66,7 +66,7 @@ def _read(*rows: RowRead) -> PageRead:
         page_no_written="1",
         table_top=0.1,
         table_bottom=0.9,
-        blank_row_slots=0,
+        blank_row_slots=16 - len(rows),  # PR-11: rows plus blank slots = 16
         rows=list(rows),
     )
 
