@@ -93,6 +93,36 @@ class InvalidReadOutput(LedgerlineError):
         self.detail = detail
 
 
+# --- Phase 4 errors (005 data-model.md §1, E1) ----------------------------------------------
+
+
+class InvalidReviewAction(LedgerlineError):
+    """F-08 AC4/AC5: a review action/value does not fit the item's kind, or a value fails its
+    validator (data-model.md §1.1, §1.2). Maps to 422 INVALID_REVIEW_ACTION, stage review."""
+
+    def __init__(self, field: str, reason: str) -> None:
+        super().__init__(f"invalid review action on {field}: {reason}")
+        self.field = field
+        self.reason = reason
+
+
+class ItemAlreadyResolved(LedgerlineError):
+    """FM-09: a second reviewer raced the first; carries the already-decided item. Maps to 409
+    ITEM_ALREADY_RESOLVED, stage review."""
+
+    def __init__(self, item: Any) -> None:
+        super().__init__("review item is already resolved")
+        self.item = item
+
+
+class ConfirmRequired(LedgerlineError):
+    """EP-17 (research R14): finalise requires `{"confirm": true}`. Maps to 400 CONFIRM_REQUIRED,
+    stage finalise."""
+
+    def __init__(self) -> None:
+        super().__init__("finalise requires confirm: true")
+
+
 # --- API error model (004 data-model.md §1) -------------------------------------------------
 
 
@@ -179,6 +209,27 @@ def _to_api_error(exc: Exception) -> ApiError:
         return ApiError(
             ErrorCode.UPSTREAM_FAILED, 502, f"{exc.service} failed after retries", stage, details
         )
+    if isinstance(exc, InvalidReviewAction):
+        return ApiError(
+            ErrorCode.INVALID_REVIEW_ACTION,
+            422,
+            "This action is not valid for this item",
+            Stage.REVIEW,
+            details={"field": exc.field, "reason": exc.reason},
+        )
+    if isinstance(exc, ItemAlreadyResolved):
+        item = exc.item.model_dump(mode="json") if hasattr(exc.item, "model_dump") else exc.item
+        return ApiError(
+            ErrorCode.ITEM_ALREADY_RESOLVED,
+            409,
+            "This item was already decided",
+            Stage.REVIEW,
+            details={"item": item},
+        )
+    if isinstance(exc, ConfirmRequired):
+        return ApiError(
+            ErrorCode.CONFIRM_REQUIRED, 400, "Confirm the finalise to proceed", Stage.FINALISE
+        )
     if isinstance(exc, RequestValidationError):
         fields = [
             {"loc": list(e.get("loc", ())), "msg": str(e.get("msg", ""))} for e in exc.errors()
@@ -207,6 +258,9 @@ def install_error_handlers(app: FastAPI) -> None:
         StateConflict,
         UniqueViolation,
         UpstreamFailed,
+        InvalidReviewAction,
+        ItemAlreadyResolved,
+        ConfirmRequired,
         RequestValidationError,
         StarletteHTTPException,
         Exception,

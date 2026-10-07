@@ -34,6 +34,7 @@ from app.domain.enums import (
     ProofStatus,
     ReadVariant,
     RegisterField,
+    ReviewAction,
     ReviewKind,
     ReviewReason,
     ReviewStatus,
@@ -669,3 +670,184 @@ class AllowedUser(DomainModel):
         if email != email.lower():
             raise ValueError("email must be lower-case")
         return email
+
+
+# --- Phase 4 (005 data-model.md §2): review and finalise request/response models ----------
+
+
+class ResolveRequest(DomainModel):
+    """EP-15 body (F-08 AC2 to AC5, data-model.md §2)."""
+
+    action: ReviewAction
+    value: str | None = None
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def _value_and_note_rules(self) -> Self:
+        if self.action is ReviewAction.ENTER_VALUE:
+            if self.value is None:
+                raise ValueError("value is required for ENTER_VALUE")
+        elif self.value is not None:
+            raise ValueError("value is only set for ENTER_VALUE")
+        if self.action is ReviewAction.CANNOT_DETERMINE and not (self.note and self.note.strip()):
+            raise ValueError("CANNOT_DETERMINE needs a non-blank note")
+        return self
+
+
+class ReviewDecisionAudit(DomainModel):
+    """`audit_log.after` for `REVIEW_RESOLVED` (data-model.md §2, §8)."""
+
+    item_key: str
+    action: ReviewAction
+    status: ReviewStatus
+    resolved_value: str | None
+    note: str | None
+    equals_sources: list[Source]
+    group_key: str | None
+    group_outcome: Outcome | None
+
+    @field_validator("equals_sources")
+    @classmethod
+    def _sorted(cls, sources: list[Source]) -> list[Source]:
+        order = list(Source)  # Source declaration order (= Postgres enum), as Group.missing_from
+        return sorted(sources, key=order.index)
+
+
+ExceptionKind = Literal[
+    "MISSING", "MISMATCH", "REVIEW", "UNMATCHED", "FLAG", "DUPLICATE", "NON_RECEIPT"
+]
+
+
+class ExceptionItem(DomainModel):
+    """API shape of `pipeline/report.py`'s exception list (data-model.md §3); `pipeline/report.py`
+    builds these (category ranks, C5 flag attachment, deterministic sort), this model only fixes
+    the wire shape so `RunView.exceptions` and the Telegram/report builders share one type."""
+
+    category: int
+    kind: ExceptionKind
+    grn_no: int | None
+    group_key: str | None
+    source_row_id: str | None
+    field: str | None
+    flags: list[ControlFlag]
+    text: str
+
+
+StageState = Literal["PENDING", "RUNNING", "OK", "FAILED"]
+
+
+class StageProgress(DomainModel):
+    """Mirrors `app.routes.runs.StageProgress` (EP-05); kept here so `RunView` does not import the
+    routes layer. Dedupe candidate for T039 (tasks.md carry-over)."""
+
+    stage: Stage
+    state: StageState
+    at: AwareDatetime | None
+    duration_ms: int | None
+
+
+class PageProgress(DomainModel):
+    page_no: int
+    extracted: bool
+    cached: bool
+
+
+class StageProgressView(DomainModel):
+    stages: list[StageProgress]
+    pages: list[PageProgress]
+
+
+class RunView(DomainModel):
+    """EP-05 response and the `run` of EP-15/EP-17 (data-model.md §2); flat (C25): the Phase 3
+    `RunDetail` fields (Run fields, `stage_progress`, `counts`, `proof_status`,
+    `open_review_items`) plus `row_counts`, `headline`, `exceptions` and `summary` (E3)."""
+
+    id: UUID
+    month: Month
+    status: RunStatus
+    run_key: str | None
+    failed_stage: Stage | None
+    error_message: str | None
+    scenario_now: AwareDatetime
+    created_by: str
+    created_at: AwareDatetime
+    finalised_at: AwareDatetime | None
+    finalised_by: str | None
+    stage_progress: StageProgressView
+    counts: dict[Outcome, int]
+    row_counts: dict[Source, dict[Outcome, int]]
+    proof_status: ProofStatus | None
+    open_review_items: int
+    headline: str
+    exceptions: list[ExceptionItem]
+    summary: Notification | None
+
+
+class ResolveResponse(DomainModel):
+    """EP-15 200 (data-model.md §2)."""
+
+    item: ReviewItem
+    run: RunView
+
+
+class GroupRowView(DomainModel):
+    """A `CanonicalRow` as shown inside `GroupView.rows` (data-model.md §2), plus its flags."""
+
+    source_row_id: str
+    source: Source
+    row_kind: RowKind
+    grn_no: int | None
+    date: dt.date | None
+    supplier_code: str | None
+    item: str | None
+    lot_no: str | None
+    qty: DecimalStr | None
+    uom: str | None
+    qty_base: DecimalStr | None
+    base_uom: str | None
+    cell_status: dict[str, CellStatus]
+    raw: dict[str, str | None]
+    meta: RowMeta
+    duplicate_of: str | None
+    outcome: Outcome | None
+    flags: list[FlagType]
+
+
+class GroupView(DomainModel):
+    """EP-11 item (data-model.md §2)."""
+
+    group: Group
+    rows: dict[Source, list[GroupRowView]]
+
+
+class PageImageLink(DomainModel):
+    """EP-16 (data-model.md §2)."""
+
+    page_no: int
+    signed_url: str
+    expires_at: AwareDatetime
+    table_top: float | None
+    table_bottom: float | None
+    slots: int
+
+
+class FinaliseRequest(DomainModel):
+    """EP-17 body (data-model.md §2, research R14)."""
+
+    confirm: bool
+
+
+class FinaliseResponse(DomainModel):
+    """EP-17 200 (data-model.md §2)."""
+
+    run: RunView
+    report_url: str
+    notification: Notification
+
+
+class ReportLinks(DomainModel):
+    """EP-18 200 (data-model.md §2)."""
+
+    html_url: str
+    csv_url: str
+    expires_at: AwareDatetime
