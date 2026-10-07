@@ -522,7 +522,7 @@ def test_F09_AC4_report_offline_with_hashes(pack_run: PackRun) -> None:
     html, _ = _report(pack_run)
     lowered = html.lower()
     assert "<script" not in lowered and "<link" not in lowered and "@import" not in lowered
-    assert " src=" not in lowered and "<style>" in lowered
+    assert " src=" not in lowered and "<style>" in lowered and "url(" not in lowered
     outside = _OPAQUE.sub("", html)
     assert "http://" not in outside and "https://" not in outside
     files = pack_run.repo.list_source_files(pack_run.run_id)
@@ -553,6 +553,37 @@ def test_F09_AC2_report_and_overview_numbers_traced(
     body = api_client_as("reviewer").get(f"{API}/runs/{run_id}").json()
     overview = "\n".join([body["headline"], *(e["text"] for e in body["exceptions"])])
     assert_traced(overview, repo, run_id)
+
+
+def test_F09_R3_report_labels_casing_and_stable_detail(pack_run: PackRun) -> None:
+    """Flag names labelled as elsewhere, one casing for check statuses, flag detail in key
+    order (jsonb reorders keys on Postgres)."""
+    html, _ = _report(pack_run)
+    assert "(flags: BACKDATED ENTRY, UNUSUAL USER)" in html
+    assert "_ENTRY" not in html.split('<section id="exceptions"')[1].split("</section>")[0]
+    assert "): PASS</h3>" in html and "): pass</h3>" not in html
+    backdated = next(line for line in html.splitlines() if "<td>BACKDATED ENTRY</td>" in line)
+    assert backdated.index("days_after:") < backdated.index("entered_at:")
+    assert backdated.index("entered_at:") < backdated.index("grn_date:")
+
+
+def test_F09_R3_receipt_lines_missing_and_unread() -> None:
+    """ "All receipts": `missing` for a source in `missing_from`, `unread` for an empty qty."""
+    group = make_group(
+        RID,
+        "GRN:4495",
+        grn_no=4495,
+        outcome=Outcome.MISSING,
+        row_ids={Source.REGISTER: ["REG-p1-r01"], Source.SHEET: ["XLS-r95"]},
+        missing_from=[Source.ERP],
+    )
+    rows = [_row("REG-p1-r01", 4495, qty=None), _row("XLS-r95", 4495)]
+    (view,) = report.group_views([group], rows, [])
+    qty = next(line for line in report.receipt_lines(view) if line.label == "qty")
+    texts = {s: c.text for s, c in qty.cells.items()}
+    assert texts == {Source.REGISTER: "unread", Source.ERP: "missing", Source.SHEET: "1.5 KG"}
+    lot = next(line for line in report.receipt_lines(view) if line.label == "lot")
+    assert lot.cells[Source.ERP].text == "missing" and lot.cells[Source.SHEET].text == ""
 
 
 def test_F09_R5_report_files_write_once(pack_run: PackRun) -> None:

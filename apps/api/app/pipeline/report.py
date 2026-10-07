@@ -812,7 +812,7 @@ def _row_value(row: GroupRowView, label: str) -> str | None:
     if label == "lot":
         return row.lot_no
     if row.qty is None:
-        return None
+        return "unread"
     text = f"{fmt_qty(row.qty)} {row.uom or ''}".rstrip()
     if row.qty_base is not None and (row.qty_base != row.qty or row.base_uom != row.uom):
         text += f" = {fmt_qty(row.qty_base)} {row.base_uom or ''}".rstrip()
@@ -822,12 +822,16 @@ def _row_value(row: GroupRowView, label: str) -> str | None:
 def receipt_lines(view: GroupView) -> list[ReceiptLine]:
     """The four field lines of a group in the "All receipts" table: each source's values
     (several rows joined by `, `), the cells of a diff's outlier (with no outlier, every
-    non-empty cell) marked as differing, and the outlier named."""
+    non-empty cell) marked as differing, and the outlier named; a source the group is missing
+    from reads `missing`, an empty quantity `unread`."""
     out: list[ReceiptLine] = []
     for label, fields in _FIELD_ROWS:
         diffs = [d for d in view.group.diffs if d.field in fields]
         cells: dict[Source, ReceiptCell] = {}
         for source in SOURCE_ORDER:
+            if source in view.group.missing_from:
+                cells[source] = ReceiptCell("missing", False)
+                continue
             values = [v for r in view.rows.get(source, []) if (v := _row_value(r, label))]
             odd = any(d.outlier is source or d.outlier is None for d in diffs)
             cells[source] = ReceiptCell(", ".join(values), odd and bool(values))
@@ -874,6 +878,8 @@ def render_outcomes_csv(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerow(CSV_HEADER)
+    # Every column is a code, id or number. A future free-text column must prefix ' to a value
+    # starting with = + - @ (CSV injection).
     for row in rows:
         group = of_row.get(row.source_row_id)
         outcome = group.outcome if group else row.outcome

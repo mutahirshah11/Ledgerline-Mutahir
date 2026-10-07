@@ -38,20 +38,20 @@ dd { margin: 0; }
 {% if ctx.proof %}
 {% set c = ctx.proof.checks %}
 <p>Status: <span class="status">{{ ctx.proof.status.value }}</span></p>
-<h3>Rows per source (<span data-trace="opaque">C1</span>): {{ "pass" if c.C1.pass_ else "FAIL" }}</h3>
+<h3>Rows per source (<span data-trace="opaque">C1</span>): {{ "PASS" if c.C1.pass_ else "FAIL" }}</h3>
 <table>
 <tr><th>Source</th><th>In</th><th>Placed</th></tr>
 {% for source, count in c.C1.per_source.items() %}
 <tr><td>{{ source.value }}</td><td>{{ count.in_ }}</td><td>{{ count.placed }}</td></tr>
 {% endfor %}
 </table>
-<h3>Every row placed once (<span data-trace="opaque">C2</span>): {{ "pass" if c.C2.pass_ else "FAIL" }}</h3>
+<h3>Every row placed once (<span data-trace="opaque">C2</span>): {{ "PASS" if c.C2.pass_ else "FAIL" }}</h3>
 <table>
 <tr><th>Rows</th><td>{{ c.C2.rows }}</td></tr>
 <tr><th>Unplaced</th><td>{{ c.C2.unplaced | join(", ") or "none" }}</td></tr>
 <tr><th>Placed twice</th><td>{{ c.C2.placed_twice | join(", ") or "none" }}</td></tr>
 </table>
-<h3>Rows read per source (<span data-trace="opaque">C3</span>): {{ "pass" if c.C3.pass_ else "FAIL" }}</h3>
+<h3>Rows read per source (<span data-trace="opaque">C3</span>): {{ "PASS" if c.C3.pass_ else "FAIL" }}</h3>
 <table>
 <tr><th>Source</th><th>Rows</th></tr>
 {% for source, count in c.C3.per_source.items() %}
@@ -65,7 +65,7 @@ dd { margin: 0; }
 {% endfor %}
 </ul>
 {% endif %}
-<h3>Quantity balance (<span data-trace="opaque">C4</span>): {{ "pass" if c.C4.pass_ else "FAIL" }}</h3>
+<h3>Quantity balance (<span data-trace="opaque">C4</span>): {{ "PASS" if c.C4.pass_ else "FAIL" }}</h3>
 <table>
 <tr><th>Source</th><th>Unit</th><th>In</th><th>Placed</th></tr>
 {% for key, balance in c.C4.by_source_unit.items() %}
@@ -74,7 +74,7 @@ dd { margin: 0; }
 {% endfor %}
 </table>
 <p>Qty unknown: {{ c.C4.qty_unknown | join(", ") or "none" }}</p>
-<h3>GRN sequence (<span data-trace="opaque">C5</span>): {{ "pass" if c.C5.pass_ else "FAIL" }}</h3>
+<h3>GRN sequence (<span data-trace="opaque">C5</span>): {{ "PASS" if c.C5.pass_ else "FAIL" }}</h3>
 <table>
 <tr><th>GRNs</th><td>{{ c.C5.grns }}</td></tr>
 <tr><th>Gaps</th><td>{{ c.C5.gaps | join(", ") or "none" }}</td></tr>
@@ -92,7 +92,7 @@ dd { margin: 0; }
 <h3>{{ title }}</h3>
 <ul>
 {% for item in items %}
-<li>{{ item.text }}{% if item.flags %} <em>(flags: {{ item.flags | map(attribute="flag.value") | join(", ") }})</em>{% endif %}</li>
+<li>{{ item.text }}{% if item.flags %} <em>(flags: {{ item.flags | map(attribute="flag.value") | map("label") | join(", ") }})</em>{% endif %}</li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -133,7 +133,7 @@ dd { margin: 0; }
 <table>
 <tr><th>Flag</th><th>GRN</th><th>Row</th><th>Detail</th></tr>
 {% for flag in ctx.flags %}
-<tr><td>{{ flag.flag.value | label }}</td><td>{{ flag.grn_no if flag.grn_no is not none else "" }}</td><td>{{ flag.source_row_id or "" }}</td><td>{% for key, value in flag.detail.items() %}{{ key }}: {{ value }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+<tr><td>{{ flag.flag.value | label }}</td><td>{{ flag.grn_no if flag.grn_no is not none else "" }}</td><td>{{ flag.source_row_id or "" }}</td><td>{% for key, value in flag.detail | dictsort %}{{ key }}: {{ value }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
 {% endfor %}
 </table>
 {% else %}
