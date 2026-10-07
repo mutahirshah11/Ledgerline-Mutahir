@@ -15,15 +15,15 @@ from app.core.auth import current_user
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 from app.core.logging import RequestLogMiddleware, configure_logging
-from app.routes import health
+from app.routes import health, runs
 
 API_PREFIX = "/api/v1"
 
 PUBLIC_ROUTERS: tuple[APIRouter, ...] = ()
 """No auth; EP-01 adds `health.public_router` here (T052)."""
 
-PROTECTED_ROUTERS: tuple[APIRouter, ...] = (health.protected_router,)
-"""Behind `PROTECTED_DEPENDENCIES`: EP-02 `/me`; later `runs`."""
+PROTECTED_ROUTERS: tuple[APIRouter, ...] = (health.protected_router, runs.router)
+"""Behind `PROTECTED_DEPENDENCIES`: EP-02 `/me`; EP-03 to EP-07 `runs`."""
 
 PROTECTED_DEPENDENCIES: tuple[Any, ...] = (Depends(current_user),)
 """Applied to every protected route (F-12 AC1, AC2); tests swap the dependency through

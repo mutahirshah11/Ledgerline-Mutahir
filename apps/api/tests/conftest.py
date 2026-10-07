@@ -1,10 +1,10 @@
 """Shared fixtures. Pack files are resolved by path, not symlinked (research R15)."""
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -297,8 +297,8 @@ def client(
     notifier: "FakeNotifier",
 ) -> Iterator["TestClient"]:
     """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
-    JWKS, with the three seeded users on the allowlist. `pack_upload` (EP-03 to EP-07 for the
-    pack) is added with US2."""
+    JWKS, with the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for
+    the pack."""
     from fastapi.testclient import TestClient
 
     from app.core.auth import JwksCache, get_jwks_cache
@@ -330,3 +330,66 @@ def tokens() -> dict[str, dict[str, str]]:
 
     emails = {who: user[0] for who, user in SEEDED_USERS.items()} | {"stranger": STRANGER_EMAIL}
     return {who: {"Authorization": f"Bearer {make_token(e)}"} for who, e in emails.items()}
+
+
+PACK_FILES = {
+    "t4_register_page1.jpg": "REGISTER",
+    "t4_register_page2.jpg": "REGISTER",
+    "t4_erp_grn.csv": "ERP",
+    "t4_store_sheet.xlsx": "SHEET",
+}
+"""The pack's four files and their sources, in upload order (pages 1 and 2 first)."""
+
+
+@pytest.fixture(scope="session")
+def pack_files(pack_dir: Path) -> dict[str, bytes]:
+    """The bytes of the four pack files, read once, by file name."""
+    return {name: (pack_dir / name).read_bytes() for name in PACK_FILES}
+
+
+@pytest.fixture(scope="session")
+def pack_declared(pack_files: dict[str, bytes]) -> list[dict[str, Any]]:
+    """The EP-06 `files` list for the pack (sha256 computed as the browser does, F-01.R2)."""
+    import hashlib
+
+    return [
+        {
+            "source": PACK_FILES[name],
+            "filename": name,
+            "size_bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        for name, data in pack_files.items()
+    ]
+
+
+@pytest.fixture
+def pack_upload(
+    client: "TestClient",
+    tokens: dict[str, dict[str, str]],
+    memory_blobs: "MemoryBlobStore",
+    pack_files: dict[str, bytes],
+    pack_declared: list[dict[str, Any]],
+) -> Callable[..., dict[str, Any]]:
+    """`pack_upload(month="2026-09")`: EP-03 → EP-06 → blob put → EP-07 as the controller for the
+    pack (004 T010); returns the EP-07 body (`run`, `new_pages`, `known_pages`)."""
+    from app.core.storage import INPUTS_BUCKET
+
+    def upload(month: str = "2026-09") -> dict[str, Any]:
+        headers = tokens["controller"]
+        created = client.post("/api/v1/runs", json={"month": month}, headers=headers)
+        assert created.status_code == 201, created.text
+        run_id = created.json()["id"]
+        slots = client.post(
+            f"/api/v1/runs/{run_id}/uploads", json={"files": pack_declared}, headers=headers
+        )
+        assert slots.status_code == 200, slots.text
+        for slot in slots.json()["uploads"]:
+            data = pack_files[slot["filename"]]
+            memory_blobs.put(INPUTS_BUCKET, slot["storage_path"], data, "application/octet-stream")
+        confirmed = client.post(f"/api/v1/runs/{run_id}/uploads/confirm", headers=headers)
+        assert confirmed.status_code == 200, confirmed.text
+        body: dict[str, Any] = confirmed.json()
+        return body
+
+    return upload
