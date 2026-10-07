@@ -1,4 +1,4 @@
-"""US1 scaffold: the API object exists, has no product routes yet, and the pack is unchanged."""
+"""US1 scaffold: the API object exists, its routes live under /api/v1, and the pack is unchanged."""
 
 import hashlib
 import json
@@ -15,8 +15,6 @@ from app.core.errors import install_error_handlers
 # `app.main` is imported inside each test on purpose: importing it builds the module-level app
 # from settings, which must happen after the autouse `hermetic_settings` fixture.
 
-FASTAPI_BUILTIN_PATHS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
-
 
 def test_app_object_is_fastapi() -> None:
     from app.main import app
@@ -24,12 +22,13 @@ def test_app_object_is_fastapi() -> None:
     assert isinstance(app, FastAPI)
 
 
-def test_app_has_no_product_routes() -> None:
-    from app.main import app
+def test_app_routes_live_under_api_v1() -> None:
+    """Phase 0 had no product routes; from Phase 3 (T025) every one is under `/api/v1`.
+    Included routers are mounted lazily, so the paths come from the OpenAPI schema."""
+    from app.main import API_PREFIX, app
 
-    paths = {getattr(r, "path", "") for r in app.routes}
-    assert paths <= FASTAPI_BUILTIN_PATHS
     assert not [r for r in app.routes if isinstance(r, APIRoute)]
+    assert all(p.startswith(f"{API_PREFIX}/") for p in app.openapi()["paths"])
 
 
 def test_pack_files_unchanged(pack_dir: Path) -> None:

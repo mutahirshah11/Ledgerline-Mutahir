@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+
     from app.core.config import Settings
     from app.core.db import Repo
     from app.core.memory_repo import MemoryRepo
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
     from app.domain.models import Run
     from app.pipeline.engine import EngineInputs
     from app.pipeline.model_client import ReplayModelClient
+    from tests.fakes.api import FakeJwksFetcher, FakeNotifier
     from tests.support.pack_pages import PackPages
 
 API_DIR = Path(__file__).resolve().parents[1]
@@ -235,3 +238,95 @@ def pack_pages(
     return extract_pack(
         "live", repo=MemoryRepo(), client=client, settings=settings, pack_dir=pack_dir
     )
+
+
+# --- API client (004 T010, contracts/auth.md) --------------------------------------------
+
+SEEDED_USERS = {
+    "controller": ("controller@kestrel.example", "Controller (Demo)", "CONTROLLER"),
+    "reviewer": ("reviewer@kestrel.example", "Reviewer (Demo)", "REVIEWER"),
+    "ops": ("ops@kestrel.example", "Ops (Demo)", "OPS"),
+}
+"""The allowlist of `supabase/seed/allowed_users.sql` (C13), seeded into the client's repo."""
+STRANGER_EMAIL = "stranger@kestrel.example"
+"""Signs valid tokens but is not on the allowlist (F-12 AC2)."""
+
+
+@pytest.fixture
+def api_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`SUPABASE_URL` for API tests, so `TEST_ISS` is the expected issuer."""
+    from app.core.config import get_settings
+    from tests.fakes.api import TEST_SUPABASE_URL
+
+    monkeypatch.setenv("SUPABASE_URL", TEST_SUPABASE_URL)
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def faults_on(monkeypatch: pytest.MonkeyPatch, api_settings: None) -> None:
+    """`ALLOW_FAULTS=true` (Section 25). Request it before `client` when the app's docs routes
+    matter; `active_fault` reads settings per request either way."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ALLOW_FAULTS", "true")
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def jwks_fetcher() -> "FakeJwksFetcher":
+    """The JWKS source behind `client`; set `.fail` or swap `.keys` to simulate Supabase."""
+    from tests.fakes.api import FakeJwksFetcher
+
+    return FakeJwksFetcher()
+
+
+@pytest.fixture
+def notifier() -> "FakeNotifier":
+    from tests.fakes.api import FakeNotifier
+
+    return FakeNotifier()
+
+
+@pytest.fixture
+def client(
+    api_settings: None,
+    frozen_clock: datetime,
+    memory_repo: "MemoryRepo",
+    memory_blobs: "MemoryBlobStore",
+    jwks_fetcher: "FakeJwksFetcher",
+    notifier: "FakeNotifier",
+) -> Iterator["TestClient"]:
+    """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
+    JWKS, with the three seeded users on the allowlist. `pack_upload` (EP-03 to EP-07 for the
+    pack) is added with US2."""
+    from fastapi.testclient import TestClient
+
+    from app.core.auth import JwksCache, get_jwks_cache
+    from app.core.db import get_repo
+    from app.core.deps import get_notifier
+    from app.core.storage import get_blobstore
+    from app.domain.enums import Role
+    from app.domain.models import AllowedUser
+    from app.main import create_app
+
+    for email, name, role in SEEDED_USERS.values():
+        memory_repo.upsert_allowed_user(
+            AllowedUser(email=email, display_name=name, role=Role(role))
+        )
+    jwks = JwksCache(jwks_fetcher)
+    app = create_app()
+    app.dependency_overrides[get_repo] = lambda: memory_repo
+    app.dependency_overrides[get_blobstore] = lambda: memory_blobs
+    app.dependency_overrides[get_notifier] = lambda: notifier
+    app.dependency_overrides[get_jwks_cache] = lambda: jwks
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def tokens() -> dict[str, dict[str, str]]:
+    """`Authorization` headers for `controller`, `reviewer`, `ops` and `stranger`."""
+    from tests.fakes.api import make_token
+
+    emails = {who: user[0] for who, user in SEEDED_USERS.items()} | {"stranger": STRANGER_EMAIL}
+    return {who: {"Authorization": f"Bearer {make_token(e)}"} for who, e in emails.items()}

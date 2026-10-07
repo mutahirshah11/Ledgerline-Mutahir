@@ -8,25 +8,25 @@ under `/api/v1`, the protected ones behind `PROTECTED_DEPENDENCIES`.
 from collections.abc import Sequence
 from typing import Any
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.auth import current_user
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
-
-# Route modules are imported here as they arrive, e.g. `from app.routes import health, runs`.
+from app.routes import health
 
 API_PREFIX = "/api/v1"
 
 PUBLIC_ROUTERS: tuple[APIRouter, ...] = ()
 """No auth; EP-01 adds `health.public_router` here (T052)."""
 
-PROTECTED_ROUTERS: tuple[APIRouter, ...] = ()
-"""Behind `PROTECTED_DEPENDENCIES`; T025 adds `health.protected_router` (EP-02), later `runs`."""
+PROTECTED_ROUTERS: tuple[APIRouter, ...] = (health.protected_router,)
+"""Behind `PROTECTED_DEPENDENCIES`: EP-02 `/me`; later `runs`."""
 
-PROTECTED_DEPENDENCIES: tuple[Any, ...] = ()
-"""Applied to every protected route. T025 sets this to `(Depends(current_user),)`; tests swap
-the dependency through `app.dependency_overrides`, never by editing this tuple."""
+PROTECTED_DEPENDENCIES: tuple[Any, ...] = (Depends(current_user),)
+"""Applied to every protected route (F-12 AC1, AC2); tests swap the dependency through
+`app.dependency_overrides`, never by editing this tuple."""
 
 
 def build_routers(
