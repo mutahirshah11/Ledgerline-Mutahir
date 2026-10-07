@@ -5,6 +5,7 @@ module: errors carry only a cause word, and httpx's own request log line is reda
 """
 
 import logging
+import mimetypes
 import re
 import time
 from collections.abc import Callable
@@ -20,6 +21,10 @@ from app.services.runlog import OnRetry, retrying
 log = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
+CAPTION_MAX = 1024
+"""Bot API `sendDocument` caption limit (characters)."""
+_MIME = mimetypes.MimeTypes()
+"""Python's built-in table only (the global `mimetypes` also reads the Windows registry)."""
 
 
 class Notifier(Protocol):
@@ -99,14 +104,21 @@ class TelegramNotifier:
         self.close()
 
     def send_message(self, chat_id: str, text: str) -> int:
-        return self._send("sendMessage", {"json": {"chat_id": chat_id, "text": text}})
+        """Plain text, link previews off (research R11: the `Report:` link stays a line)."""
+        body = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+        return self._send("sendMessage", {"json": body})
 
     def send_document(
         self, chat_id: str, filename: str, content: bytes, caption: str | None = None
     ) -> int:
-        """`sendDocument` as multipart (005 research R11; F-10 sends `report.html`)."""
+        """`sendDocument` as multipart (005 research R11; F-10 sends `report.html`), content
+        type from the filename. A caption over `CAPTION_MAX` is a caller bug: ValueError before
+        any call, never a retry."""
+        if caption is not None and len(caption) > CAPTION_MAX:
+            raise ValueError(f"caption is {len(caption)} characters; Telegram allows {CAPTION_MAX}")
         data = {"chat_id": chat_id} | ({} if caption is None else {"caption": caption})
-        files = {"document": (filename, content, "application/octet-stream")}
+        mime = _MIME.guess_type(filename)[0] or "application/octet-stream"
+        files = {"document": (filename, content, mime)}
         return self._send("sendDocument", {"data": data, "files": files})
 
     def _send(self, method: str, body: dict[str, Any]) -> int:
@@ -150,10 +162,10 @@ class TelegramNotifier:
         if status >= 400:
             raise UpstreamFailed("telegram", f"rejected: HTTP {status}")
         try:
-            body = response.json()
-            message_id = body["result"]["message_id"]
+            answer = response.json()
+            message_id = answer["result"]["message_id"]
         except (ValueError, KeyError, TypeError):
             raise UpstreamFailed("telegram", "rejected: unexpected answer") from None
-        if body.get("ok") is not True or not isinstance(message_id, int):
+        if answer.get("ok") is not True or not isinstance(message_id, int):
             raise UpstreamFailed("telegram", "rejected: unexpected answer")
         return message_id

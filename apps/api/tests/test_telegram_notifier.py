@@ -55,7 +55,11 @@ def test_send_message_plain_text_no_parse_mode() -> None:
     (req,) = handler.requests
     assert req.method == "POST"
     assert str(req.url) == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    assert json.loads(req.content) == {"chat_id": CHAT, "text": text}
+    assert json.loads(req.content) == {
+        "chat_id": CHAT,
+        "text": text,
+        "disable_web_page_preview": True,  # research R11: the Report: link shows no preview
+    }
     assert req.extensions["timeout"]["read"] == 10
     assert waits == []
 
@@ -229,6 +233,31 @@ def test_send_document_multipart() -> None:
     assert b'name="document"; filename="report.html"' in body and REPORT in body
     assert req.extensions["timeout"]["read"] == 10
     assert waits == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("report.html", "text/html"),
+        ("outcomes.csv", "text/csv"),
+        ("blob", "application/octet-stream"),
+    ],
+)
+def test_send_document_content_type_from_filename(filename: str, content_type: str) -> None:
+    handler = _Handler(_ok(5))
+    _notifier(handler, []).send_document(CHAT, filename, REPORT)
+    part = handler.requests[0].content.split(b'name="document"', 1)[1]
+    headers = part.split(b"\r\n\r\n", 1)[0]
+    assert headers.endswith(f"Content-Type: {content_type}".encode())
+
+
+def test_send_document_caption_over_1024_chars_rejected_before_sending() -> None:
+    handler = _Handler(_ok(5))
+    notifier = _notifier(handler, [])
+    with pytest.raises(ValueError, match="1024"):
+        notifier.send_document(CHAT, "report.html", REPORT, caption="x" * 1025)
+    assert handler.requests == []
+    assert notifier.send_document(CHAT, "report.html", REPORT, caption="x" * 1024) == 5
 
 
 def test_send_document_without_caption_sends_no_caption_field() -> None:
