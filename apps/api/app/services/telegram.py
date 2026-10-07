@@ -465,9 +465,10 @@ def send_summary(
         tail = GOT_MESSAGE_ONLY if failed.message_sent else None
         return _summary_failed(repo, notifier, run, n.id, failed.error, settings, now, tail=tail)
     except Exception as exc:
-        if this_pass.message_attempted or n.telegram_message_id is not None:
+        if this_pass.message_attempted:
             raise  # maybe or surely delivered: the row stays SENDING (R12)
-        return _summary_failed(repo, notifier, run, n.id, exc, settings, now)
+        tail = GOT_MESSAGE_ONLY if n.telegram_message_id is not None else None  # M-a
+        return _summary_failed(repo, notifier, run, n.id, exc, settings, now, tail=tail)
     done = now()
     n = repo.update_notification(
         n.id,
@@ -511,7 +512,10 @@ def _deliver(
     out as `_NotifierFailed`."""
     chat_id = settings.TELEGRAM_CONTROLLER_CHAT_ID
     if not chat_id:
-        raise _NotifierFailed(UpstreamFailed("telegram", "controller chat not set"))
+        raise _NotifierFailed(
+            UpstreamFailed("telegram", "controller chat not set"),
+            message_sent=n.telegram_message_id is not None,  # M-b: a document-only resend
+        )
     if n.telegram_message_id is None:
         this_pass.message_attempted = True
         try:

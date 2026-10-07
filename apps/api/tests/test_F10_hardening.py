@@ -565,3 +565,43 @@ def test_F10_R2_finalise_again_after_the_mid_finalise_409(
     assert keys == [f"ALERT:{pack_run.run_id}:finalise:orphan-report"]
     assert REMOVE in fake_notifier.texts(OPS_CHAT)[-1]
     assert fake_notifier.texts(CONTROLLER_CHAT) == []
+
+
+# --- M-a, M-b: a document-only resend that sends nothing is FAILED, tail "got the message" -
+
+
+def test_F10_R7_document_only_error_before_send_is_failed(
+    pack_run: PackRun, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _finalised(pack_run)
+    n = _summary(pack_run, run, status=NotificationStatus.FAILED, attempts=1, telegram_message_id=7)
+    real = pack_run.repo.add_run_event
+    failed: list[bool] = []
+
+    def flaky(event: Any) -> Any:
+        if event.stage is Stage.NOTIFY and not failed:
+            failed.append(True)
+            raise OSError("connection reset")
+        return real(event)
+
+    monkeypatch.setattr(pack_run.repo, "add_run_event", flaky)
+    notifier = FakeNotifier()
+    out = telegram.send_summary(pack_run.repo, notifier, run, n, "", b"x")
+    assert out.status is NotificationStatus.FAILED
+    assert notifier.texts(CONTROLLER_CHAT) == [] and notifier.documents_to(CONTROLLER_CHAT) == []
+    (alert,) = notifier.texts(OPS_CHAT)
+    assert alert.splitlines()[-1] == GOT_MESSAGE + _url(pack_run)
+
+
+def test_F10_R7_document_only_without_controller_chat_tail(
+    pack_run: PackRun, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _finalised(pack_run)
+    n = _summary(pack_run, run, status=NotificationStatus.FAILED, attempts=1, telegram_message_id=7)
+    monkeypatch.setenv("TELEGRAM_CONTROLLER_CHAT_ID", "")
+    get_settings.cache_clear()
+    notifier = FakeNotifier()
+    out = telegram.send_summary(pack_run.repo, notifier, run, n, "", b"x")
+    assert out.status is NotificationStatus.FAILED
+    (alert,) = notifier.texts(OPS_CHAT)
+    assert alert.splitlines()[-1] == GOT_MESSAGE + _url(pack_run)
