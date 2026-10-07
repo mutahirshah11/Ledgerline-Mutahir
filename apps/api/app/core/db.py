@@ -4,6 +4,7 @@ Every method returns copies of models. Errors come from `app.core.errors`: `NotF
 `UniqueViolation`, `StateConflict(current)`, `AppendOnlyViolation`, `UpstreamFailed`.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -98,6 +99,13 @@ class Repo(Protocol):
     ) -> Extraction | None: ...
     def put_extraction(self, extraction: Extraction) -> tuple[Extraction, bool]:
         """Existing entry returned on key conflict; never overwritten."""
+        ...
+
+    def list_extractions(
+        self, page_sha256s: Sequence[str], model: str, prompt_version: str
+    ) -> list[Extraction]:
+        """006 (NFR-02): every read of the pages under `model` and `prompt_version`, in one
+        read; ordered by page_sha256, then read_variant; [] for no pages."""
         ...
 
     # reconciliation (F-04 to F-06)

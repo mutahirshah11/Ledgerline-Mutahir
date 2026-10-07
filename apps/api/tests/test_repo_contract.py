@@ -69,6 +69,7 @@ REPO_METHODS = {
     "add_page_if_new",
     "get_extraction",
     "put_extraction",
+    "list_extractions",  # 006 batched read (EP-05)
     "replace_reconciliation",
     "list_source_rows",
     "get_source_row",

@@ -42,6 +42,7 @@ from app.domain.models import (
     AllowedUser,
     CanonicalRow,
     Cell,
+    Extraction,
     Group,
     PageLabelMismatchContext,
     PageRead,
@@ -413,6 +414,22 @@ class _RequestReads:
             ("list_review_items", (run_id,), ()): list(items),
         }
         return self.repo
+
+    def list_extractions(
+        self, page_sha256s: Sequence[str], model: str, prompt_version: str
+    ) -> list[Extraction]:
+        """The run view's batched page reads (006, NFR-02) from the reads this request has
+        already fetched one by one, when it has every one; else one real call."""
+        found: list[Extraction] = []
+        for sha in sorted(set(page_sha256s)):
+            for variant in ReadVariant:
+                read = self._reads.get(
+                    ("get_extraction", (sha, variant, model, prompt_version), ())
+                )
+                if read is None:
+                    return self._repo.list_extractions(page_sha256s, model, prompt_version)
+                found.append(read)
+        return found
 
     def __getattr__(self, name: str) -> Any:
         real = getattr(self._repo, name)

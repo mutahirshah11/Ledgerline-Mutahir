@@ -9,7 +9,7 @@ Every public method holds one re-entrant lock: FastAPI runs sync routes on a thr
 
 import functools
 import threading
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 from uuid import UUID
@@ -329,6 +329,17 @@ class MemoryRepo:
         self._extractions[key] = _copy(extraction)
         self._extraction_ids.add(extraction.id)
         return _copy(extraction), True
+
+    def list_extractions(
+        self, page_sha256s: Sequence[str], model: str, prompt_version: str
+    ) -> list[Extraction]:
+        wanted = set(page_sha256s)
+        found = [
+            _copy(e)
+            for (sha, _, m, v), e in self._extractions.items()
+            if sha in wanted and m == model and v == prompt_version
+        ]
+        return sorted(found, key=lambda e: (e.page_sha256, e.read_variant.value))
 
     # --- reconciliation ------------------------------------------------------------------
 

@@ -97,17 +97,21 @@ def _extract_cached(events: list[RunEvent]) -> dict[int, bool]:
 def _pages(repo: Repo, run: Run, events: list[RunEvent]) -> list[PageProgress]:
     """`StageProgressView.pages`. `extracted`: both reads under the current model and prompt.
     `cached`: both reads existed before this run's extract stage first touched the page, read
-    from the run's extract OK event; without one, both reads are older than the run itself."""
+    from the run's extract OK event; without one, both reads are older than the run itself.
+    Every page's reads come from one `list_extractions` call (006, NFR-02)."""
     settings = get_settings()
     from_events = _extract_cached(events)
     out: list[PageProgress] = []
-    files = repo.list_source_files(run.id, Source.REGISTER)
-    for f in sorted(files, key=lambda f: f.page_no or 0):
+    files = sorted(repo.list_source_files(run.id, Source.REGISTER), key=lambda f: f.page_no or 0)
+    stored = {
+        (e.page_sha256, e.read_variant): e
+        for e in repo.list_extractions(
+            tuple(f.sha256 for f in files), settings.EXTRACT_MODEL, settings.PROMPT_VERSION
+        )
+    }
+    for f in files:
         page_no = f.page_no or 0
-        reads = [
-            repo.get_extraction(f.sha256, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
-            for v in ReadVariant
-        ]
+        reads = [stored.get((f.sha256, v)) for v in ReadVariant]
         extracted = all(r is not None for r in reads)
         if page_no in from_events:
             cached = extracted and from_events[page_no]

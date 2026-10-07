@@ -24,7 +24,7 @@ depends on the database collation.
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
@@ -556,6 +556,28 @@ class SupabaseRepo:
             lambda found: found.id == e.id,
             ("extraction", e.id),
         )
+
+    def list_extractions(
+        self, page_sha256s: Sequence[str], model: str, prompt_version: str
+    ) -> list[Extraction]:
+        """One `page_sha256 in (...)` query (paged by `_rows_all`: one page, then the empty
+        page that ends it)."""
+        shas = sorted(set(page_sha256s))
+        if not shas:
+            return []
+        found = self._rows_all(
+            lambda: (
+                self._table("extractions")
+                .select("*")
+                .in_("page_sha256", shas)
+                .eq("model", model)
+                .eq("prompt_version", prompt_version)
+                .order("page_sha256")
+                .order("read_variant")
+            ),
+            Extraction,
+        )
+        return sorted(found, key=lambda e: (e.page_sha256, e.read_variant.value))
 
     # --- reconciliation ------------------------------------------------------------------
 
