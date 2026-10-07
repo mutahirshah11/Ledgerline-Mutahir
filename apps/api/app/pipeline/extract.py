@@ -23,10 +23,11 @@ from tenacity import (
     stop_after_attempt,
     wait_chain,
     wait_fixed,
+    wait_none,
 )
 
 from app.core import clock
-from app.core.config import EXTRACT_ATTEMPTS, EXTRACT_WAITS_S, Settings
+from app.core.config import Settings
 from app.core.db import Repo
 from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
 from app.domain.enums import (
@@ -538,14 +539,17 @@ def _read_with_retries(
     instructions: str,
     schema: dict[str, Any],
     page_no: int,
+    attempts: int,
+    waits: tuple[int, ...],
     on_retry: Callable[[RetryInfo], None] | None,
     sleep: Callable[[float], None],
 ) -> _ReadOutcome:
     """One read with bounded retries (contract §4, research R5): an attempt is a model call
-    plus validation; retryable failures wait 2 s then 8 s (`sleep`), reporting each retry to
-    `on_retry` first. `on_retry` runs on this read's worker thread; an exception it raises is
-    logged and ignored, never aborting the read. Never raises: the last error is returned in
-    the outcome."""
+    plus validation; up to `attempts` (settings `EXTRACT_ATTEMPTS`, default 3) and retryable
+    failures wait `waits` (`EXTRACT_BACKOFF_S`, default 2 s then 8 s; the last repeats) via
+    `sleep`, reporting each retry to `on_retry` first. `on_retry` runs on this read's worker
+    thread; an exception it raises is logged and ignored, never aborting the read. Never
+    raises: the last error is returned in the outcome."""
     outcome = _ReadOutcome()
 
     def attempt() -> tuple[PageRead, RawRead]:
@@ -577,8 +581,8 @@ def _read_with_retries(
                 )
 
     retrying = Retrying(
-        stop=stop_after_attempt(EXTRACT_ATTEMPTS),
-        wait=wait_chain(*(wait_fixed(s) for s in EXTRACT_WAITS_S)),
+        stop=stop_after_attempt(attempts),
+        wait=wait_chain(*(wait_fixed(s) for s in waits)) if waits else wait_none(),
         retry=retry_if_exception(lambda e: retry_cause(e) is not None),
         before_sleep=before_sleep,
         sleep=sleep,
@@ -718,6 +722,8 @@ def _obtain_reads(
                 instructions=prompts[v],
                 schema=schema,
                 page_no=page_no,
+                attempts=settings.EXTRACT_ATTEMPTS,
+                waits=settings.EXTRACT_BACKOFF_S,
                 on_retry=on_retry,
                 sleep=sleep,
             ): v
