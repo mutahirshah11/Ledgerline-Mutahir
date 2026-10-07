@@ -14,8 +14,9 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.pipeline.extract import load_cached_extractions
+from app.domain.models import Extraction
 from app.pipeline.model_client import ReplayModelClient
+from tests.conftest import store_cached_extractions
 
 API = "/api/v1"
 Headers = dict[str, str]
@@ -35,8 +36,8 @@ def replay(client: TestClient, cached_reads_dir: Path) -> ReplayModelClient:
 
 
 @pytest.fixture
-def cached(memory_repo: Any, cached_reads_dir: Path) -> int:
-    return load_cached_extractions(memory_repo, cached_reads_dir)
+def cached(memory_repo: Any, cached_extraction_records: list[Extraction]) -> int:
+    return store_cached_extractions(memory_repo, cached_extraction_records)
 
 
 @pytest.fixture

@@ -438,3 +438,92 @@ def test_svc_engine_counts_flat_projection(memory_repo: MemoryRepo, run: Run) ->
         Outcome.MISMATCHED: 1,
         Outcome.DUPLICATE: 2,
     }
+
+
+# --- EP-06 racing EP-07: the confirmed file set must be the run's file set --------------
+
+
+def _race_on_upload(repo: MemoryRepo, monkeypatch: pytest.MonkeyPatch, change: Any) -> None:
+    """Run `change()` (a concurrent EP-06) just before confirm's move to UPLOADED."""
+    real = repo.transition_run
+
+    def racing(run_id: Any, to: RunStatus, **kw: Any) -> Run:
+        if to is RunStatus.UPLOADED:
+            change()
+        return real(run_id, to, **kw)
+
+    monkeypatch.setattr(repo, "transition_run", racing)
+
+
+@pytest.mark.parametrize("change", ["added", "deleted"])
+def test_svc_confirm_files_changed_during_confirm_fails_upload_one_alert(
+    memory_repo: MemoryRepo,
+    blobs: MemoryBlobStore,
+    run: Run,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    from tests.factories import make_file
+    from tests.fakes.api import FakeNotifier
+
+    _upload_all(memory_repo, blobs, run, _pack())
+    erp = next(f for f in memory_repo.list_source_files(run.id) if f.source is Source.ERP)
+
+    def concurrent() -> None:
+        if change == "added":
+            memory_repo.add_source_file(make_file(run.id, sha256=_sha(b"late")))
+        else:
+            memory_repo.delete_source_file(erp.id)
+
+    _race_on_upload(memory_repo, monkeypatch, concurrent)
+    notifier = FakeNotifier()
+    monkeypatch.setenv("TELEGRAM_OPS_CHAT_ID", "ops-chat")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    with pytest.raises(StateConflict) as exc:
+        confirm_uploads(memory_repo, blobs, run, USER, notifier=notifier)
+    failed = memory_repo.get_run(run.id)
+    assert exc.value.current == failed
+    assert (failed.status, failed.failed_stage) == (RunStatus.FAILED, Stage.UPLOAD)
+    assert len(notifier.attempted) == 1
+    events = [e for e in memory_repo.list_run_events(run.id) if e.stage is Stage.UPLOAD]
+    assert events[0].status is RunEventStatus.FAILED
+    assert [a.action for a in memory_repo.list_audit(run_id=run.id)] == [AuditAction.ALERT_SENT]
+
+
+def test_svc_upload_filename_over_255_chars_rejected() -> None:
+    """EP-06 bounds the declared filename (storage keys and audit rows stay small)."""
+    from pydantic import ValidationError
+
+    spec, _ = _pack()[2]
+    UploadFileIn(**{**spec.model_dump(), "filename": "e" * 251 + ".csv"})
+    with pytest.raises(ValidationError):
+        UploadFileIn(**{**spec.model_dump(), "filename": "e" * 252 + ".csv"})
+
+
+def test_svc_upload_filename_over_255_chars_400(
+    client: Any, tokens: dict[str, dict[str, str]]
+) -> None:
+    headers = tokens["controller"]
+    run_id = client.post("/api/v1/runs", json={"month": "2026-09"}, headers=headers).json()["id"]
+    spec, _ = _pack()[2]
+    declared = {**spec.model_dump(mode="json"), "filename": "e" * 252 + ".csv"}
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/uploads", json={"files": [declared]}, headers=headers
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "BAD_REQUEST"
+
+
+def test_svc_confirm_verifies_each_file_with_one_get(
+    memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FM-01/FM-02 read each object once (`get`, NotFound → FILE_MISSING), no `exists` call."""
+    _upload_all(memory_repo, blobs, run, _pack())
+
+    def no_exists(*_: Any) -> bool:
+        raise AssertionError("exists() called")
+
+    monkeypatch.setattr(blobs, "exists", no_exists)
+    assert confirm_uploads(memory_repo, blobs, run, USER).run.status is RunStatus.UPLOADED

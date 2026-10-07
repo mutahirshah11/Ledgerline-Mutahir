@@ -191,7 +191,7 @@ def _to_api_error(exc: Exception) -> ApiError:
         return ApiError(code, exc.status_code, str(exc.detail))
     # 5xx HTTPException and anything else: the detail stays in the log, never in the body.
     logger.error("unexpected error", exc_info=exc)
-    # TODO(004): fill `stage` on 500s once stage context is available to the handler.
+    # `stage` stays null here: the stage services raise their own staged 500s (`_unexpected`).
     return ApiError(ErrorCode.INTERNAL_ERROR, 500, _UNEXPECTED)
 
 

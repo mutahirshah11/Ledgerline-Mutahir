@@ -94,7 +94,7 @@ class UploadFileIn(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     source: Source
-    filename: str = Field(min_length=1)
+    filename: str = Field(min_length=1, max_length=255)
     size_bytes: int = Field(ge=1)
     sha256: Sha256Hex
     page_no: int | None = Field(default=None, ge=1, le=MAX_PAGES)
@@ -345,9 +345,12 @@ def _verify(
         return [_file_ref(f, "UPLOAD_EXPIRED") for f in files]
     problems: list[dict[str, Any]] = []
     for f in files:
-        if not blobs.exists(INPUTS_BUCKET, f.storage_path):
+        try:
+            data = blobs.get(INPUTS_BUCKET, f.storage_path)
+        except NotFound:
             problems.append(_file_ref(f, "FILE_MISSING"))
-        elif hashlib.sha256(blobs.get(INPUTS_BUCKET, f.storage_path)).hexdigest() != f.sha256:
+            continue
+        if hashlib.sha256(data).hexdigest() != f.sha256:
             blobs.delete(INPUTS_BUCKET, f.storage_path)
             problems.append(_file_ref(f, "HASH_MISMATCH"))
     return problems
@@ -365,11 +368,41 @@ def _fail(step: StepLog, issued: datetime | None, at: datetime, err: ApiError) -
     return err
 
 
+def _files_changed(
+    repo: Repo, notifier: Notifier | None, moved: Run, step: StepLog, now: Now
+) -> StateConflict:
+    """EP-06 raced this confirm: the run's files are not the set just confirmed (added or
+    removed between the list and the move to `UPLOADED`; none can change after it, 0002
+    triggers). The run key and checks no longer hold: `FAILED` at `upload`, one ops alert,
+    409; the run must be created again."""
+    message = "The run's files changed while they were confirmed; create the run again"
+    step.write(RunEventStatus.FAILED, {"error": ErrorCode.RUN_STATE_CONFLICT.value})
+    failed = repo.transition_run(
+        moved.id,
+        RunStatus.FAILED,
+        expected={RunStatus.UPLOADED},
+        failed_stage=Stage.UPLOAD,
+        error_message=message,
+    )
+    if notifier is not None:
+        err = ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, message, Stage.UPLOAD)
+        stage_failed_alert(repo, notifier, failed, Stage.UPLOAD, err, now=now)
+    return StateConflict(failed)
+
+
 def confirm_uploads(
-    repo: Repo, blobs: BlobStore, run: Run, user: AllowedUser, *, now: Now = clock.now
+    repo: Repo,
+    blobs: BlobStore,
+    run: Run,
+    user: AllowedUser,
+    *,
+    notifier: Notifier | None = None,
+    now: Now = clock.now,
 ) -> ConfirmResult:
     """EP-07 (F-01.R4 to R7). Past `CREATED` it returns the run as is without writes; a
-    `FINALISED` run is 409. Audit `RUN_CREATED` and `FILE_UPLOADED` × n only on the transition."""
+    `FINALISED` run is 409. Audit `RUN_CREATED` and `FILE_UPLOADED` × n only on the transition.
+    After the transition the run's files are listed again: a set changed by a concurrent EP-06
+    fails the run at `upload` (`_files_changed`; the route always passes `notifier`)."""
     if run.status is RunStatus.FINALISED:
         raise StateConflict(run)
     if run.status is not RunStatus.CREATED:
@@ -444,6 +477,11 @@ def confirm_uploads(
             raise
         new, known = _pages(repo, current)
         return ConfirmResult(run=current, new_pages=new, known_pages=known)
+    now_files = repo.list_source_files(run.id)
+    if {f.id for f in now_files} != {f.id for f in confirmed} or any(
+        f.confirmed_at is None for f in now_files
+    ):
+        raise _files_changed(repo, notifier, moved, step, now)
     new, known = _pages(repo, moved)
     audit(
         repo,
@@ -526,6 +564,8 @@ def _register_files(repo: Repo, blobs: BlobStore, run_id: UUID) -> list[Register
 
 
 ERROR_MESSAGE_LIMIT = 500
+PROBLEMS_SHOWN = 200
+"""Cap on EP-08's 422 `details.problems`; `details.truncated` counts the rest."""
 """Hard cap on `runs.error_message` (item 3); long enough to show a few problems in full."""
 _SUMMARY_SHOWN = 3
 """How many problems the run's `error_message` and the ops alert reason show in full."""
@@ -606,62 +646,71 @@ def validate_stage(
         raise StateConflict(run)
     with stage_step(repo, run.id, Stage.VALIDATE, now=now):
         try:
-            erp = _source_bytes(repo, blobs, run.id, Source.ERP)
-            sheet = _source_bytes(repo, blobs, run.id, Source.SHEET)
-            registers = _register_files(repo, blobs, run.id)
-        except (NotFound, ValueError) as exc:
-            # item 4: the run's own inputs are missing or inconsistent in storage — the API's
-            # fault, not the contract's. The run stays UPLOADED (no transition) so it can be
-            # called again once the inputs are restored; one ops alert either way.
-            broken = ApiError(
-                ErrorCode.INTERNAL_ERROR, 500, "Run inputs are missing from storage", Stage.VALIDATE
-            )
-            stage_failed_alert(repo, notifier, run, Stage.VALIDATE, broken, now=now)
-            raise broken from exc
-        problems = validate_files(run.month, erp, sheet, registers)
-        if not problems:
-            try:
-                moved = repo.transition_run(
-                    run.id, RunStatus.VALIDATED, expected={RunStatus.UPLOADED}
-                )
-            except StateConflict as conflict:
-                current = conflict.current
-                if current.status not in _VALIDATE_PAST:
-                    raise  # a genuine conflict (e.g. moved to FAILED): a real FAILED event
-                return []  # lost the race to another validate call that already passed
-            # Not atomic with the transition above: a crash between the two lines leaves the
-            # run VALIDATED with no RUN_VALIDATED entry (item 9); accepted for this phase.
-            audit(
-                repo,
-                user.email,
-                AuditAction.RUN_VALIDATED,
-                "run",
-                str(run.id),
-                run.id,
-                after={"status": moved.status.value},
-                channel=AuditChannel.WEB,
-                now=now,
-            )
-            return []
-        err = ApiError(
-            ErrorCode.CONTRACT_VIOLATION,
-            422,
-            "The inputs break the contract; see details.problems",
-            Stage.VALIDATE,
-            {"problems": [p.model_dump(mode="json") for p in problems]},
-        )
-        failed = repo.transition_run(
+            return _validate_uploaded(repo, blobs, notifier, run, user, now)
+        except (ApiError, StateConflict, UpstreamFailed):
+            raise
+        except Exception as exc:  # constitution VIII: one alert, generic 500, no move to FAILED
+            stage_failed_alert(repo, notifier, run, Stage.VALIDATE, exc, now=now)
+            raise _unexpected(Stage.VALIDATE) from exc
+
+
+def _validate_uploaded(
+    repo: Repo, blobs: BlobStore, notifier: Notifier, run: Run, user: AllowedUser, now: Now
+) -> list[ValidationProblem]:
+    """EP-08 on an `UPLOADED` run, inside its `validate` step."""
+    try:
+        erp = _source_bytes(repo, blobs, run.id, Source.ERP)
+        sheet = _source_bytes(repo, blobs, run.id, Source.SHEET)
+        registers = _register_files(repo, blobs, run.id)
+    except (NotFound, ValueError) as exc:
+        # item 4: the run's own inputs are missing or inconsistent in storage — the API's
+        # fault, not the contract's. The run stays UPLOADED (no transition) so it can be
+        # called again once the inputs are restored; one ops alert either way.
+        raise _inputs_missing(repo, notifier, run, Stage.VALIDATE, exc, now) from exc
+    problems = validate_files(run.month, erp, sheet, registers)
+    if not problems:
+        try:
+            moved = repo.transition_run(run.id, RunStatus.VALIDATED, expected={RunStatus.UPLOADED})
+        except StateConflict as conflict:
+            current = conflict.current
+            if current.status not in _VALIDATE_PAST:
+                raise  # a genuine conflict (e.g. moved to FAILED): a real FAILED event
+            return []  # lost the race to another validate call that already passed
+        # Not atomic with the transition above: a crash between the two lines leaves the
+        # run VALIDATED with no RUN_VALIDATED entry (item 9); accepted for this phase.
+        audit(
+            repo,
+            user.email,
+            AuditAction.RUN_VALIDATED,
+            "run",
+            str(run.id),
             run.id,
-            RunStatus.FAILED,
-            expected={RunStatus.UPLOADED},
-            failed_stage=Stage.VALIDATE,
-            error_message=_problem_summary(problems),
+            after={"status": moved.status.value},
+            channel=AuditChannel.WEB,
+            now=now,
         )
-        alert_err = ApiError(
-            ErrorCode.CONTRACT_VIOLATION, 422, _alert_reason(problems), Stage.VALIDATE
-        )
-        stage_failed_alert(repo, notifier, failed, Stage.VALIDATE, alert_err, now=now)
-        raise err  # `stage_step` writes the FAILED run event on the way out
+        return []
+    shown = [p.model_dump(mode="json") for p in problems[:PROBLEMS_SHOWN]]
+    details: dict[str, Any] = {"problems": shown}
+    if len(problems) > PROBLEMS_SHOWN:
+        details["truncated"] = len(problems) - PROBLEMS_SHOWN
+    err = ApiError(
+        ErrorCode.CONTRACT_VIOLATION,
+        422,
+        "The inputs break the contract; see details.problems",
+        Stage.VALIDATE,
+        details,
+    )
+    failed = repo.transition_run(
+        run.id,
+        RunStatus.FAILED,
+        expected={RunStatus.UPLOADED},
+        failed_stage=Stage.VALIDATE,
+        error_message=_problem_summary(problems),
+    )
+    alert_err = ApiError(ErrorCode.CONTRACT_VIOLATION, 422, _alert_reason(problems), Stage.VALIDATE)
+    stage_failed_alert(repo, notifier, failed, Stage.VALIDATE, alert_err, now=now)
+    raise err  # `stage_step` writes the FAILED run event on the way out
 
 
 def _inputs_missing(
@@ -833,7 +882,9 @@ def extract_stage(
     NFR-03) inside `stage_step("extract", page_no)`: one `RETRY` event per retry the reader
     reports, the OK event detail `{page_no, cached}`, audit `PAGE_EXTRACTED`.
     `UpstreamFailed` (FM-04, FM-05) → 502, `PageUnreadable` (FM-06) → 422, any other error →
-    generic 500 (constitution VIII); each sets `FAILED` at `extract` with one ops alert.
+    generic 500 (constitution VIII); each sets `FAILED` at `extract` with one ops alert. An
+    unexpected error in the lookups before the read is one ops alert and a generic 500, the
+    run's state unchanged.
     `EXTRACT_TIMEOUT` and `EXTRACT_BAD_JSON` wrap the client; other faults are ignored here.
     """
     settings = settings or get_settings()
@@ -843,18 +894,24 @@ def extract_stage(
         raise StateConflict(run)
     if run.status not in _EXTRACT_PAST:
         _check_extract_accepted(run, user)
-    file = _register_file(repo, run.id, page_no)
-    done = _extract_ok_cached(repo, run.id)
-    if run.status in _EXTRACT_PAST:
-        return _repeat_past(repo, notifier, run, file, done, settings, now)
-    repeat = page_no in done and _has_both_reads(repo, file.sha256, settings)
-    image = b""
-    if not repeat:
-        try:
-            image = blobs.get(INPUTS_BUCKET, file.storage_path)
-        except NotFound as exc:
-            raise _inputs_missing(repo, notifier, run, Stage.EXTRACT, exc, now) from exc
-    run = _enter_extracting(repo, run, user)
+    try:
+        file = _register_file(repo, run.id, page_no)
+        done = _extract_ok_cached(repo, run.id)
+        if run.status in _EXTRACT_PAST:
+            return _repeat_past(repo, notifier, run, file, done, settings, now)
+        repeat = page_no in done and _has_both_reads(repo, file.sha256, settings)
+        image = b""
+        if not repeat:
+            try:
+                image = blobs.get(INPUTS_BUCKET, file.storage_path)
+            except NotFound as exc:
+                raise _inputs_missing(repo, notifier, run, Stage.EXTRACT, exc, now) from exc
+        run = _enter_extracting(repo, run, user)
+    except (ApiError, NotFound, StateConflict, UpstreamFailed):
+        raise  # 404 page, 409 state, 500 inputs missing, 502 storage: unchanged
+    except Exception as exc:  # before the read: one alert, generic 500, state unchanged
+        stage_failed_alert(repo, notifier, run, Stage.EXTRACT, exc, page_no, now=now)
+        raise _unexpected(Stage.EXTRACT) from exc
     reader_client = FaultModelClient(client, fault) if fault in EXTRACT_FAULTS else client
 
     def read(on_retry: Callable[[RetryInfo], None] | None) -> PageExtractionResult:

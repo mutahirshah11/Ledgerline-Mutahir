@@ -294,9 +294,11 @@ def request_uploads(
 
 
 @router.post("/runs/{id}/uploads/confirm", response_model=ConfirmResponse)
-def confirm_uploads(id: UUID, user: Controller, repo: RepoDep, blobs: BlobsDep) -> ConfirmResponse:
+def confirm_uploads(
+    id: UUID, user: Controller, repo: RepoDep, blobs: BlobsDep, notifier: NotifierDep
+) -> ConfirmResponse:
     """EP-07 (F-01.R4 to R7); idempotent."""
-    result = stages.confirm_uploads(repo, blobs, repo.get_run(id), user)
+    result = stages.confirm_uploads(repo, blobs, repo.get_run(id), user, notifier=notifier)
     return ConfirmResponse(
         run=RunOut.of(result.run), new_pages=result.new_pages, known_pages=result.known_pages
     )

@@ -849,9 +849,9 @@ def extract_page(
 # --- pack cache helpers (contract §5, research R10, FR-030, FR-031) ------------------------
 
 
-def load_cached_extractions(repo: Repo, cache_dir: Path) -> int:
-    """Load every committed read in `cache_dir` (`*.json`, each a full `Extraction`) into
-    `repo`; returns how many were newly stored, so a second load returns 0 (idempotent).
+def _parse_cache_dir(cache_dir: Path) -> list[Extraction]:
+    """Validates every committed read in `cache_dir` (`*.json`, each a full `Extraction`),
+    without storing anything; `load_cached_extractions` is this plus the store.
 
     Raises:
         FileNotFoundError: `cache_dir` does not exist.
@@ -873,4 +873,17 @@ def load_cached_extractions(repo: Repo, cache_dir: Path) -> int:
         if path.name != expected:
             raise ValueError(f"cached read {path.name} does not match its record ({expected})")
         records.append(record)
+    return records
+
+
+def load_cached_extractions(repo: Repo, cache_dir: Path) -> int:
+    """Load every committed read in `cache_dir` (`*.json`, each a full `Extraction`) into
+    `repo`; returns how many were newly stored, so a second load returns 0 (idempotent).
+
+    Raises:
+        FileNotFoundError: `cache_dir` does not exist.
+        ValueError: a file is not a valid `Extraction`, or its name is not the
+            `cache_file_name` of its own record.
+    """
+    records = _parse_cache_dir(cache_dir)
     return sum(1 for record in records if repo.put_extraction(record)[1])

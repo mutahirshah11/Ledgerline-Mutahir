@@ -642,3 +642,35 @@ def test_F11_run_event_error_text_coded_errors_only() -> None:
     coded = ApiError(ErrorCode.INTERNAL_ERROR, 500, "Run inputs are missing", Stage.VALIDATE)
     assert _error_text(coded) == str(coded)
     assert _error_text(RuntimeError(_SECRETISH)) == "RuntimeError"
+
+
+def test_F11_extract_unexpected_lookup_error_500_one_alert_state_unchanged(
+    telegram_env: dict[str, str],
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    pack_upload: Any,
+    _replay: ReplayModelClient,
+    memory_repo: MemoryRepo,
+    notifier: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected error in EP-09's lookups before the read (constitution VIII): one ops
+    alert, a generic 500 at stage extract, the run still VALIDATED; 404/409 pass unchanged."""
+    from app.services import stages
+
+    def broken(*_: Any, **__: Any) -> Any:
+        raise RuntimeError(_SECRETISH)
+
+    headers = tokens["controller"]
+    run_id: str = pack_upload()["run"]["id"]
+    assert client.post(f"{API}/runs/{run_id}/validate", headers=headers).status_code == 200
+    unknown = client.post(f"{API}/runs/{run_id}/pages/9/extract", headers=headers)
+    assert unknown.status_code == 404
+    monkeypatch.setattr(stages, "_extract_ok_cached", broken)
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    resp = lenient.post(f"{API}/runs/{run_id}/pages/1/extract", headers=headers)
+    assert resp.status_code == 500
+    assert resp.json()["error"]["stage"] == "extract"
+    assert memory_repo.get_run(UUID(run_id)).status.value == "VALIDATED"
+    assert len(_alerts(memory_repo, run_id)) == 1
+    assert len(notifier.attempted) == 1

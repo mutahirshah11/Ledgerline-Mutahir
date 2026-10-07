@@ -19,6 +19,7 @@ from app.domain.enums import (
     ErrorCode,
     NotificationKind,
     NotificationStatus,
+    RunStatus,
     Stage,
 )
 from app.domain.models import Notification, Run
@@ -188,9 +189,14 @@ def _record_failure(repo: Repo, n: Notification, exc: Exception, at: datetime) -
 
 
 def _note_on_run(repo: Repo, run_id: UUID, note: str) -> None:
-    """Best effort: append `note` to the run's error_message (no leading "; " when empty)."""
+    """Best effort: append `note` to a `FAILED` run's error_message (no leading "; " when
+    empty). A run in any other status (a 500 that left its state unchanged) is not noted: the
+    notification row records the failure."""
     try:
-        current = repo.get_run(run_id).error_message
+        run = repo.get_run(run_id)
+        if run.status is not RunStatus.FAILED:
+            return
+        current = run.error_message
         repo.update_run_fields(run_id, error_message=f"{current}; {note}" if current else note)
     except Exception:  # e.g. StateConflict on a finalised run; the notification records it
         log.warning("alert failure not recorded on run", extra={"run_id": str(run_id)})

@@ -461,6 +461,64 @@ def test_F02_missing_input_blob_500_stays_uploaded_one_alert(
     assert len(notifier.sent) == 1
 
 
+def test_F02_unexpected_error_500_stays_uploaded_one_alert(
+    broken_upload: BrokenUpload,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Constitution VIII: an unexpected error in EP-08 is one ops alert and a generic 500 at
+    stage validate; the run's state is unchanged and the error text is not stored."""
+    from app.services import stages
+
+    def broken(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("SECRET-ish detail")
+
+    _ops_chat(monkeypatch)
+    run_id = broken_upload({})  # the unmodified pack
+    monkeypatch.setattr(stages, "validate_files", broken)
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    resp = _validate(lenient, tokens["controller"], run_id)
+    assert resp.status_code == 500
+    assert _error(resp) == {
+        "code": "INTERNAL_ERROR",
+        "message": "Unexpected error",
+        "stage": "validate",
+        "details": {},
+    }
+    run = memory_repo.get_run(UUID(run_id))
+    assert run.status is RunStatus.UPLOADED and run.failed_stage is None
+    events = [e for e in memory_repo.list_run_events(UUID(run_id)) if e.stage is Stage.VALIDATE]
+    assert [e.status for e in events] == [RunEventStatus.FAILED, RunEventStatus.STARTED]
+    assert "SECRET-ish" not in str(events[0].detail)
+    assert len(notifier.sent) == 1
+
+
+def test_F02_problems_capped_at_200_with_truncated_count(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
+    """A huge broken file cannot make an unbounded 422 body: `details.problems` keeps the
+    first 200 problems and `details.truncated` counts the rest."""
+    bad = GOOD_ROW.replace(",2000,", ",abc,")
+    run_id = broken_upload({"t4_erp_grn.csv": _erp(*([bad] * 250))})
+    resp = _validate(client, tokens["controller"], run_id)
+    assert resp.status_code == 422
+    details = _error(resp)["details"]
+    assert len(details["problems"]) == 200
+    assert details["truncated"] == 50
+    assert details["problems"][0]["location"]["line"] == 1  # the first problems are kept
+
+
+def test_F02_problems_not_truncated_under_cap(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
+    run_id = broken_upload({"t4_erp_grn.csv": _erp_with_bad_qty_on_line(3)})
+    details = _error(_validate(client, tokens["controller"], run_id))["details"]
+    assert "truncated" not in details and len(details["problems"]) == 1
+
+
 # --- idempotency and retry rules (data-model.md §3) ---------------------------------------
 
 
