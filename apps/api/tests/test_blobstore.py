@@ -80,3 +80,19 @@ def test_blobstore_bucket_ok(memory_blobs: MemoryBlobStore) -> None:
     assert memory_blobs.bucket_ok("inputs") is True
     assert memory_blobs.bucket_ok("reports") is True
     assert memory_blobs.bucket_ok("missing") is False
+
+
+def test_get_blobstore_memory_backend_is_one_process_wide_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """004 T013: REPO_BACKEND=memory selects one shared MemoryBlobStore."""
+    from app.core.config import get_settings
+    from app.core.storage import get_blobstore, shared_memory_blobstore
+
+    monkeypatch.setenv("REPO_BACKEND", "memory")
+    get_settings.cache_clear()
+    shared_memory_blobstore.cache_clear()
+    first = get_blobstore()
+    assert isinstance(first, MemoryBlobStore)
+    assert get_blobstore() is first
+    shared_memory_blobstore.cache_clear()

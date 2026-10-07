@@ -9,9 +9,11 @@ Signed URLs from `MemoryBlobStore` are fake
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from app.core import clock
+from app.core.config import get_settings
 from app.core.errors import AppendOnlyViolation, NotFound, UniqueViolation
 
 INPUTS_BUCKET = "inputs"
@@ -89,6 +91,19 @@ class MemoryBlobStore:
     ) -> tuple[str, datetime]:
         expires_at = self._now() + timedelta(seconds=expires_s)
         return self._url(bucket, path, expires_at), expires_at
+
+
+@lru_cache(maxsize=1)
+def shared_memory_blobstore() -> MemoryBlobStore:
+    """The process-wide `MemoryBlobStore` behind `REPO_BACKEND=memory`; tests clear the cache."""
+    return MemoryBlobStore()
+
+
+def get_blobstore() -> BlobStore:
+    """FastAPI dependency (004 data-model §5): the store chosen by `REPO_BACKEND`."""
+    if get_settings().REPO_BACKEND == "memory":
+        return shared_memory_blobstore()
+    raise NotImplementedError("SupabaseBlobStore is wired here in T065")
 
 
 if TYPE_CHECKING:  # static conformance check (mypy)
