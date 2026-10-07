@@ -42,6 +42,10 @@ def _app() -> FastAPI:
     def ping(run_id: str) -> dict[str, str]:
         return {"run": run_id}
 
+    @app.get("/api/v1/runs/{id}/detail")
+    def detail(id: str) -> dict[str, str]:
+        return {"run": id}
+
     @app.get("/t/bad")
     def bad() -> None:
         raise ApiError(ErrorCode.BAD_MONTH, 400, "Month is not valid")
@@ -84,9 +88,14 @@ def test_F11_R3_one_json_line_per_request(
     (bad,) = _requests(capsys.readouterr().out)
     assert (bad["status"], bad["error_code"], bad["run_id"]) == (400, "BAD_MONTH", None)
 
-    assert client.get("/nowhere").status_code == 404
+    assert client.get("/api/v1/runs/run-7/detail").status_code == 200
+    (detail,) = _requests(capsys.readouterr().out)
+    assert (detail["run_id"], detail["endpoint"]) == ("run-7", "/api/v1/runs/{id}/detail")
+
+    assert client.get("/api/v1/runs/run-9/nowhere").status_code == 404
     (missing,) = _requests(capsys.readouterr().out)
     assert (missing["status"], missing["error_code"]) == (404, "NOT_FOUND")
+    assert (missing["endpoint"], missing["run_id"]) == ("<unmatched>", None)
 
     assert client.get("/t/boom").status_code == 500
     (boom,) = _requests(capsys.readouterr().out)
@@ -178,3 +187,37 @@ def test_F11_R3_no_request_or_file_bodies_logged(
     assert lines[2]["error_code"] == "BAD_REQUEST"
     for marker in markers:
         assert marker not in out
+
+
+def test_F11_R3_app_and_third_party_loggers_redacted_on_stdout_and_stderr(
+    secrets: dict[str, str], capfd: pytest.CaptureFixture[str]
+) -> None:
+    srk, oai, _ = secrets.values()
+    create_app()
+    capfd.readouterr()
+    logging.getLogger("app.x").warning("leak %s", srk)
+    logging.getLogger("openai").warning("leak %s", oai)
+    out, err = capfd.readouterr()
+    assert srk not in out + err and oai not in out + err
+    assert "[REDACTED]" in out and "[REDACTED]" in err
+    assert any(line.get("logger") == "app.x" for line in _lines(out))
+
+
+def test_F11_R3_redacted_lines_stay_valid_json(capsys: pytest.CaptureFixture[str]) -> None:
+    client = TestClient(_app())
+    capsys.readouterr()
+    client.get("/Bearer%20abc")
+    logging.getLogger("ledgerline.api").warning("auth Bearer abc")
+    lines = _lines(capsys.readouterr().out)  # every line parses
+    assert "abc" not in json.dumps(lines)
+    assert lines[-1]["message"] == "auth [REDACTED]"
+    assert [line["endpoint"] for line in lines if "endpoint" in line] == ["<unmatched>"]
+
+
+def test_F11_R3_bad_format_args_never_raise(capsys: pytest.CaptureFixture[str]) -> None:
+    create_app()
+    capsys.readouterr()
+    logging.getLogger("uvicorn.error").warning("%s %s", 1)
+    logging.getLogger("ledgerline.api").warning("%s %s", 1)
+    (line,) = _lines(capsys.readouterr().out)
+    assert "%s %s" in line["message"]
