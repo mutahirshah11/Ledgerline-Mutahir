@@ -1,0 +1,648 @@
+[
+  {
+    "at": "2026-10-15T08:31:30+05:00",
+    "detail": {
+      "notification_id": "00000000-0000-4000-8000-00000000004c"
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-00000000004d",
+    "stage": "notify",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:30+05:00",
+    "detail": {
+      "notification_id": "00000000-0000-4000-8000-00000000004c"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000004e",
+    "stage": "notify",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:30+05:00",
+    "detail": {},
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-00000000004f",
+    "stage": "finalise",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:30+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000050",
+    "stage": "finalise",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:24+05:00",
+    "detail": {
+      "action": "ACKNOWLEDGE",
+      "item_key": "FLAG:SEQUENCE_GAP:4429"
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000051",
+    "stage": "review",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:24+05:00",
+    "detail": {
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 22,
+          "REGISTER": 22,
+          "SHEET": 22
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      }
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-000000000052",
+    "stage": "reconcile",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:24+05:00",
+    "detail": {
+      "status": "PASS"
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-000000000053",
+    "stage": "proof",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:24+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000054",
+    "stage": "proof",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:24+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000055",
+    "stage": "reconcile",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:24+05:00",
+    "detail": {
+      "action": "ACKNOWLEDGE",
+      "item_key": "FLAG:SEQUENCE_GAP:4429"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000056",
+    "stage": "review",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:21+05:00",
+    "detail": {
+      "action": "ACKNOWLEDGE",
+      "item_key": "FLAG:BACKDATED_ENTRY:ERP-0028"
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000057",
+    "stage": "review",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:21+05:00",
+    "detail": {
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 22,
+          "REGISTER": 22,
+          "SHEET": 22
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      }
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-000000000058",
+    "stage": "reconcile",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:21+05:00",
+    "detail": {
+      "status": "PASS"
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-000000000059",
+    "stage": "proof",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:21+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000005a",
+    "stage": "proof",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:21+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000005b",
+    "stage": "reconcile",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:21+05:00",
+    "detail": {
+      "action": "ACKNOWLEDGE",
+      "item_key": "FLAG:BACKDATED_ENTRY:ERP-0028"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000005c",
+    "stage": "review",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:18+05:00",
+    "detail": {
+      "action": "ENTER_VALUE",
+      "item_key": "CELL:REG-p2-r14:qty"
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-00000000005d",
+    "stage": "review",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:18+05:00",
+    "detail": {
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 22,
+          "REGISTER": 22,
+          "SHEET": 22
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      }
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-00000000005e",
+    "stage": "reconcile",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:18+05:00",
+    "detail": {
+      "status": "PASS"
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-00000000005f",
+    "stage": "proof",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:18+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000060",
+    "stage": "proof",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:18+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000061",
+    "stage": "reconcile",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:18+05:00",
+    "detail": {
+      "action": "ENTER_VALUE",
+      "item_key": "CELL:REG-p2-r14:qty"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000062",
+    "stage": "review",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:15+05:00",
+    "detail": {
+      "action": "ACCEPT_READ",
+      "item_key": "CELL:REG-p2-r05:qty"
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000063",
+    "stage": "review",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:15+05:00",
+    "detail": {
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 21,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 1,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 21,
+          "REGISTER": 21,
+          "SHEET": 21
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 5,
+          "REGISTER": 5,
+          "SHEET": 5
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      }
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-000000000064",
+    "stage": "reconcile",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:15+05:00",
+    "detail": {
+      "status": "PASS"
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-000000000065",
+    "stage": "proof",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:31:15+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000066",
+    "stage": "proof",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:15+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000067",
+    "stage": "reconcile",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:31:15+05:00",
+    "detail": {
+      "action": "ACCEPT_READ",
+      "item_key": "CELL:REG-p2-r05:qty"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000068",
+    "stage": "review",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:39+05:00",
+    "detail": {
+      "groups": {
+        "DUPLICATE": 0,
+        "MATCHED": 21,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 4,
+        "MISSING": 2,
+        "NEEDS_REVIEW": 2,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "rows": {
+        "DUPLICATE": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "MATCHED": {
+          "ERP": 21,
+          "REGISTER": 21,
+          "SHEET": 21
+        },
+        "MATCHED_AFTER_CONVERSION": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        },
+        "MISMATCHED": {
+          "ERP": 4,
+          "REGISTER": 4,
+          "SHEET": 4
+        },
+        "MISSING": {
+          "ERP": 1,
+          "REGISTER": 1,
+          "SHEET": 1
+        },
+        "NEEDS_REVIEW": {
+          "ERP": 2,
+          "REGISTER": 2,
+          "SHEET": 2
+        },
+        "NON_RECEIPT": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 1
+        },
+        "UNMATCHED_NO_KEY": {
+          "ERP": 0,
+          "REGISTER": 0,
+          "SHEET": 0
+        }
+      }
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-00000000003b",
+    "stage": "reconcile",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:39+05:00",
+    "detail": {
+      "status": "PASS"
+    },
+    "duration_ms": 0,
+    "id": "00000000-0000-4000-8000-00000000003c",
+    "stage": "proof",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:39+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000003d",
+    "stage": "proof",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:39+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000003e",
+    "stage": "reconcile",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:36+05:00",
+    "detail": {
+      "cached": false,
+      "input_tokens": 9639,
+      "output_tokens": 7766,
+      "page_no": 2
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-00000000003f",
+    "stage": "extract",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:36+05:00",
+    "detail": {
+      "page_no": 2
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000040",
+    "stage": "extract",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:33+05:00",
+    "detail": {
+      "cached": true,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "page_no": 1
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000041",
+    "stage": "extract",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:33+05:00",
+    "detail": {
+      "page_no": 1
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000042",
+    "stage": "extract",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:30+05:00",
+    "detail": {},
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000043",
+    "stage": "validate",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:30+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000044",
+    "stage": "validate",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:27+05:00",
+    "detail": {
+      "files": 4,
+      "known_pages": [
+        1,
+        2
+      ],
+      "new_pages": []
+    },
+    "duration_ms": 3000,
+    "id": "00000000-0000-4000-8000-000000000045",
+    "stage": "upload",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:24+05:00",
+    "detail": {
+      "files": 4
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000046",
+    "stage": "upload",
+    "status": "STARTED"
+  }
+]

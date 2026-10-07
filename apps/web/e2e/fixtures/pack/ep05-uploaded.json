@@ -1,0 +1,113 @@
+{
+  "counts": {
+    "DUPLICATE": 0,
+    "MATCHED": 0,
+    "MATCHED_AFTER_CONVERSION": 0,
+    "MISMATCHED": 0,
+    "MISSING": 0,
+    "NEEDS_REVIEW": 0,
+    "NON_RECEIPT": 0,
+    "UNMATCHED_NO_KEY": 0
+  },
+  "created_at": "2026-10-15T08:30:21+05:00",
+  "created_by": "controller@kestrel.example",
+  "error_message": null,
+  "exceptions": [],
+  "failed_stage": null,
+  "finalised_at": null,
+  "finalised_by": null,
+  "headline": "0 receipts: 0 match, 0 need attention",
+  "id": "00000000-0000-4000-8000-000000000013",
+  "month": "2026-09",
+  "open_review_items": 0,
+  "proof_status": null,
+  "read_cost": {
+    "actual_usd": "0.000",
+    "estimate_usd": "0.012",
+    "input_tokens": 0,
+    "new_pages": 1,
+    "output_tokens": 0
+  },
+  "row_counts": {
+    "ERP": {
+      "DUPLICATE": 0,
+      "MATCHED": 0,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 0,
+      "MISSING": 0,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 0,
+      "UNMATCHED_NO_KEY": 0
+    },
+    "REGISTER": {
+      "DUPLICATE": 0,
+      "MATCHED": 0,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 0,
+      "MISSING": 0,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 0,
+      "UNMATCHED_NO_KEY": 0
+    },
+    "SHEET": {
+      "DUPLICATE": 0,
+      "MATCHED": 0,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 0,
+      "MISSING": 0,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 0,
+      "UNMATCHED_NO_KEY": 0
+    }
+  },
+  "run_key": "5f6ade40539445514e1622da6807d939925329ed12c88e9ad9843d62260c18d8",
+  "scenario_now": "2026-10-15T08:30:21+05:00",
+  "stage_progress": {
+    "pages": [
+      {
+        "cached": true,
+        "extracted": true,
+        "page_no": 1
+      },
+      {
+        "cached": false,
+        "extracted": false,
+        "page_no": 2
+      }
+    ],
+    "stages": [
+      {
+        "at": "2026-10-15T08:30:27+05:00",
+        "duration_ms": 3000,
+        "stage": "upload",
+        "state": "OK"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "validate",
+        "state": "PENDING"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "extract",
+        "state": "PENDING"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "reconcile",
+        "state": "PENDING"
+      },
+      {
+        "at": null,
+        "duration_ms": null,
+        "stage": "proof",
+        "state": "PENDING"
+      }
+    ]
+  },
+  "status": "UPLOADED",
+  "summary": null
+}

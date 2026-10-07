@@ -1,0 +1,23 @@
+{
+  "error": {
+    "code": "CONTRACT_VIOLATION",
+    "details": {
+      "problems": [
+        {
+          "code": "MISSING_WORKSHEET",
+          "location": {
+            "column": null,
+            "line": null,
+            "page_no": null,
+            "row": null,
+            "worksheet": "Aug-2026"
+          },
+          "message": "Store sheet: no worksheet named Aug-2026 (found: Sep-2026)",
+          "source": "SHEET"
+        }
+      ]
+    },
+    "message": "The inputs break the contract; see details.problems",
+    "stage": "validate"
+  }
+}

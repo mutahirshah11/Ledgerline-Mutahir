@@ -1,0 +1,732 @@
+[
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "L2609-021",
+            "REGISTER": "L2609-012",
+            "SHEET": "L2609-012"
+          },
+          "field": "lot_no",
+          "outlier": "ERP",
+          "values": {
+            "ERP": "L2609-021",
+            "REGISTER": "L2609-012",
+            "SHEET": "L2609-012"
+          }
+        }
+      ],
+      "grn_no": 4412,
+      "group_key": "GRN:4412",
+      "id": "00000000-0000-4000-8000-000000000029",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0012"
+        ],
+        "REGISTER": [
+          "REG-p1-r12"
+        ],
+        "SHEET": [
+          "XLS-r14"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4412,
+          "item": "WOODEN PALLETS",
+          "lot_no": "L2609-021",
+          "meta": {
+            "entered_at": "2026-09-11T18:25:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "90",
+          "qty_base": "90.00",
+          "raw": {
+            "entered_at": "2026-09-11 18:25",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-11",
+            "grn_no": "GRN-4412",
+            "item_desc": "WOODEN PALLETS",
+            "lot_no": "L2609-021",
+            "qty": "90",
+            "supplier_code": "S-105",
+            "supplier_name": "SAAHIL PALLETS & TIMBER",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0012",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4412,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-012",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 12
+          },
+          "outcome": "MISMATCHED",
+          "qty": "90",
+          "qty_base": "90.00",
+          "raw": {
+            "date": "11/09",
+            "grn_no": "4412",
+            "item": "Wooden pallets",
+            "lot_no": "L2609-012",
+            "qty": "90",
+            "recd_by": "S.A.",
+            "supplier": "Saahil Pallets",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r12",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4412,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-012",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "90",
+          "qty_base": "90.00",
+          "raw": {
+            "Date": "2026-09-11 00:00:00",
+            "GRN": "4412",
+            "Lot": "L2609-012",
+            "Material": "Wooden pallets",
+            "Qty Received": "90",
+            "Remarks": null,
+            "Supplier": "Saahil Pallets",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r14",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "2026-09-13",
+            "REGISTER": "2026-09-12",
+            "SHEET": "2026-09-12"
+          },
+          "field": "date",
+          "outlier": "ERP",
+          "values": {
+            "ERP": "2026-09-13",
+            "REGISTER": "2026-09-12",
+            "SHEET": "2026-09-12"
+          }
+        }
+      ],
+      "grn_no": 4415,
+      "group_key": "GRN:4415",
+      "id": "00000000-0000-4000-8000-00000000002c",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0015"
+        ],
+        "REGISTER": [
+          "REG-p2-r01"
+        ],
+        "SHEET": [
+          "XLS-r17"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-13",
+          "duplicate_of": null,
+          "flags": [
+            "SUNDAY_DATE"
+          ],
+          "grn_no": 4415,
+          "item": "POLYBAGS 10X14",
+          "lot_no": "L2609-115",
+          "meta": {
+            "entered_at": "2026-09-13T18:14:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "30000",
+          "qty_base": "30000.00",
+          "raw": {
+            "entered_at": "2026-09-13 18:14",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-13",
+            "grn_no": "GRN-4415",
+            "item_desc": "POLYBAGS 10X14",
+            "lot_no": "L2609-115",
+            "qty": "30000",
+            "supplier_code": "S-102",
+            "supplier_name": "TARAZ POLY INDUSTRIES",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0015",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4415,
+          "item": "Polybags 10x14",
+          "lot_no": "L2609-115",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 1
+          },
+          "outcome": "MISMATCHED",
+          "qty": "30000",
+          "qty_base": "30000.00",
+          "raw": {
+            "date": "12/09",
+            "grn_no": "4415",
+            "item": "Polybags 10x14",
+            "lot_no": "L2609-115",
+            "qty": "30000",
+            "recd_by": "B.H.",
+            "supplier": "Taraz Poly",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r01",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4415,
+          "item": "Polybags 10x14",
+          "lot_no": "L2609-115",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "30000",
+          "qty_base": "30000.00",
+          "raw": {
+            "Date": "2026-09-12 00:00:00",
+            "GRN": "4415",
+            "Lot": "L2609-115",
+            "Material": "Polybags 10x14",
+            "Qty Received": "30000",
+            "Remarks": null,
+            "Supplier": "Taraz Poly",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r17",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "46.00 CTN",
+            "REGISTER": "48.00 CTN",
+            "SHEET": "48.00 CTN"
+          },
+          "field": "qty",
+          "outlier": "ERP",
+          "values": {
+            "ERP": "46 CTN",
+            "REGISTER": "48 CTN",
+            "SHEET": "48 CTN"
+          }
+        }
+      ],
+      "grn_no": 4417,
+      "group_key": "GRN:4417",
+      "id": "00000000-0000-4000-8000-00000000002e",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0017"
+        ],
+        "REGISTER": [
+          "REG-p2-r03"
+        ],
+        "SHEET": [
+          "XLS-r19"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "CTN",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-15",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4417,
+          "item": "THREAD CONES 40/2",
+          "lot_no": "L2609-117",
+          "meta": {
+            "entered_at": "2026-09-15T18:41:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "46",
+          "qty_base": "46.00",
+          "raw": {
+            "entered_at": "2026-09-15 18:41",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-15",
+            "grn_no": "GRN-4417",
+            "item_desc": "THREAD CONES 40/2",
+            "lot_no": "L2609-117",
+            "qty": "46",
+            "supplier_code": "S-104",
+            "supplier_name": "REHBAR THREADS",
+            "uom": "CTN"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0017",
+          "supplier_code": "S-104",
+          "uom": "CTN"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "CTN",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-15",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4417,
+          "item": "Thread cones 40/2",
+          "lot_no": "L2609-117",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 3
+          },
+          "outcome": "MISMATCHED",
+          "qty": "48",
+          "qty_base": "48.00",
+          "raw": {
+            "date": "15/09",
+            "grn_no": "4417",
+            "item": "Thread cones 40/2",
+            "lot_no": "L2609-117",
+            "qty": "48",
+            "recd_by": "S.A.",
+            "supplier": "Rehbar Threads",
+            "unit": "ctns"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r03",
+          "supplier_code": "S-104",
+          "uom": "CTN"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "CTN",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-15",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4417,
+          "item": "Thread cones 40/2",
+          "lot_no": "L2609-117",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "48",
+          "qty_base": "48.00",
+          "raw": {
+            "Date": "2026-09-15 00:00:00",
+            "GRN": "4417",
+            "Lot": "L2609-117",
+            "Material": "Thread cones 40/2",
+            "Qty Received": "48",
+            "Remarks": null,
+            "Supplier": "Rehbar Thread",
+            "UOM": "ctns"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r19",
+          "supplier_code": "S-104",
+          "uom": "CTN"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "1097.28 M",
+            "REGISTER": "1097.28 M",
+            "SHEET": "1200.00 M"
+          },
+          "field": "qty",
+          "outlier": "SHEET",
+          "values": {
+            "ERP": "1097.28 M",
+            "REGISTER": "1200 YD",
+            "SHEET": "1200 M"
+          }
+        }
+      ],
+      "grn_no": 4425,
+      "group_key": "GRN:4425",
+      "id": "00000000-0000-4000-8000-000000000036",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0024"
+        ],
+        "REGISTER": [
+          "REG-p2-r11"
+        ],
+        "SHEET": [
+          "XLS-r27"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "M",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-24",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4425,
+          "item": "GREY FABRIC 63\"",
+          "lot_no": "L2609-125",
+          "meta": {
+            "entered_at": "2026-09-24T17:15:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "1097.28",
+          "qty_base": "1097.28",
+          "raw": {
+            "entered_at": "2026-09-24 17:15",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-24",
+            "grn_no": "GRN-4425",
+            "item_desc": "GREY FABRIC 63\"",
+            "lot_no": "L2609-125",
+            "qty": "1097.28",
+            "supplier_code": "S-107",
+            "supplier_name": "SHAHTOOT WEAVING MILLS",
+            "uom": "M"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0024",
+          "supplier_code": "S-107",
+          "uom": "M"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "M",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-24",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4425,
+          "item": "Grey fabric 63\"",
+          "lot_no": "L2609-125",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 11
+          },
+          "outcome": "MISMATCHED",
+          "qty": "1200",
+          "qty_base": "1097.28",
+          "raw": {
+            "date": "24/09",
+            "grn_no": "4425",
+            "item": "Grey fabric 63\"",
+            "lot_no": "L2609-125",
+            "qty": "1200",
+            "recd_by": "B.H.",
+            "supplier": "Shahtoot Weaving",
+            "unit": "yds"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r11",
+          "supplier_code": "S-107",
+          "uom": "YD"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "M",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-24",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4425,
+          "item": "Grey fabric 63\"",
+          "lot_no": "L2609-125",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "1200",
+          "qty_base": "1200.00",
+          "raw": {
+            "Date": "2026-09-24 00:00:00",
+            "GRN": "4425",
+            "Lot": "L2609-125",
+            "Material": "Grey fabric 63\"",
+            "Qty Received": "1200",
+            "Remarks": null,
+            "Supplier": "Shahtoot",
+            "UOM": "m"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r27",
+          "supplier_code": "S-107",
+          "uom": "M"
+        }
+      ]
+    }
+  }
+]

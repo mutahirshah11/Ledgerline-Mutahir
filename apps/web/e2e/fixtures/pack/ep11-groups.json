@@ -1,0 +1,4778 @@
+[
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4401,
+      "group_key": "GRN:4401",
+      "id": "00000000-0000-4000-8000-00000000001e",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0001"
+        ],
+        "REGISTER": [
+          "REG-p1-r01"
+        ],
+        "SHEET": [
+          "XLS-r2"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-01",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4401,
+          "item": "CARTONS 5-PLY",
+          "lot_no": "L2609-001",
+          "meta": {
+            "entered_at": "2026-09-01T18:08:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "2000",
+          "qty_base": "2000.00",
+          "raw": {
+            "entered_at": "2026-09-01 18:08",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-01",
+            "grn_no": "GRN-4401",
+            "item_desc": "CARTONS 5-PLY",
+            "lot_no": "L2609-001",
+            "qty": "2000",
+            "supplier_code": "S-101",
+            "supplier_name": "QASR PACKAGING (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0001",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-01",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4401,
+          "item": "Cartons 5-ply",
+          "lot_no": "L2609-001",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 1
+          },
+          "outcome": "MATCHED",
+          "qty": "2000",
+          "qty_base": "2000.00",
+          "raw": {
+            "date": "01/09",
+            "grn_no": "4401",
+            "item": "Cartons 5-ply",
+            "lot_no": "L2609-001",
+            "qty": "2000",
+            "recd_by": "B.H.",
+            "supplier": "Qasr Pkg",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r01",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-01",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4401,
+          "item": "Cartons 5-ply",
+          "lot_no": "L2609-001",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "2000",
+          "qty_base": "2000.00",
+          "raw": {
+            "Date": "2026-09-01 00:00:00",
+            "GRN": "4401",
+            "Lot": "L2609-001",
+            "Material": "Cartons 5-ply",
+            "Qty Received": "2000",
+            "Remarks": null,
+            "Supplier": "Qasr Packaging",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r2",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4402,
+      "group_key": "GRN:4402",
+      "id": "00000000-0000-4000-8000-00000000001f",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0002"
+        ],
+        "REGISTER": [
+          "REG-p1-r02"
+        ],
+        "SHEET": [
+          "XLS-r3"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-01",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4402,
+          "item": "POLYBAGS 12X16",
+          "lot_no": "L2609-002",
+          "meta": {
+            "entered_at": "2026-09-01T17:15:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "25000",
+          "qty_base": "25000.00",
+          "raw": {
+            "entered_at": "2026-09-01 17:15",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-01",
+            "grn_no": "GRN-4402",
+            "item_desc": "POLYBAGS 12X16",
+            "lot_no": "L2609-002",
+            "qty": "25000",
+            "supplier_code": "S-102",
+            "supplier_name": "TARAZ POLY INDUSTRIES",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0002",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-01",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4402,
+          "item": "Polybags 12x16",
+          "lot_no": "L2609-002",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 2
+          },
+          "outcome": "MATCHED",
+          "qty": "25000",
+          "qty_base": "25000.00",
+          "raw": {
+            "date": "01/09",
+            "grn_no": "4402",
+            "item": "Polybags 12x16",
+            "lot_no": "L2609-002",
+            "qty": "25000",
+            "recd_by": "B.H.",
+            "supplier": "Taraz Poly",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r02",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-01",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4402,
+          "item": "Polybags 12x16",
+          "lot_no": "L2609-002",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "25000",
+          "qty_base": "25000.00",
+          "raw": {
+            "Date": "2026-09-01 00:00:00",
+            "GRN": "4402",
+            "Lot": "L2609-002",
+            "Material": "Polybags 12x16",
+            "Qty Received": "25000",
+            "Remarks": null,
+            "Supplier": "Taraz Poly",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r3",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4403,
+      "group_key": "GRN:4403",
+      "id": "00000000-0000-4000-8000-000000000020",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0003"
+        ],
+        "REGISTER": [
+          "REG-p1-r03"
+        ],
+        "SHEET": [
+          "XLS-r4"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-02",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4403,
+          "item": "CAUSTIC SODA FLAKES",
+          "lot_no": "L2609-003",
+          "meta": {
+            "entered_at": "2026-09-02T18:31:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "50",
+          "qty_base": "50.00",
+          "raw": {
+            "entered_at": "2026-09-02 18:31",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-02",
+            "grn_no": "GRN-4403",
+            "item_desc": "CAUSTIC SODA FLAKES",
+            "lot_no": "L2609-003",
+            "qty": "50",
+            "supplier_code": "S-103",
+            "supplier_name": "ZARNAB CHEMICAL INDUSTRIES (PVT) LTD",
+            "uom": "BAG"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0003",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-02",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4403,
+          "item": "Caustic soda flakes",
+          "lot_no": "L2609-003",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 3
+          },
+          "outcome": "MATCHED",
+          "qty": "50",
+          "qty_base": "50.00",
+          "raw": {
+            "date": "02/09",
+            "grn_no": "4403",
+            "item": "Caustic soda flakes",
+            "lot_no": "L2609-003",
+            "qty": "50",
+            "recd_by": "B.H.",
+            "supplier": "Zarnab Chem",
+            "unit": "bags"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r03",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-02",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4403,
+          "item": "Caustic soda flakes",
+          "lot_no": "L2609-003",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "50",
+          "qty_base": "50.00",
+          "raw": {
+            "Date": "2026-09-02 00:00:00",
+            "GRN": "4403",
+            "Lot": "L2609-003",
+            "Material": "Caustic soda flakes",
+            "Qty Received": "50",
+            "Remarks": null,
+            "Supplier": "Zarnab Chemicals",
+            "UOM": "bags"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r4",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4404,
+      "group_key": "GRN:4404",
+      "id": "00000000-0000-4000-8000-000000000021",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0004"
+        ],
+        "REGISTER": [
+          "REG-p1-r04"
+        ],
+        "SHEET": [
+          "XLS-r5"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-03",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4404,
+          "item": "THREAD CONES 40/2",
+          "lot_no": "L2609-004",
+          "meta": {
+            "entered_at": "2026-09-03T17:41:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "600",
+          "qty_base": "600.00",
+          "raw": {
+            "entered_at": "2026-09-03 17:41",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-03",
+            "grn_no": "GRN-4404",
+            "item_desc": "THREAD CONES 40/2",
+            "lot_no": "L2609-004",
+            "qty": "600",
+            "supplier_code": "S-104",
+            "supplier_name": "REHBAR THREADS",
+            "uom": "CONE"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0004",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-03",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4404,
+          "item": "Thread cones 40/2",
+          "lot_no": "L2609-004",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 4
+          },
+          "outcome": "MATCHED",
+          "qty": "600",
+          "qty_base": "600.00",
+          "raw": {
+            "date": "03/09",
+            "grn_no": "4404",
+            "item": "Thread cones 40/2",
+            "lot_no": "L2609-004",
+            "qty": "600",
+            "recd_by": "S.A.",
+            "supplier": "Rehbar Threads",
+            "unit": "cones"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r04",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-03",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4404,
+          "item": "Thread cones 40/2",
+          "lot_no": "L2609-004",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "600",
+          "qty_base": "600.00",
+          "raw": {
+            "Date": "2026-09-03 00:00:00",
+            "GRN": "4404",
+            "Lot": "L2609-004",
+            "Material": "Thread cones 40/2",
+            "Qty Received": "600",
+            "Remarks": null,
+            "Supplier": "Rehbar Thread",
+            "UOM": "cones"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r5",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4405,
+      "group_key": "GRN:4405",
+      "id": "00000000-0000-4000-8000-000000000022",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0005"
+        ],
+        "REGISTER": [
+          "REG-p1-r05"
+        ],
+        "SHEET": [
+          "XLS-r6"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-04",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4405,
+          "item": "WOODEN PALLETS",
+          "lot_no": "L2609-005",
+          "meta": {
+            "entered_at": "2026-09-04T17:41:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "120",
+          "qty_base": "120.00",
+          "raw": {
+            "entered_at": "2026-09-04 17:41",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-04",
+            "grn_no": "GRN-4405",
+            "item_desc": "WOODEN PALLETS",
+            "lot_no": "L2609-005",
+            "qty": "120",
+            "supplier_code": "S-105",
+            "supplier_name": "SAAHIL PALLETS & TIMBER",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0005",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-04",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4405,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-005",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 5
+          },
+          "outcome": "MATCHED",
+          "qty": "120",
+          "qty_base": "120.00",
+          "raw": {
+            "date": "04/09",
+            "grn_no": "4405",
+            "item": "Wooden pallets",
+            "lot_no": "L2609-005",
+            "qty": "120",
+            "recd_by": "S.A.",
+            "supplier": "Saahil Pallets",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r05",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-04",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4405,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-005",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "120",
+          "qty_base": "120.00",
+          "raw": {
+            "Date": "2026-09-04 00:00:00",
+            "GRN": "4405",
+            "Lot": "L2609-005",
+            "Material": "Wooden pallets",
+            "Qty Received": "120",
+            "Remarks": null,
+            "Supplier": "Saahil Pallets",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r6",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4406,
+      "group_key": "GRN:4406",
+      "id": "00000000-0000-4000-8000-000000000023",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0006"
+        ],
+        "REGISTER": [
+          "REG-p1-r06"
+        ],
+        "SHEET": [
+          "XLS-r7"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-05",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4406,
+          "item": "WOVEN LABELS",
+          "lot_no": "L2609-006",
+          "meta": {
+            "entered_at": "2026-09-05T18:10:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "10000",
+          "qty_base": "10000.00",
+          "raw": {
+            "entered_at": "2026-09-05 18:10",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-05",
+            "grn_no": "GRN-4406",
+            "item_desc": "WOVEN LABELS",
+            "lot_no": "L2609-006",
+            "qty": "10000",
+            "supplier_code": "S-106",
+            "supplier_name": "NAYAB LABELS (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0006",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-05",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4406,
+          "item": "Woven labels",
+          "lot_no": "L2609-006",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 6
+          },
+          "outcome": "MATCHED",
+          "qty": "10000",
+          "qty_base": "10000.00",
+          "raw": {
+            "date": "05/09",
+            "grn_no": "4406",
+            "item": "Woven labels",
+            "lot_no": "L2609-006",
+            "qty": "10000",
+            "recd_by": "B.H.",
+            "supplier": "Nayab Labels",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r06",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-05",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4406,
+          "item": "Woven labels",
+          "lot_no": "L2609-006",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "10000",
+          "qty_base": "10000.00",
+          "raw": {
+            "Date": "2026-09-05 00:00:00",
+            "GRN": "4406",
+            "Lot": "L2609-006",
+            "Material": "Woven labels",
+            "Qty Received": "10000",
+            "Remarks": null,
+            "Supplier": "Nayab Labels",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r7",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4407,
+      "group_key": "GRN:4407",
+      "id": "00000000-0000-4000-8000-000000000024",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0007"
+        ],
+        "REGISTER": [
+          "REG-p1-r07"
+        ],
+        "SHEET": [
+          "XLS-r8"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-07",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4407,
+          "item": "CARTONS 3-PLY",
+          "lot_no": "L2609-007",
+          "meta": {
+            "entered_at": "2026-09-07T17:30:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "1500",
+          "qty_base": "1500.00",
+          "raw": {
+            "entered_at": "2026-09-07 17:30",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-07",
+            "grn_no": "GRN-4407",
+            "item_desc": "CARTONS 3-PLY",
+            "lot_no": "L2609-007",
+            "qty": "1500",
+            "supplier_code": "S-101",
+            "supplier_name": "QASR PACKAGING (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0007",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-07",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4407,
+          "item": "Cartons 3-ply",
+          "lot_no": "L2609-007",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 7
+          },
+          "outcome": "MATCHED",
+          "qty": "1500",
+          "qty_base": "1500.00",
+          "raw": {
+            "date": "07/09",
+            "grn_no": "4407",
+            "item": "Cartons 3-ply",
+            "lot_no": "L2609-007",
+            "qty": "1500",
+            "recd_by": "B.H.",
+            "supplier": "Qasr Pkg",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r07",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-07",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4407,
+          "item": "Cartons 3-ply",
+          "lot_no": "L2609-007",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "1500",
+          "qty_base": "1500.00",
+          "raw": {
+            "Date": "2026-09-07 00:00:00",
+            "GRN": "4407",
+            "Lot": "L2609-007",
+            "Material": "Cartons 3-ply",
+            "Qty Received": "1500",
+            "Remarks": null,
+            "Supplier": "Qasr Packaging",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r8",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4408,
+      "group_key": "GRN:4408",
+      "id": "00000000-0000-4000-8000-000000000025",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0008"
+        ],
+        "REGISTER": [
+          "REG-p1-r08"
+        ],
+        "SHEET": [
+          "XLS-r9"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "DRUM",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-07",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4408,
+          "item": "H2O2 50%",
+          "lot_no": "L2609-008",
+          "meta": {
+            "entered_at": "2026-09-07T18:45:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "40",
+          "qty_base": "40.00",
+          "raw": {
+            "entered_at": "2026-09-07 18:45",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-07",
+            "grn_no": "GRN-4408",
+            "item_desc": "H2O2 50%",
+            "lot_no": "L2609-008",
+            "qty": "40",
+            "supplier_code": "S-103",
+            "supplier_name": "ZARNAB CHEMICAL INDUSTRIES (PVT) LTD",
+            "uom": "DRUM"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0008",
+          "supplier_code": "S-103",
+          "uom": "DRUM"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "DRUM",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-07",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4408,
+          "item": "H202 50%",
+          "lot_no": "L2609-008",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 8
+          },
+          "outcome": "MATCHED",
+          "qty": "40",
+          "qty_base": "40.00",
+          "raw": {
+            "date": "07/09",
+            "grn_no": "4408",
+            "item": "H202 50%",
+            "lot_no": "L2609-008",
+            "qty": "40",
+            "recd_by": "S.A.",
+            "supplier": "Zarnab Chem",
+            "unit": "drums"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r08",
+          "supplier_code": "S-103",
+          "uom": "DRUM"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "DRUM",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-07",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4408,
+          "item": "H2O2 50%",
+          "lot_no": "L2609-008",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "40",
+          "qty_base": "40.00",
+          "raw": {
+            "Date": "2026-09-07 00:00:00",
+            "GRN": "4408",
+            "Lot": "L2609-008",
+            "Material": "H2O2 50%",
+            "Qty Received": "40",
+            "Remarks": null,
+            "Supplier": "Zarnab Chemicals",
+            "UOM": "drums"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r9",
+          "supplier_code": "S-103",
+          "uom": "DRUM"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4409,
+      "group_key": "GRN:4409",
+      "id": "00000000-0000-4000-8000-000000000026",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0009"
+        ],
+        "REGISTER": [
+          "REG-p1-r09"
+        ],
+        "SHEET": [
+          "XLS-r10"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "ROLL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-08",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4409,
+          "item": "STRETCH FILM",
+          "lot_no": "L2609-009",
+          "meta": {
+            "entered_at": "2026-09-08T18:16:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "80",
+          "qty_base": "80.00",
+          "raw": {
+            "entered_at": "2026-09-08 18:16",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-08",
+            "grn_no": "GRN-4409",
+            "item_desc": "STRETCH FILM",
+            "lot_no": "L2609-009",
+            "qty": "80",
+            "supplier_code": "S-102",
+            "supplier_name": "TARAZ POLY INDUSTRIES",
+            "uom": "ROLL"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0009",
+          "supplier_code": "S-102",
+          "uom": "ROLL"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "ROLL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-08",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4409,
+          "item": "Stretch film",
+          "lot_no": "L2609-009",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 9
+          },
+          "outcome": "MATCHED",
+          "qty": "80",
+          "qty_base": "80.00",
+          "raw": {
+            "date": "08/09",
+            "grn_no": "4409",
+            "item": "Stretch film",
+            "lot_no": "L2609-009",
+            "qty": "80",
+            "recd_by": "B.H.",
+            "supplier": "Taraz Poly",
+            "unit": "rolls"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r09",
+          "supplier_code": "S-102",
+          "uom": "ROLL"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "ROLL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-08",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4409,
+          "item": "Stretch film",
+          "lot_no": "L2609-009",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "80",
+          "qty_base": "80.00",
+          "raw": {
+            "Date": "2026-09-08 00:00:00",
+            "GRN": "4409",
+            "Lot": "L2609-009",
+            "Material": "Stretch film",
+            "Qty Received": "80",
+            "Remarks": null,
+            "Supplier": "Taraz Poly",
+            "UOM": "rolls"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r10",
+          "supplier_code": "S-102",
+          "uom": "ROLL"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4410,
+      "group_key": "GRN:4410",
+      "id": "00000000-0000-4000-8000-000000000027",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0010"
+        ],
+        "REGISTER": [
+          "REG-p1-r10"
+        ],
+        "SHEET": [
+          "XLS-r12"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-09",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4410,
+          "item": "THREAD CONES 20/2",
+          "lot_no": "L2609-010",
+          "meta": {
+            "entered_at": "2026-09-09T17:34:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "450",
+          "qty_base": "450.00",
+          "raw": {
+            "entered_at": "2026-09-09 17:34",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-09",
+            "grn_no": "GRN-4410",
+            "item_desc": "THREAD CONES 20/2",
+            "lot_no": "L2609-010",
+            "qty": "450",
+            "supplier_code": "S-104",
+            "supplier_name": "REHBAR THREADS",
+            "uom": "CONE"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0010",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-09",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4410,
+          "item": "Thread cones 20/2",
+          "lot_no": "L2609-010",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 10
+          },
+          "outcome": "MATCHED",
+          "qty": "450",
+          "qty_base": "450.00",
+          "raw": {
+            "date": "09/09",
+            "grn_no": "4410",
+            "item": "Thread cones 20/2",
+            "lot_no": "L2609-010",
+            "qty": "450",
+            "recd_by": "S.A.",
+            "supplier": "Rehbar Threads",
+            "unit": "cones"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r10",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-09",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4410,
+          "item": "Thread cones 20/2",
+          "lot_no": "L2609-010",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "450",
+          "qty_base": "450.00",
+          "raw": {
+            "Date": "2026-09-09 00:00:00",
+            "GRN": "4410",
+            "Lot": "L2609-010",
+            "Material": "Thread cones 20/2",
+            "Qty Received": "450",
+            "Remarks": null,
+            "Supplier": "Rehbar Thread",
+            "UOM": "cones"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r12",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4411,
+      "group_key": "GRN:4411",
+      "id": "00000000-0000-4000-8000-000000000028",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0011"
+        ],
+        "REGISTER": [
+          "REG-p1-r11"
+        ],
+        "SHEET": [
+          "XLS-r13"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-10",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4411,
+          "item": "CARTONS 5-PLY",
+          "lot_no": "L2609-011",
+          "meta": {
+            "entered_at": "2026-09-10T18:12:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "1800",
+          "qty_base": "1800.00",
+          "raw": {
+            "entered_at": "2026-09-10 18:12",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-10",
+            "grn_no": "GRN-4411",
+            "item_desc": "CARTONS 5-PLY",
+            "lot_no": "L2609-011",
+            "qty": "1800",
+            "supplier_code": "S-101",
+            "supplier_name": "QASR PACKAGING (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0011",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-10",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4411,
+          "item": "Cartons 5-ply",
+          "lot_no": "L2609-011",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 11
+          },
+          "outcome": "MATCHED",
+          "qty": "1800",
+          "qty_base": "1800.00",
+          "raw": {
+            "date": "10/09",
+            "grn_no": "4411",
+            "item": "Cartons 5-ply",
+            "lot_no": "L2609-011",
+            "qty": "1800",
+            "recd_by": "B.H.",
+            "supplier": "Qasr Pkg",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r11",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-10",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4411,
+          "item": "Cartons 5-ply",
+          "lot_no": "L2609-011",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "1800",
+          "qty_base": "1800.00",
+          "raw": {
+            "Date": "2026-09-10 00:00:00",
+            "GRN": "4411",
+            "Lot": "L2609-011",
+            "Material": "Cartons 5-ply",
+            "Qty Received": "1800",
+            "Remarks": null,
+            "Supplier": "Qasr Packaging",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r13",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "L2609-021",
+            "REGISTER": "L2609-012",
+            "SHEET": "L2609-012"
+          },
+          "field": "lot_no",
+          "outlier": "ERP",
+          "values": {
+            "ERP": "L2609-021",
+            "REGISTER": "L2609-012",
+            "SHEET": "L2609-012"
+          }
+        }
+      ],
+      "grn_no": 4412,
+      "group_key": "GRN:4412",
+      "id": "00000000-0000-4000-8000-000000000029",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0012"
+        ],
+        "REGISTER": [
+          "REG-p1-r12"
+        ],
+        "SHEET": [
+          "XLS-r14"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4412,
+          "item": "WOODEN PALLETS",
+          "lot_no": "L2609-021",
+          "meta": {
+            "entered_at": "2026-09-11T18:25:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "90",
+          "qty_base": "90.00",
+          "raw": {
+            "entered_at": "2026-09-11 18:25",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-11",
+            "grn_no": "GRN-4412",
+            "item_desc": "WOODEN PALLETS",
+            "lot_no": "L2609-021",
+            "qty": "90",
+            "supplier_code": "S-105",
+            "supplier_name": "SAAHIL PALLETS & TIMBER",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0012",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4412,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-012",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 12
+          },
+          "outcome": "MISMATCHED",
+          "qty": "90",
+          "qty_base": "90.00",
+          "raw": {
+            "date": "11/09",
+            "grn_no": "4412",
+            "item": "Wooden pallets",
+            "lot_no": "L2609-012",
+            "qty": "90",
+            "recd_by": "S.A.",
+            "supplier": "Saahil Pallets",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r12",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4412,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-012",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "90",
+          "qty_base": "90.00",
+          "raw": {
+            "Date": "2026-09-11 00:00:00",
+            "GRN": "4412",
+            "Lot": "L2609-012",
+            "Material": "Wooden pallets",
+            "Qty Received": "90",
+            "Remarks": null,
+            "Supplier": "Saahil Pallets",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r14",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4413,
+      "group_key": "GRN:4413",
+      "id": "00000000-0000-4000-8000-00000000002a",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0013"
+        ],
+        "REGISTER": [
+          "REG-p1-r13"
+        ],
+        "SHEET": [
+          "XLS-r15"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4413,
+          "item": "CARE LABELS",
+          "lot_no": "L2609-013",
+          "meta": {
+            "entered_at": "2026-09-11T18:12:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "15000",
+          "qty_base": "15000.00",
+          "raw": {
+            "entered_at": "2026-09-11 18:12",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-11",
+            "grn_no": "GRN-4413",
+            "item_desc": "CARE LABELS",
+            "lot_no": "L2609-013",
+            "qty": "15000",
+            "supplier_code": "S-106",
+            "supplier_name": "NAYAB LABELS (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0013",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4413,
+          "item": "Care labels",
+          "lot_no": "L2609-013",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 13
+          },
+          "outcome": "MATCHED",
+          "qty": "15000",
+          "qty_base": "15000.00",
+          "raw": {
+            "date": "11/09",
+            "grn_no": "4413",
+            "item": "Care labels",
+            "lot_no": "L2609-013",
+            "qty": "15000",
+            "recd_by": "B.H.",
+            "supplier": "Nayab Labels",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r13",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-11",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4413,
+          "item": "Care labels",
+          "lot_no": "L2609-013",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "15000",
+          "qty_base": "15000.00",
+          "raw": {
+            "Date": "2026-09-11 00:00:00",
+            "GRN": "4413",
+            "Lot": "L2609-013",
+            "Material": "Care labels",
+            "Qty Received": "15000",
+            "Remarks": null,
+            "Supplier": "Nayab Labels",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r15",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4414,
+      "group_key": "GRN:4414",
+      "id": "00000000-0000-4000-8000-00000000002b",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0014"
+        ],
+        "REGISTER": [
+          "REG-p1-r14"
+        ],
+        "SHEET": [
+          "XLS-r16"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4414,
+          "item": "SODA ASH",
+          "lot_no": "L2609-014",
+          "meta": {
+            "entered_at": "2026-09-12T18:35:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "30",
+          "qty_base": "30.00",
+          "raw": {
+            "entered_at": "2026-09-12 18:35",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-12",
+            "grn_no": "GRN-4414",
+            "item_desc": "SODA ASH",
+            "lot_no": "L2609-014",
+            "qty": "30",
+            "supplier_code": "S-103",
+            "supplier_name": "ZARNAB CHEMICAL INDUSTRIES (PVT) LTD",
+            "uom": "BAG"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0014",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4414,
+          "item": "Soda ash",
+          "lot_no": "L2609-014",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 1,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 14
+          },
+          "outcome": "MATCHED",
+          "qty": "30",
+          "qty_base": "30.00",
+          "raw": {
+            "date": "12/09",
+            "grn_no": "4414",
+            "item": "Soda ash",
+            "lot_no": "L2609-014",
+            "qty": "30",
+            "recd_by": "S.A.",
+            "supplier": "Zarnab Chem",
+            "unit": "bags"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p1-r14",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4414,
+          "item": "Soda ash",
+          "lot_no": "L2609-014",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "30",
+          "qty_base": "30.00",
+          "raw": {
+            "Date": "2026-09-12 00:00:00",
+            "GRN": "4414",
+            "Lot": "L2609-014",
+            "Material": "Soda ash",
+            "Qty Received": "30",
+            "Remarks": null,
+            "Supplier": "Zarnab Chemicals",
+            "UOM": "bags"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r16",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "2026-09-13",
+            "REGISTER": "2026-09-12",
+            "SHEET": "2026-09-12"
+          },
+          "field": "date",
+          "outlier": "ERP",
+          "values": {
+            "ERP": "2026-09-13",
+            "REGISTER": "2026-09-12",
+            "SHEET": "2026-09-12"
+          }
+        }
+      ],
+      "grn_no": 4415,
+      "group_key": "GRN:4415",
+      "id": "00000000-0000-4000-8000-00000000002c",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0015"
+        ],
+        "REGISTER": [
+          "REG-p2-r01"
+        ],
+        "SHEET": [
+          "XLS-r17"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-13",
+          "duplicate_of": null,
+          "flags": [
+            "SUNDAY_DATE"
+          ],
+          "grn_no": 4415,
+          "item": "POLYBAGS 10X14",
+          "lot_no": "L2609-115",
+          "meta": {
+            "entered_at": "2026-09-13T18:14:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "30000",
+          "qty_base": "30000.00",
+          "raw": {
+            "entered_at": "2026-09-13 18:14",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-13",
+            "grn_no": "GRN-4415",
+            "item_desc": "POLYBAGS 10X14",
+            "lot_no": "L2609-115",
+            "qty": "30000",
+            "supplier_code": "S-102",
+            "supplier_name": "TARAZ POLY INDUSTRIES",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0015",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4415,
+          "item": "Polybags 10x14",
+          "lot_no": "L2609-115",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 1
+          },
+          "outcome": "MISMATCHED",
+          "qty": "30000",
+          "qty_base": "30000.00",
+          "raw": {
+            "date": "12/09",
+            "grn_no": "4415",
+            "item": "Polybags 10x14",
+            "lot_no": "L2609-115",
+            "qty": "30000",
+            "recd_by": "B.H.",
+            "supplier": "Taraz Poly",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r01",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-12",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4415,
+          "item": "Polybags 10x14",
+          "lot_no": "L2609-115",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "30000",
+          "qty_base": "30000.00",
+          "raw": {
+            "Date": "2026-09-12 00:00:00",
+            "GRN": "4415",
+            "Lot": "L2609-115",
+            "Material": "Polybags 10x14",
+            "Qty Received": "30000",
+            "Remarks": null,
+            "Supplier": "Taraz Poly",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r17",
+          "supplier_code": "S-102",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4416,
+      "group_key": "GRN:4416",
+      "id": "00000000-0000-4000-8000-00000000002d",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0016"
+        ],
+        "REGISTER": [
+          "REG-p2-r02"
+        ],
+        "SHEET": [
+          "XLS-r18"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-14",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4416,
+          "item": "CARTONS 5-PLY",
+          "lot_no": "L2609-116",
+          "meta": {
+            "entered_at": "2026-09-14T18:55:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "2200",
+          "qty_base": "2200.00",
+          "raw": {
+            "entered_at": "2026-09-14 18:55",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-14",
+            "grn_no": "GRN-4416",
+            "item_desc": "CARTONS 5-PLY",
+            "lot_no": "L2609-116",
+            "qty": "2200",
+            "supplier_code": "S-101",
+            "supplier_name": "QASR PACKAGING (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0016",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-14",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4416,
+          "item": "Cartons 5-ply",
+          "lot_no": "L2609-116",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 2
+          },
+          "outcome": "MATCHED",
+          "qty": "2200",
+          "qty_base": "2200.00",
+          "raw": {
+            "date": "14/09",
+            "grn_no": "4416",
+            "item": "Cartons 5-ply",
+            "lot_no": "L2609-116",
+            "qty": "2200",
+            "recd_by": "B.H.",
+            "supplier": "Qasr Pkg",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r02",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-14",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4416,
+          "item": "Cartons 5-ply",
+          "lot_no": "L2609-116",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "2200",
+          "qty_base": "2200.00",
+          "raw": {
+            "Date": "9/14/2026",
+            "GRN": "4416",
+            "Lot": "L2609-116",
+            "Material": "Cartons 5-ply",
+            "Qty Received": "2200",
+            "Remarks": null,
+            "Supplier": "Qasr Packaging",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r18",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "46.00 CTN",
+            "REGISTER": "48.00 CTN",
+            "SHEET": "48.00 CTN"
+          },
+          "field": "qty",
+          "outlier": "ERP",
+          "values": {
+            "ERP": "46 CTN",
+            "REGISTER": "48 CTN",
+            "SHEET": "48 CTN"
+          }
+        }
+      ],
+      "grn_no": 4417,
+      "group_key": "GRN:4417",
+      "id": "00000000-0000-4000-8000-00000000002e",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0017"
+        ],
+        "REGISTER": [
+          "REG-p2-r03"
+        ],
+        "SHEET": [
+          "XLS-r19"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "CTN",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-15",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4417,
+          "item": "THREAD CONES 40/2",
+          "lot_no": "L2609-117",
+          "meta": {
+            "entered_at": "2026-09-15T18:41:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "46",
+          "qty_base": "46.00",
+          "raw": {
+            "entered_at": "2026-09-15 18:41",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-15",
+            "grn_no": "GRN-4417",
+            "item_desc": "THREAD CONES 40/2",
+            "lot_no": "L2609-117",
+            "qty": "46",
+            "supplier_code": "S-104",
+            "supplier_name": "REHBAR THREADS",
+            "uom": "CTN"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0017",
+          "supplier_code": "S-104",
+          "uom": "CTN"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "CTN",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-15",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4417,
+          "item": "Thread cones 40/2",
+          "lot_no": "L2609-117",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 3
+          },
+          "outcome": "MISMATCHED",
+          "qty": "48",
+          "qty_base": "48.00",
+          "raw": {
+            "date": "15/09",
+            "grn_no": "4417",
+            "item": "Thread cones 40/2",
+            "lot_no": "L2609-117",
+            "qty": "48",
+            "recd_by": "S.A.",
+            "supplier": "Rehbar Threads",
+            "unit": "ctns"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r03",
+          "supplier_code": "S-104",
+          "uom": "CTN"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "CTN",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-15",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4417,
+          "item": "Thread cones 40/2",
+          "lot_no": "L2609-117",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "48",
+          "qty_base": "48.00",
+          "raw": {
+            "Date": "2026-09-15 00:00:00",
+            "GRN": "4417",
+            "Lot": "L2609-117",
+            "Material": "Thread cones 40/2",
+            "Qty Received": "48",
+            "Remarks": null,
+            "Supplier": "Rehbar Thread",
+            "UOM": "ctns"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r19",
+          "supplier_code": "S-104",
+          "uom": "CTN"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4418,
+      "group_key": "GRN:4418",
+      "id": "00000000-0000-4000-8000-00000000002f",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0018"
+        ],
+        "REGISTER": [
+          "REG-p2-r04"
+        ],
+        "SHEET": [
+          "XLS-r20"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-16",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4418,
+          "item": "WOODEN PALLETS",
+          "lot_no": "L2609-118",
+          "meta": {
+            "entered_at": "2026-09-16T18:42:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "100",
+          "qty_base": "100.00",
+          "raw": {
+            "entered_at": "2026-09-16 18:42",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-16",
+            "grn_no": "GRN-4418",
+            "item_desc": "WOODEN PALLETS",
+            "lot_no": "L2609-118",
+            "qty": "100",
+            "supplier_code": "S-105",
+            "supplier_name": "SAAHIL PALLETS & TIMBER",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0018",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-16",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4418,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-118",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 4
+          },
+          "outcome": "MATCHED",
+          "qty": "100",
+          "qty_base": "100.00",
+          "raw": {
+            "date": "16/09",
+            "grn_no": "4418",
+            "item": "Wooden pallets",
+            "lot_no": "L2609-118",
+            "qty": "100",
+            "recd_by": "S.A.",
+            "supplier": "Saahil Pallets",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r04",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-16",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4418,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-118",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "100",
+          "qty_base": "100.00",
+          "raw": {
+            "Date": "2026-09-16 00:00:00",
+            "GRN": "4418",
+            "Lot": "L2609-118",
+            "Material": "Wooden pallets",
+            "Qty Received": "100",
+            "Remarks": null,
+            "Supplier": "Saahil Pallets",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r20",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "66.00 DRUM",
+            "REGISTER": null,
+            "SHEET": "60.00 DRUM"
+          },
+          "field": "qty",
+          "outlier": null,
+          "values": {
+            "ERP": "66 DRUM",
+            "REGISTER": null,
+            "SHEET": "60 DRUM"
+          }
+        }
+      ],
+      "grn_no": 4419,
+      "group_key": "GRN:4419",
+      "id": "00000000-0000-4000-8000-000000000030",
+      "missing_from": [],
+      "outcome": "NEEDS_REVIEW",
+      "row_ids": {
+        "ERP": [
+          "ERP-0019"
+        ],
+        "REGISTER": [
+          "REG-p2-r05"
+        ],
+        "SHEET": [
+          "XLS-r21"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "DRUM",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-17",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4419,
+          "item": "H2O2 50%",
+          "lot_no": "L2609-119",
+          "meta": {
+            "entered_at": "2026-09-17T17:09:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "NEEDS_REVIEW",
+          "qty": "66",
+          "qty_base": "66.00",
+          "raw": {
+            "entered_at": "2026-09-17 17:09",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-17",
+            "grn_no": "GRN-4419",
+            "item_desc": "H2O2 50%",
+            "lot_no": "L2609-119",
+            "qty": "66",
+            "supplier_code": "S-103",
+            "supplier_name": "ZARNAB CHEMICAL INDUSTRIES (PVT) LTD",
+            "uom": "DRUM"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0019",
+          "supplier_code": "S-103",
+          "uom": "DRUM"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "DRUM",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CORRECTED",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-17",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4419,
+          "item": "H202 50%",
+          "lot_no": "L2609-119",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 5
+          },
+          "outcome": "NEEDS_REVIEW",
+          "qty": null,
+          "qty_base": null,
+          "raw": {
+            "date": "17/09",
+            "grn_no": "4419",
+            "item": "H202 50%",
+            "lot_no": "L2609-119",
+            "qty": "66",
+            "recd_by": "S.A.",
+            "supplier": "Zarnab Chem",
+            "unit": "drums"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r05",
+          "supplier_code": "S-103",
+          "uom": "DRUM"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "DRUM",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-17",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4419,
+          "item": "H2O2 50%",
+          "lot_no": "L2609-119",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "NEEDS_REVIEW",
+          "qty": "60",
+          "qty_base": "60.00",
+          "raw": {
+            "Date": "2026-09-17 00:00:00",
+            "GRN": "4419",
+            "Lot": "L2609-119",
+            "Material": "H2O2 50%",
+            "Qty Received": "60",
+            "Remarks": null,
+            "Supplier": "Zarnab Chemicals",
+            "UOM": "drums"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r21",
+          "supplier_code": "S-103",
+          "uom": "DRUM"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4420,
+      "group_key": "GRN:4420",
+      "id": "00000000-0000-4000-8000-000000000031",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0020"
+        ],
+        "REGISTER": [
+          "REG-p2-r06"
+        ],
+        "SHEET": [
+          "XLS-r22"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-18",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4420,
+          "item": "WOVEN LABELS",
+          "lot_no": "L2609-120",
+          "meta": {
+            "entered_at": "2026-09-18T17:18:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "12000",
+          "qty_base": "12000.00",
+          "raw": {
+            "entered_at": "2026-09-18 17:18",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-18",
+            "grn_no": "GRN-4420",
+            "item_desc": "WOVEN LABELS",
+            "lot_no": "L2609-120",
+            "qty": "12000",
+            "supplier_code": "S-106",
+            "supplier_name": "NAYAB LABELS (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0020",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-18",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4420,
+          "item": "Woven labels",
+          "lot_no": "L2609-120",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 6
+          },
+          "outcome": "MATCHED",
+          "qty": "12000",
+          "qty_base": "12000.00",
+          "raw": {
+            "date": "18/09",
+            "grn_no": "4420",
+            "item": "Woven labels",
+            "lot_no": "L2609-120",
+            "qty": "12000",
+            "recd_by": "B.H.",
+            "supplier": "Nayab Labels",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r06",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-18",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4420,
+          "item": "Woven labels",
+          "lot_no": "L2609-120",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "12000",
+          "qty_base": "12000.00",
+          "raw": {
+            "Date": "2026-09-18 00:00:00",
+            "GRN": "4420",
+            "Lot": "L2609-120",
+            "Material": "Woven labels",
+            "Qty Received": "12000",
+            "Remarks": null,
+            "Supplier": "Nayab Labels",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r22",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4421,
+      "group_key": "GRN:4421",
+      "id": "00000000-0000-4000-8000-000000000032",
+      "missing_from": [
+        "ERP"
+      ],
+      "outcome": "MISSING",
+      "row_ids": {
+        "REGISTER": [
+          "REG-p2-r07"
+        ],
+        "SHEET": [
+          "XLS-r23"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "REGISTER": [
+        {
+          "base_uom": "ROLL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-19",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4421,
+          "item": "Stretch film",
+          "lot_no": "L2609-121",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 7
+          },
+          "outcome": "MISSING",
+          "qty": "75",
+          "qty_base": "75.00",
+          "raw": {
+            "date": "19/09",
+            "grn_no": "4421",
+            "item": "Stretch film",
+            "lot_no": "L2609-121",
+            "qty": "75",
+            "recd_by": "B.H.",
+            "supplier": "Taraz Poly",
+            "unit": "rolls"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r07",
+          "supplier_code": "S-102",
+          "uom": "ROLL"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "ROLL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-19",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4421,
+          "item": "Stretch film",
+          "lot_no": "L2609-121",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISSING",
+          "qty": "75",
+          "qty_base": "75.00",
+          "raw": {
+            "Date": "2026-09-19 00:00:00",
+            "GRN": "4421",
+            "Lot": "L2609-121",
+            "Material": "Stretch film",
+            "Qty Received": "75",
+            "Remarks": null,
+            "Supplier": "Taraz Poly",
+            "UOM": "rolls"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r23",
+          "supplier_code": "S-102",
+          "uom": "ROLL"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4422,
+      "group_key": "GRN:4422",
+      "id": "00000000-0000-4000-8000-000000000033",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0021"
+        ],
+        "REGISTER": [
+          "REG-p2-r08"
+        ],
+        "SHEET": [
+          "XLS-r24"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-21",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4422,
+          "item": "THREAD CONES 20/2",
+          "lot_no": "L2609-122",
+          "meta": {
+            "entered_at": "2026-09-21T17:06:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "500",
+          "qty_base": "500.00",
+          "raw": {
+            "entered_at": "2026-09-21 17:06",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-21",
+            "grn_no": "GRN-4422",
+            "item_desc": "THREAD CONES 20/2",
+            "lot_no": "L2609-122",
+            "qty": "500",
+            "supplier_code": "S-104",
+            "supplier_name": "REHBAR THREADS",
+            "uom": "CONE"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0021",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-21",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4422,
+          "item": "Thread cones 20/2",
+          "lot_no": "L2609-122",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 8
+          },
+          "outcome": "MATCHED",
+          "qty": "500",
+          "qty_base": "500.00",
+          "raw": {
+            "date": "21/09",
+            "grn_no": "4422",
+            "item": "Thread cones 20/2",
+            "lot_no": "L2609-122",
+            "qty": "500",
+            "recd_by": "S.A.",
+            "supplier": "Rehbar Threads",
+            "unit": "cones"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r08",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "CONE",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-21",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4422,
+          "item": "Thread cones 20/2",
+          "lot_no": "L2609-122",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "500",
+          "qty_base": "500.00",
+          "raw": {
+            "Date": "2026-09-21 00:00:00",
+            "GRN": "4422",
+            "Lot": "L2609-122",
+            "Material": "Thread cones 20/2",
+            "Qty Received": "500",
+            "Remarks": null,
+            "Supplier": "Rehbar Thread",
+            "UOM": "cones"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r24",
+          "supplier_code": "S-104",
+          "uom": "CONE"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4423,
+      "group_key": "GRN:4423",
+      "id": "00000000-0000-4000-8000-000000000034",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0022"
+        ],
+        "REGISTER": [
+          "REG-p2-r09"
+        ],
+        "SHEET": [
+          "XLS-r25"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-22",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4423,
+          "item": "CARTONS 3-PLY",
+          "lot_no": "L2609-123",
+          "meta": {
+            "entered_at": "2026-09-22T17:35:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "1600",
+          "qty_base": "1600.00",
+          "raw": {
+            "entered_at": "2026-09-22 17:35",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-22",
+            "grn_no": "GRN-4423",
+            "item_desc": "CARTONS 3-PLY",
+            "lot_no": "L2609-123",
+            "qty": "1600",
+            "supplier_code": "S-101",
+            "supplier_name": "QASR PACKAGING (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0022",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-22",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4423,
+          "item": "Cartons 3-ply",
+          "lot_no": "L2609-123",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 9
+          },
+          "outcome": "MATCHED",
+          "qty": "1600",
+          "qty_base": "1600.00",
+          "raw": {
+            "date": "22/09",
+            "grn_no": "4423",
+            "item": "Cartons 3-ply",
+            "lot_no": "L2609-123",
+            "qty": "1600",
+            "recd_by": "B.H.",
+            "supplier": "Qasr Pkg",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r09",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-22",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4423,
+          "item": "Cartons 3-ply",
+          "lot_no": "L2609-123",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "1600",
+          "qty_base": "1600.00",
+          "raw": {
+            "Date": "2026-09-22 00:00:00",
+            "GRN": "4423",
+            "Lot": "L2609-123",
+            "Material": "Cartons 3-ply",
+            "Qty Received": "1600",
+            "Remarks": null,
+            "Supplier": "Qasr Packaging",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r25",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4424,
+      "group_key": "GRN:4424",
+      "id": "00000000-0000-4000-8000-000000000035",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0023"
+        ],
+        "REGISTER": [
+          "REG-p2-r10"
+        ],
+        "SHEET": [
+          "XLS-r26"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-23",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4424,
+          "item": "CAUSTIC SODA FLAKES",
+          "lot_no": "L2609-124",
+          "meta": {
+            "entered_at": "2026-09-23T17:19:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "45",
+          "qty_base": "45.00",
+          "raw": {
+            "entered_at": "2026-09-23 17:19",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-23",
+            "grn_no": "GRN-4424",
+            "item_desc": "CAUSTIC SODA FLAKES",
+            "lot_no": "L2609-124",
+            "qty": "45",
+            "supplier_code": "S-103",
+            "supplier_name": "ZARNAB CHEMICAL INDUSTRIES (PVT) LTD",
+            "uom": "BAG"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0023",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-23",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4424,
+          "item": "Caustic soda flakes",
+          "lot_no": "L2609-124",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 10
+          },
+          "outcome": "MATCHED",
+          "qty": "45",
+          "qty_base": "45.00",
+          "raw": {
+            "date": "23/09",
+            "grn_no": "4424",
+            "item": "Caustic soda flakes",
+            "lot_no": "L2609-124",
+            "qty": "45",
+            "recd_by": "S.A.",
+            "supplier": "Zarnab Chem",
+            "unit": "bags"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r10",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "BAG",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-23",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4424,
+          "item": "Caustic soda flakes",
+          "lot_no": "L2609-124",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "45",
+          "qty_base": "45.00",
+          "raw": {
+            "Date": "2026-09-23 00:00:00",
+            "GRN": "4424",
+            "Lot": "L2609-124",
+            "Material": "Caustic soda flakes",
+            "Qty Received": "45",
+            "Remarks": null,
+            "Supplier": "Zarnab Chemicals",
+            "UOM": "bags"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r26",
+          "supplier_code": "S-103",
+          "uom": "BAG"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [
+        {
+          "compared": {
+            "ERP": "1097.28 M",
+            "REGISTER": "1097.28 M",
+            "SHEET": "1200.00 M"
+          },
+          "field": "qty",
+          "outlier": "SHEET",
+          "values": {
+            "ERP": "1097.28 M",
+            "REGISTER": "1200 YD",
+            "SHEET": "1200 M"
+          }
+        }
+      ],
+      "grn_no": 4425,
+      "group_key": "GRN:4425",
+      "id": "00000000-0000-4000-8000-000000000036",
+      "missing_from": [],
+      "outcome": "MISMATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0024"
+        ],
+        "REGISTER": [
+          "REG-p2-r11"
+        ],
+        "SHEET": [
+          "XLS-r27"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "M",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-24",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4425,
+          "item": "GREY FABRIC 63\"",
+          "lot_no": "L2609-125",
+          "meta": {
+            "entered_at": "2026-09-24T17:15:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "1097.28",
+          "qty_base": "1097.28",
+          "raw": {
+            "entered_at": "2026-09-24 17:15",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-24",
+            "grn_no": "GRN-4425",
+            "item_desc": "GREY FABRIC 63\"",
+            "lot_no": "L2609-125",
+            "qty": "1097.28",
+            "supplier_code": "S-107",
+            "supplier_name": "SHAHTOOT WEAVING MILLS",
+            "uom": "M"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0024",
+          "supplier_code": "S-107",
+          "uom": "M"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "M",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-24",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4425,
+          "item": "Grey fabric 63\"",
+          "lot_no": "L2609-125",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 11
+          },
+          "outcome": "MISMATCHED",
+          "qty": "1200",
+          "qty_base": "1097.28",
+          "raw": {
+            "date": "24/09",
+            "grn_no": "4425",
+            "item": "Grey fabric 63\"",
+            "lot_no": "L2609-125",
+            "qty": "1200",
+            "recd_by": "B.H.",
+            "supplier": "Shahtoot Weaving",
+            "unit": "yds"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r11",
+          "supplier_code": "S-107",
+          "uom": "YD"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "M",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-24",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4425,
+          "item": "Grey fabric 63\"",
+          "lot_no": "L2609-125",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISMATCHED",
+          "qty": "1200",
+          "qty_base": "1200.00",
+          "raw": {
+            "Date": "2026-09-24 00:00:00",
+            "GRN": "4425",
+            "Lot": "L2609-125",
+            "Material": "Grey fabric 63\"",
+            "Qty Received": "1200",
+            "Remarks": null,
+            "Supplier": "Shahtoot",
+            "UOM": "m"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r27",
+          "supplier_code": "S-107",
+          "uom": "M"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4426,
+      "group_key": "GRN:4426",
+      "id": "00000000-0000-4000-8000-000000000037",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0025"
+        ],
+        "REGISTER": [
+          "REG-p2-r12"
+        ],
+        "SHEET": [
+          "XLS-r28"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-25",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4426,
+          "item": "WOODEN PALLETS",
+          "lot_no": "L2609-126",
+          "meta": {
+            "entered_at": "2026-09-25T18:39:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "140",
+          "qty_base": "140.00",
+          "raw": {
+            "entered_at": "2026-09-25 18:39",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-25",
+            "grn_no": "GRN-4426",
+            "item_desc": "WOODEN PALLETS",
+            "lot_no": "L2609-126",
+            "qty": "140",
+            "supplier_code": "S-105",
+            "supplier_name": "SAAHIL PALLETS & TIMBER",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0025",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-25",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4426,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-126",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "S.A.",
+            "remarks": null,
+            "row_index": 12
+          },
+          "outcome": "MATCHED",
+          "qty": "140",
+          "qty_base": "140.00",
+          "raw": {
+            "date": "25/09",
+            "grn_no": "4426",
+            "item": "Wooden pallets",
+            "lot_no": "L2609-126",
+            "qty": "140",
+            "recd_by": "S.A.",
+            "supplier": "Saahil Pallets",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r12",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-25",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4426,
+          "item": "Wooden pallets",
+          "lot_no": "L2609-126",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "140",
+          "qty_base": "140.00",
+          "raw": {
+            "Date": "2026-09-25 00:00:00",
+            "GRN": "4426",
+            "Lot": "L2609-126",
+            "Material": "Wooden pallets",
+            "Qty Received": "140",
+            "Remarks": null,
+            "Supplier": "Saahil Pallets",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r28",
+          "supplier_code": "S-105",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4427,
+      "group_key": "GRN:4427",
+      "id": "00000000-0000-4000-8000-000000000038",
+      "missing_from": [],
+      "outcome": "MATCHED",
+      "row_ids": {
+        "ERP": [
+          "ERP-0026"
+        ],
+        "REGISTER": [
+          "REG-p2-r13"
+        ],
+        "SHEET": [
+          "XLS-r29"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-26",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4427,
+          "item": "CARE LABELS",
+          "lot_no": "L2609-127",
+          "meta": {
+            "entered_at": "2026-09-26T17:37:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "9000",
+          "qty_base": "9000.00",
+          "raw": {
+            "entered_at": "2026-09-26 17:37",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-26",
+            "grn_no": "GRN-4427",
+            "item_desc": "CARE LABELS",
+            "lot_no": "L2609-127",
+            "qty": "9000",
+            "supplier_code": "S-106",
+            "supplier_name": "NAYAB LABELS (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0026",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-26",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4427,
+          "item": "Core labels",
+          "lot_no": "L2609-127",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 13
+          },
+          "outcome": "MATCHED",
+          "qty": "9000",
+          "qty_base": "9000.00",
+          "raw": {
+            "date": "26/09",
+            "grn_no": "4427",
+            "item": "Core labels",
+            "lot_no": "L2609-127",
+            "qty": "9000",
+            "recd_by": "B.H.",
+            "supplier": "Nayab Labels",
+            "unit": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r13",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-26",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4427,
+          "item": "Care labels",
+          "lot_no": "L2609-127",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MATCHED",
+          "qty": "9000",
+          "qty_base": "9000.00",
+          "raw": {
+            "Date": "2026-09-26 00:00:00",
+            "GRN": "4427",
+            "Lot": "L2609-127",
+            "Material": "Care labels",
+            "Qty Received": "9000",
+            "Remarks": null,
+            "Supplier": "Nayab Labels",
+            "UOM": "pcs"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r29",
+          "supplier_code": "S-106",
+          "uom": "PCS"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4428,
+      "group_key": "GRN:4428",
+      "id": "00000000-0000-4000-8000-000000000039",
+      "missing_from": [],
+      "outcome": "NEEDS_REVIEW",
+      "row_ids": {
+        "ERP": [
+          "ERP-0027"
+        ],
+        "REGISTER": [
+          "REG-p2-r14"
+        ],
+        "SHEET": [
+          "XLS-r30"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "BDL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-28",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4428,
+          "item": "POLYBAGS 12X16 (BUNDLES)",
+          "lot_no": "L2609-128",
+          "meta": {
+            "entered_at": "2026-09-28T18:04:00+05:00",
+            "entered_by": "store.clerk",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "NEEDS_REVIEW",
+          "qty": "250",
+          "qty_base": "250.00",
+          "raw": {
+            "entered_at": "2026-09-28 18:04",
+            "entered_by": "store.clerk",
+            "grn_date": "2026-09-28",
+            "grn_no": "GRN-4428",
+            "item_desc": "POLYBAGS 12X16 (BUNDLES)",
+            "lot_no": "L2609-128",
+            "qty": "250",
+            "supplier_code": "S-102",
+            "supplier_name": "TARAZ POLY INDUSTRIES",
+            "uom": "BDL"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0027",
+          "supplier_code": "S-102",
+          "uom": "BDL"
+        }
+      ],
+      "REGISTER": [
+        {
+          "base_uom": "BDL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "ILLEGIBLE",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-28",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4428,
+          "item": "Polybags 12x16 (bundles)",
+          "lot_no": "L2609-128",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": 2,
+            "received_by": "B.H.",
+            "remarks": null,
+            "row_index": 14
+          },
+          "outcome": "NEEDS_REVIEW",
+          "qty": null,
+          "qty_base": null,
+          "raw": {
+            "date": "28/09",
+            "grn_no": "4428",
+            "item": "Polybags 12x16 (bundles)",
+            "lot_no": "L2609-128",
+            "qty": null,
+            "recd_by": "B.H.",
+            "supplier": "Taraz Poly",
+            "unit": "bdl"
+          },
+          "row_kind": "RECEIPT",
+          "source": "REGISTER",
+          "source_row_id": "REG-p2-r14",
+          "supplier_code": "S-102",
+          "uom": "BDL"
+        }
+      ],
+      "SHEET": [
+        {
+          "base_uom": "BDL",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-28",
+          "duplicate_of": null,
+          "flags": [],
+          "grn_no": 4428,
+          "item": "Polybags 12x16 (bundles)",
+          "lot_no": "L2609-128",
+          "meta": {
+            "entered_at": null,
+            "entered_by": null,
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "NEEDS_REVIEW",
+          "qty": "250",
+          "qty_base": "250.00",
+          "raw": {
+            "Date": "2026-09-28 00:00:00",
+            "GRN": "4428",
+            "Lot": "L2609-128",
+            "Material": "Polybags 12x16 (bundles)",
+            "Qty Received": "250",
+            "Remarks": null,
+            "Supplier": "Taraz Poly",
+            "UOM": "bdl"
+          },
+          "row_kind": "RECEIPT",
+          "source": "SHEET",
+          "source_row_id": "XLS-r30",
+          "supplier_code": "S-102",
+          "uom": "BDL"
+        }
+      ]
+    }
+  },
+  {
+    "group": {
+      "diffs": [],
+      "grn_no": 4430,
+      "group_key": "GRN:4430",
+      "id": "00000000-0000-4000-8000-00000000003a",
+      "missing_from": [
+        "REGISTER",
+        "SHEET"
+      ],
+      "outcome": "MISSING",
+      "row_ids": {
+        "ERP": [
+          "ERP-0028"
+        ]
+      },
+      "run_id": "00000000-0000-4000-8000-000000000013"
+    },
+    "rows": {
+      "ERP": [
+        {
+          "base_uom": "PCS",
+          "cell_status": {
+            "date": "CLEAR",
+            "grn_no": "CLEAR",
+            "item": "CLEAR",
+            "lot_no": "CLEAR",
+            "qty": "CLEAR",
+            "received_by": "CLEAR",
+            "supplier_code": "CLEAR",
+            "uom": "CLEAR"
+          },
+          "date": "2026-09-29",
+          "duplicate_of": null,
+          "flags": [
+            "BACKDATED_ENTRY",
+            "UNUSUAL_USER"
+          ],
+          "grn_no": 4430,
+          "item": "CARTONS 5-PLY",
+          "lot_no": "L2609-130",
+          "meta": {
+            "entered_at": "2026-10-02T18:47:00+05:00",
+            "entered_by": "admin2",
+            "page_no": null,
+            "received_by": null,
+            "remarks": null,
+            "row_index": null
+          },
+          "outcome": "MISSING",
+          "qty": "1900",
+          "qty_base": "1900.00",
+          "raw": {
+            "entered_at": "2026-10-02 18:47",
+            "entered_by": "admin2",
+            "grn_date": "2026-09-29",
+            "grn_no": "GRN-4430",
+            "item_desc": "CARTONS 5-PLY",
+            "lot_no": "L2609-130",
+            "qty": "1900",
+            "supplier_code": "S-101",
+            "supplier_name": "QASR PACKAGING (PVT) LTD",
+            "uom": "PCS"
+          },
+          "row_kind": "RECEIPT",
+          "source": "ERP",
+          "source_row_id": "ERP-0028",
+          "supplier_code": "S-101",
+          "uom": "PCS"
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,1423 @@
+[
+  {
+    "after": "2026-09-01",
+    "before": "01/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r01"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Pkg",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r01"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r01"
+  },
+  {
+    "after": "2026-09-01",
+    "before": "01/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r02"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r02"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r02"
+  },
+  {
+    "after": "2026-09-02",
+    "before": "02/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r03"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chem",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r03"
+  },
+  {
+    "after": "BAG",
+    "before": "bags",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r03"
+  },
+  {
+    "after": "2026-09-03",
+    "before": "03/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r04"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Threads",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r04"
+  },
+  {
+    "after": "CONE",
+    "before": "cones",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r04"
+  },
+  {
+    "after": "2026-09-04",
+    "before": "04/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r05"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r05"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r05"
+  },
+  {
+    "after": "2026-09-05",
+    "before": "05/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r06"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r06"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r06"
+  },
+  {
+    "after": "2026-09-07",
+    "before": "07/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r07"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Pkg",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r07"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r07"
+  },
+  {
+    "after": "2026-09-07",
+    "before": "07/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r08"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chem",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r08"
+  },
+  {
+    "after": "DRUM",
+    "before": "drums",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r08"
+  },
+  {
+    "after": "2026-09-08",
+    "before": "08/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r09"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r09"
+  },
+  {
+    "after": "ROLL",
+    "before": "rolls",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r09"
+  },
+  {
+    "after": "2026-09-09",
+    "before": "09/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r10"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Threads",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r10"
+  },
+  {
+    "after": "CONE",
+    "before": "cones",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r10"
+  },
+  {
+    "after": "2026-09-10",
+    "before": "10/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r11"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Pkg",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r11"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r11"
+  },
+  {
+    "after": "2026-09-11",
+    "before": "11/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r12"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r12"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r12"
+  },
+  {
+    "after": "2026-09-11",
+    "before": "11/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r13"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r13"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r13"
+  },
+  {
+    "after": "2026-09-12",
+    "before": "12/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p1-r14"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chem",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p1-r14"
+  },
+  {
+    "after": "BAG",
+    "before": "bags",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p1-r14"
+  },
+  {
+    "after": "2026-09-12",
+    "before": "12/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r01"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r01"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r01"
+  },
+  {
+    "after": "2026-09-14",
+    "before": "14/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r02"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Pkg",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r02"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r02"
+  },
+  {
+    "after": "2026-09-15",
+    "before": "15/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r03"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Threads",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r03"
+  },
+  {
+    "after": "CTN",
+    "before": "ctns",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r03"
+  },
+  {
+    "after": "2026-09-16",
+    "before": "16/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r04"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r04"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r04"
+  },
+  {
+    "after": "2026-09-17",
+    "before": "17/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r05"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chem",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r05"
+  },
+  {
+    "after": "DRUM",
+    "before": "drums",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r05"
+  },
+  {
+    "after": "2026-09-18",
+    "before": "18/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r06"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r06"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r06"
+  },
+  {
+    "after": "2026-09-19",
+    "before": "19/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r07"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r07"
+  },
+  {
+    "after": "ROLL",
+    "before": "rolls",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r07"
+  },
+  {
+    "after": "2026-09-21",
+    "before": "21/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r08"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Threads",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r08"
+  },
+  {
+    "after": "CONE",
+    "before": "cones",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r08"
+  },
+  {
+    "after": "2026-09-22",
+    "before": "22/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r09"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Pkg",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r09"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r09"
+  },
+  {
+    "after": "2026-09-23",
+    "before": "23/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r10"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chem",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r10"
+  },
+  {
+    "after": "BAG",
+    "before": "bags",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r10"
+  },
+  {
+    "after": "2026-09-24",
+    "before": "24/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r11"
+  },
+  {
+    "after": "S-107",
+    "before": "Shahtoot Weaving",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r11"
+  },
+  {
+    "after": "YD",
+    "before": "yds",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r11"
+  },
+  {
+    "after": "1097.28",
+    "before": "1200",
+    "code": "UNIT_CONVERTED",
+    "field": "qty_base",
+    "source_row_id": "REG-p2-r11"
+  },
+  {
+    "after": "2026-09-25",
+    "before": "25/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r12"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r12"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r12"
+  },
+  {
+    "after": "2026-09-26",
+    "before": "26/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r13"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r13"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r13"
+  },
+  {
+    "after": "2026-09-28",
+    "before": "28/09",
+    "code": "DATE_YEAR_FROM_HEADER",
+    "field": "date",
+    "source_row_id": "REG-p2-r14"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "REG-p2-r14"
+  },
+  {
+    "after": "BDL",
+    "before": "bdl",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "REG-p2-r14"
+  },
+  {
+    "after": "4401",
+    "before": "GRN-4401",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0001"
+  },
+  {
+    "after": "4402",
+    "before": "GRN-4402",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0002"
+  },
+  {
+    "after": "4403",
+    "before": "GRN-4403",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0003"
+  },
+  {
+    "after": "4404",
+    "before": "GRN-4404",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0004"
+  },
+  {
+    "after": "4405",
+    "before": "GRN-4405",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0005"
+  },
+  {
+    "after": "4406",
+    "before": "GRN-4406",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0006"
+  },
+  {
+    "after": "4407",
+    "before": "GRN-4407",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0007"
+  },
+  {
+    "after": "4408",
+    "before": "GRN-4408",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0008"
+  },
+  {
+    "after": "4409",
+    "before": "GRN-4409",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0009"
+  },
+  {
+    "after": "4410",
+    "before": "GRN-4410",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0010"
+  },
+  {
+    "after": "4411",
+    "before": "GRN-4411",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0011"
+  },
+  {
+    "after": "4412",
+    "before": "GRN-4412",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0012"
+  },
+  {
+    "after": "4413",
+    "before": "GRN-4413",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0013"
+  },
+  {
+    "after": "4414",
+    "before": "GRN-4414",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0014"
+  },
+  {
+    "after": "4415",
+    "before": "GRN-4415",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0015"
+  },
+  {
+    "after": "4416",
+    "before": "GRN-4416",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0016"
+  },
+  {
+    "after": "4417",
+    "before": "GRN-4417",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0017"
+  },
+  {
+    "after": "4418",
+    "before": "GRN-4418",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0018"
+  },
+  {
+    "after": "4419",
+    "before": "GRN-4419",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0019"
+  },
+  {
+    "after": "4420",
+    "before": "GRN-4420",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0020"
+  },
+  {
+    "after": "4422",
+    "before": "GRN-4422",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0021"
+  },
+  {
+    "after": "4423",
+    "before": "GRN-4423",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0022"
+  },
+  {
+    "after": "4424",
+    "before": "GRN-4424",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0023"
+  },
+  {
+    "after": "4425",
+    "before": "GRN-4425",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0024"
+  },
+  {
+    "after": "4426",
+    "before": "GRN-4426",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0025"
+  },
+  {
+    "after": "4427",
+    "before": "GRN-4427",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0026"
+  },
+  {
+    "after": "4428",
+    "before": "GRN-4428",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0027"
+  },
+  {
+    "after": "4430",
+    "before": "GRN-4430",
+    "code": "GRN_PREFIX_STRIPPED",
+    "field": "grn_no",
+    "source_row_id": "ERP-0028"
+  },
+  {
+    "after": "2026-09-01",
+    "before": "2026-09-01 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r2"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Packaging",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r2"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r2"
+  },
+  {
+    "after": "2026-09-01",
+    "before": "2026-09-01 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r3"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r3"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r3"
+  },
+  {
+    "after": "2026-09-02",
+    "before": "2026-09-02 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r4"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chemicals",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r4"
+  },
+  {
+    "after": "BAG",
+    "before": "bags",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r4"
+  },
+  {
+    "after": "2026-09-03",
+    "before": "2026-09-03 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r5"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Thread",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r5"
+  },
+  {
+    "after": "CONE",
+    "before": "cones",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r5"
+  },
+  {
+    "after": "2026-09-04",
+    "before": "2026-09-04 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r6"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r6"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r6"
+  },
+  {
+    "after": "2026-09-05",
+    "before": "2026-09-05 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r7"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r7"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r7"
+  },
+  {
+    "after": "2026-09-07",
+    "before": "2026-09-07 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r8"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Packaging",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r8"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r8"
+  },
+  {
+    "after": "2026-09-07",
+    "before": "2026-09-07 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r9"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chemicals",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r9"
+  },
+  {
+    "after": "DRUM",
+    "before": "drums",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r9"
+  },
+  {
+    "after": "2026-09-08",
+    "before": "2026-09-08 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r10"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r10"
+  },
+  {
+    "after": "ROLL",
+    "before": "rolls",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r10"
+  },
+  {
+    "after": "2026-09-08",
+    "before": "2026-09-08 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r11"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r11"
+  },
+  {
+    "after": "ROLL",
+    "before": "rolls",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r11"
+  },
+  {
+    "after": "2026-09-09",
+    "before": "2026-09-09 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r12"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Thread",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r12"
+  },
+  {
+    "after": "CONE",
+    "before": "cones",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r12"
+  },
+  {
+    "after": "2026-09-10",
+    "before": "2026-09-10 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r13"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Packaging",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r13"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r13"
+  },
+  {
+    "after": "2026-09-11",
+    "before": "2026-09-11 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r14"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r14"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r14"
+  },
+  {
+    "after": "2026-09-11",
+    "before": "2026-09-11 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r15"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r15"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r15"
+  },
+  {
+    "after": "2026-09-12",
+    "before": "2026-09-12 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r16"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chemicals",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r16"
+  },
+  {
+    "after": "BAG",
+    "before": "bags",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r16"
+  },
+  {
+    "after": "2026-09-12",
+    "before": "2026-09-12 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r17"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r17"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r17"
+  },
+  {
+    "after": "2026-09-14",
+    "before": "9/14/2026",
+    "code": "DATE_TEXT_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r18"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Packaging",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r18"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r18"
+  },
+  {
+    "after": "2026-09-15",
+    "before": "2026-09-15 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r19"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Thread",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r19"
+  },
+  {
+    "after": "CTN",
+    "before": "ctns",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r19"
+  },
+  {
+    "after": "2026-09-16",
+    "before": "2026-09-16 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r20"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r20"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r20"
+  },
+  {
+    "after": "2026-09-17",
+    "before": "2026-09-17 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r21"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chemicals",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r21"
+  },
+  {
+    "after": "DRUM",
+    "before": "drums",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r21"
+  },
+  {
+    "after": "2026-09-18",
+    "before": "2026-09-18 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r22"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r22"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r22"
+  },
+  {
+    "after": "2026-09-19",
+    "before": "2026-09-19 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r23"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r23"
+  },
+  {
+    "after": "ROLL",
+    "before": "rolls",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r23"
+  },
+  {
+    "after": "2026-09-21",
+    "before": "2026-09-21 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r24"
+  },
+  {
+    "after": "S-104",
+    "before": "Rehbar Thread",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r24"
+  },
+  {
+    "after": "CONE",
+    "before": "cones",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r24"
+  },
+  {
+    "after": "2026-09-22",
+    "before": "2026-09-22 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r25"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Packaging",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r25"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r25"
+  },
+  {
+    "after": "2026-09-23",
+    "before": "2026-09-23 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r26"
+  },
+  {
+    "after": "S-103",
+    "before": "Zarnab Chemicals",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r26"
+  },
+  {
+    "after": "BAG",
+    "before": "bags",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r26"
+  },
+  {
+    "after": "2026-09-24",
+    "before": "2026-09-24 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r27"
+  },
+  {
+    "after": "S-107",
+    "before": "Shahtoot",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r27"
+  },
+  {
+    "after": "M",
+    "before": "m",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r27"
+  },
+  {
+    "after": "2026-09-25",
+    "before": "2026-09-25 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r28"
+  },
+  {
+    "after": "S-105",
+    "before": "Saahil Pallets",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r28"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r28"
+  },
+  {
+    "after": "2026-09-26",
+    "before": "2026-09-26 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r29"
+  },
+  {
+    "after": "S-106",
+    "before": "Nayab Labels",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r29"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r29"
+  },
+  {
+    "after": "2026-09-28",
+    "before": "2026-09-28 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r30"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r30"
+  },
+  {
+    "after": "BDL",
+    "before": "bdl",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r30"
+  },
+  {
+    "after": "2026-09-27",
+    "before": "2026-09-27 00:00:00",
+    "code": "DATE_SERIAL_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r31"
+  },
+  {
+    "after": "S-102",
+    "before": "Taraz Poly",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r31"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r31"
+  }
+]

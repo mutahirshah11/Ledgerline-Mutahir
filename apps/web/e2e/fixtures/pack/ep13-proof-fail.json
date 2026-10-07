@@ -1,0 +1,149 @@
+{
+  "checks": {
+    "C1": {
+      "pass": false,
+      "per_source": {
+        "ERP": {
+          "in": 28,
+          "placed": 28
+        },
+        "REGISTER": {
+          "in": 28,
+          "placed": 28
+        },
+        "SHEET": {
+          "in": 30,
+          "placed": 29
+        }
+      }
+    },
+    "C2": {
+      "pass": false,
+      "placed_twice": [],
+      "rows": 86,
+      "unplaced": [
+        "XLS-r30"
+      ]
+    },
+    "C3": {
+      "pass": true,
+      "per_source": {
+        "ERP": 28,
+        "REGISTER": 28,
+        "SHEET": 30
+      },
+      "problems": []
+    },
+    "C4": {
+      "by_source_unit": {
+        "ERP|BAG": {
+          "in": "125",
+          "placed": "125"
+        },
+        "ERP|BDL": {
+          "in": "250",
+          "placed": "250"
+        },
+        "ERP|CONE": {
+          "in": "1550",
+          "placed": "1550"
+        },
+        "ERP|CTN": {
+          "in": "46",
+          "placed": "46"
+        },
+        "ERP|DRUM": {
+          "in": "106",
+          "placed": "106"
+        },
+        "ERP|M": {
+          "in": "1097.28",
+          "placed": "1097.28"
+        },
+        "ERP|PCS": {
+          "in": "112450",
+          "placed": "112450"
+        },
+        "ERP|ROLL": {
+          "in": "80",
+          "placed": "80"
+        },
+        "REGISTER|BAGS": {
+          "in": "125",
+          "placed": "125"
+        },
+        "REGISTER|CONES": {
+          "in": "1550",
+          "placed": "1550"
+        },
+        "REGISTER|CTNS": {
+          "in": "48",
+          "placed": "48"
+        },
+        "REGISTER|DRUMS": {
+          "in": "40",
+          "placed": "40"
+        },
+        "REGISTER|PCS": {
+          "in": "110550",
+          "placed": "110550"
+        },
+        "REGISTER|ROLLS": {
+          "in": "155",
+          "placed": "155"
+        },
+        "REGISTER|YDS": {
+          "in": "1200",
+          "placed": "1200"
+        },
+        "SHEET|BAGS": {
+          "in": "125",
+          "placed": "125"
+        },
+        "SHEET|BDL": {
+          "in": "250",
+          "placed": "0"
+        },
+        "SHEET|CONES": {
+          "in": "1550",
+          "placed": "1550"
+        },
+        "SHEET|CTNS": {
+          "in": "48",
+          "placed": "48"
+        },
+        "SHEET|DRUMS": {
+          "in": "100",
+          "placed": "100"
+        },
+        "SHEET|M": {
+          "in": "1200",
+          "placed": "1200"
+        },
+        "SHEET|PCS": {
+          "in": "105550",
+          "placed": "105550"
+        },
+        "SHEET|ROLLS": {
+          "in": "235",
+          "placed": "235"
+        }
+      },
+      "pass": false,
+      "qty_unknown": [
+        "REG-p2-r05",
+        "REG-p2-r14"
+      ]
+    },
+    "C5": {
+      "gaps": [
+        4429
+      ],
+      "grns": 29,
+      "pass": true
+    }
+  },
+  "computed_at": "2026-10-15T08:31:00+05:00",
+  "run_id": "00000000-0000-4000-8000-000000000047",
+  "status": "FAIL"
+}

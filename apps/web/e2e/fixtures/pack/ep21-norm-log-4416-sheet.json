@@ -1,0 +1,23 @@
+[
+  {
+    "after": "2026-09-14",
+    "before": "9/14/2026",
+    "code": "DATE_TEXT_PARSED",
+    "field": "date",
+    "source_row_id": "XLS-r18"
+  },
+  {
+    "after": "S-101",
+    "before": "Qasr Packaging",
+    "code": "SUPPLIER_MAPPED",
+    "field": "supplier_code",
+    "source_row_id": "XLS-r18"
+  },
+  {
+    "after": "PCS",
+    "before": "pcs",
+    "code": "UNIT_MAPPED",
+    "field": "uom",
+    "source_row_id": "XLS-r18"
+  }
+]

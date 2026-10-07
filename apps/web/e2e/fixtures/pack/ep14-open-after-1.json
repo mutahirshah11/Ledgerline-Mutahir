@@ -1,0 +1,95 @@
+[
+  {
+    "context": {
+      "candidates": [],
+      "equals_sources": [],
+      "note": "ink blot covers the quantity; leading character partially visible | leading 2 visible, rest covered by ink blot",
+      "other_sources": {
+        "ERP": "250 BDL",
+        "SHEET": "250 BDL"
+      },
+      "other_sources_label": "other sources, for reference",
+      "page_no": 2,
+      "row_index": 14,
+      "struck": null,
+      "table_bottom": 0.964,
+      "table_top": 0.199
+    },
+    "field": "qty",
+    "grn_no": 4428,
+    "id": "00000000-0000-4000-8000-000000000049",
+    "item_key": "CELL:REG-p2-r14:qty",
+    "kind": "CELL",
+    "note": null,
+    "read_a": {
+      "candidates": [],
+      "note": "ink blot covers the quantity; leading character partially visible",
+      "status": "ILLEGIBLE",
+      "struck": null,
+      "value": null
+    },
+    "read_b": {
+      "candidates": [],
+      "note": "leading 2 visible, rest covered by ink blot",
+      "status": "ILLEGIBLE",
+      "struck": null,
+      "value": null
+    },
+    "reason": "ILLEGIBLE",
+    "resolved_at": null,
+    "resolved_by": null,
+    "resolved_value": null,
+    "run_id": "00000000-0000-4000-8000-000000000013",
+    "source_row_id": "REG-p2-r14",
+    "status": "OPEN"
+  },
+  {
+    "context": {
+      "detail": {
+        "days_after": "3",
+        "entered_at": "2026-10-02 18:47",
+        "grn_date": "2026-09-29"
+      },
+      "flag": "BACKDATED_ENTRY"
+    },
+    "field": null,
+    "grn_no": 4430,
+    "id": "00000000-0000-4000-8000-00000000004a",
+    "item_key": "FLAG:BACKDATED_ENTRY:ERP-0028",
+    "kind": "FLAG_ACK",
+    "note": null,
+    "read_a": null,
+    "read_b": null,
+    "reason": "BACKDATED_ENTRY",
+    "resolved_at": null,
+    "resolved_by": null,
+    "resolved_value": null,
+    "run_id": "00000000-0000-4000-8000-000000000013",
+    "source_row_id": "ERP-0028",
+    "status": "OPEN"
+  },
+  {
+    "context": {
+      "detail": {
+        "high": "4429",
+        "low": "4429"
+      },
+      "flag": "SEQUENCE_GAP"
+    },
+    "field": null,
+    "grn_no": 4429,
+    "id": "00000000-0000-4000-8000-00000000004b",
+    "item_key": "FLAG:SEQUENCE_GAP:4429",
+    "kind": "FLAG_ACK",
+    "note": null,
+    "read_a": null,
+    "read_b": null,
+    "reason": "SEQUENCE_GAP",
+    "resolved_at": null,
+    "resolved_by": null,
+    "resolved_value": null,
+    "run_id": "00000000-0000-4000-8000-000000000013",
+    "source_row_id": null,
+    "status": "OPEN"
+  }
+]

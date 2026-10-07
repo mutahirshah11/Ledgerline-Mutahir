@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "NOT_ALLOWED",
+    "details": {},
+    "message": "Your email is not on the list for this app",
+    "stage": null
+  }
+}

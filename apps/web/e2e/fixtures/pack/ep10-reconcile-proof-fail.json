@@ -1,0 +1,15 @@
+{
+  "counts": {
+    "DUPLICATE": 0,
+    "MATCHED": 0,
+    "MATCHED_AFTER_CONVERSION": 0,
+    "MISMATCHED": 0,
+    "MISSING": 0,
+    "NEEDS_REVIEW": 0,
+    "NON_RECEIPT": 0,
+    "UNMATCHED_NO_KEY": 0
+  },
+  "open_review_items": 2,
+  "proof_status": "FAIL",
+  "status": "FAILED"
+}

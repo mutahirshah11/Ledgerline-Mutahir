@@ -1,0 +1,141 @@
+[
+  {
+    "at": "2026-10-15T08:30:18+05:00",
+    "detail": {
+      "error": "openai failed: timeout after 3 attempts",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "page_no": 2
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000002",
+    "stage": "extract",
+    "status": "FAILED"
+  },
+  {
+    "at": "2026-10-15T08:30:18+05:00",
+    "detail": {
+      "attempt": 3,
+      "cause": "timeout",
+      "page_no": 2,
+      "variant": "B"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000003",
+    "stage": "extract",
+    "status": "RETRY"
+  },
+  {
+    "at": "2026-10-15T08:30:18+05:00",
+    "detail": {
+      "attempt": 2,
+      "cause": "timeout",
+      "page_no": 2,
+      "variant": "B"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000004",
+    "stage": "extract",
+    "status": "RETRY"
+  },
+  {
+    "at": "2026-10-15T08:30:18+05:00",
+    "detail": {
+      "attempt": 3,
+      "cause": "timeout",
+      "page_no": 2,
+      "variant": "A"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000005",
+    "stage": "extract",
+    "status": "RETRY"
+  },
+  {
+    "at": "2026-10-15T08:30:18+05:00",
+    "detail": {
+      "attempt": 2,
+      "cause": "timeout",
+      "page_no": 2,
+      "variant": "A"
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000006",
+    "stage": "extract",
+    "status": "RETRY"
+  },
+  {
+    "at": "2026-10-15T08:30:18+05:00",
+    "detail": {
+      "page_no": 2
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000007",
+    "stage": "extract",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:15+05:00",
+    "detail": {
+      "cached": false,
+      "input_tokens": 9639,
+      "output_tokens": 7197,
+      "page_no": 1
+    },
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-000000000008",
+    "stage": "extract",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:15+05:00",
+    "detail": {
+      "page_no": 1
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-000000000009",
+    "stage": "extract",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:12+05:00",
+    "detail": {},
+    "duration_ms": 400,
+    "id": "00000000-0000-4000-8000-00000000000a",
+    "stage": "validate",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:12+05:00",
+    "detail": {},
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000000b",
+    "stage": "validate",
+    "status": "STARTED"
+  },
+  {
+    "at": "2026-10-15T08:30:09+05:00",
+    "detail": {
+      "files": 4,
+      "known_pages": [],
+      "new_pages": [
+        1,
+        2
+      ]
+    },
+    "duration_ms": 3000,
+    "id": "00000000-0000-4000-8000-00000000000c",
+    "stage": "upload",
+    "status": "OK"
+  },
+  {
+    "at": "2026-10-15T08:30:06+05:00",
+    "detail": {
+      "files": 4
+    },
+    "duration_ms": null,
+    "id": "00000000-0000-4000-8000-00000000000d",
+    "stage": "upload",
+    "status": "STARTED"
+  }
+]

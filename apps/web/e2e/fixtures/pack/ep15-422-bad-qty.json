@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "INVALID_REVIEW_ACTION",
+    "details": {
+      "field": "qty",
+      "reason": "qty must be a number of 0 or more"
+    },
+    "message": "This action is not valid for this item",
+    "stage": "review"
+  }
+}

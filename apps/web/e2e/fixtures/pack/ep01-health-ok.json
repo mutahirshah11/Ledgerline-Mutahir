@@ -1,0 +1,9 @@
+{
+  "db": "ok",
+  "openai_key_set": true,
+  "scenario_now": "2026-10-15T08:30:00+05:00",
+  "status": "ok",
+  "storage": "ok",
+  "telegram": "ok",
+  "telegram_set": true
+}

@@ -1,0 +1,910 @@
+{
+  "fixtures": {
+    "ep01-health-degraded": {
+      "endpoint": "EP-01",
+      "file": "ep01-health-degraded.json",
+      "method": "GET",
+      "path": "/health",
+      "query": {},
+      "role": null,
+      "status": 503,
+      "template": "/health"
+    },
+    "ep01-health-ok": {
+      "endpoint": "EP-01",
+      "file": "ep01-health-ok.json",
+      "method": "GET",
+      "path": "/health",
+      "query": {},
+      "role": null,
+      "status": 200,
+      "template": "/health"
+    },
+    "ep02-me-controller": {
+      "endpoint": "EP-02",
+      "file": "ep02-me-controller.json",
+      "method": "GET",
+      "path": "/me",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/me"
+    },
+    "ep02-me-ops": {
+      "endpoint": "EP-02",
+      "file": "ep02-me-ops.json",
+      "method": "GET",
+      "path": "/me",
+      "query": {},
+      "role": "OPS",
+      "status": 200,
+      "template": "/me"
+    },
+    "ep02-me-reviewer": {
+      "endpoint": "EP-02",
+      "file": "ep02-me-reviewer.json",
+      "method": "GET",
+      "path": "/me",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/me"
+    },
+    "ep02-not-allowed": {
+      "endpoint": "EP-02",
+      "file": "ep02-not-allowed.json",
+      "method": "GET",
+      "path": "/me",
+      "query": {},
+      "role": null,
+      "status": 403,
+      "template": "/me"
+    },
+    "ep02-unauthenticated": {
+      "endpoint": "EP-02",
+      "file": "ep02-unauthenticated.json",
+      "method": "GET",
+      "path": "/me",
+      "query": {},
+      "role": null,
+      "status": 401,
+      "template": "/me"
+    },
+    "ep03-create-run": {
+      "endpoint": "EP-03",
+      "file": "ep03-create-run.json",
+      "method": "POST",
+      "path": "/runs",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 201,
+      "template": "/runs"
+    },
+    "ep04-runs": {
+      "endpoint": "EP-04",
+      "file": "ep04-runs.json",
+      "method": "GET",
+      "path": "/runs",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs"
+    },
+    "ep04-runs-empty": {
+      "endpoint": "EP-04",
+      "file": "ep04-runs-empty.json",
+      "method": "GET",
+      "path": "/runs",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs"
+    },
+    "ep05-created": {
+      "endpoint": "EP-05",
+      "file": "ep05-created.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-extracting": {
+      "endpoint": "EP-05",
+      "file": "ep05-extracting.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-failed-extract": {
+      "endpoint": "EP-05",
+      "file": "ep05-failed-extract.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000001",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-failed-proof": {
+      "endpoint": "EP-05",
+      "file": "ep05-failed-proof.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000047",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-finalised": {
+      "endpoint": "EP-05",
+      "file": "ep05-finalised.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-post-review": {
+      "endpoint": "EP-05",
+      "file": "ep05-post-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-pre-review": {
+      "endpoint": "EP-05",
+      "file": "ep05-pre-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-pre-review-no-prices": {
+      "endpoint": "EP-05",
+      "file": "ep05-pre-review-no-prices.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-summary-failed": {
+      "endpoint": "EP-05",
+      "file": "ep05-summary-failed.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-00000000006c",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-uploaded": {
+      "endpoint": "EP-05",
+      "file": "ep05-uploaded.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep05-validation-fail": {
+      "endpoint": "EP-05",
+      "file": "ep05-validation-fail.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-00000000006a",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}"
+    },
+    "ep06-uploads": {
+      "endpoint": "EP-06",
+      "file": "ep06-uploads.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/uploads",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/uploads"
+    },
+    "ep07-duplicate-run": {
+      "endpoint": "EP-07",
+      "file": "ep07-duplicate-run.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000069/uploads/confirm",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 409,
+      "template": "/runs/{id}/uploads/confirm"
+    },
+    "ep07-known-pages": {
+      "endpoint": "EP-07",
+      "file": "ep07-known-pages.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/uploads/confirm",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/uploads/confirm"
+    },
+    "ep07-new-pages": {
+      "endpoint": "EP-07",
+      "file": "ep07-new-pages.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000001/uploads/confirm",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/uploads/confirm"
+    },
+    "ep08-missing-worksheet": {
+      "endpoint": "EP-08",
+      "file": "ep08-missing-worksheet.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-00000000006a/validate",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 422,
+      "template": "/runs/{id}/validate"
+    },
+    "ep08-pass": {
+      "endpoint": "EP-08",
+      "file": "ep08-pass.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/validate",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/validate"
+    },
+    "ep09-cached-page-1": {
+      "endpoint": "EP-09",
+      "file": "ep09-cached-page-1.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/pages/1/extract",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/pages/{page_no}/extract"
+    },
+    "ep09-new-read-page-1": {
+      "endpoint": "EP-09",
+      "file": "ep09-new-read-page-1.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000001/pages/1/extract",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/pages/{page_no}/extract"
+    },
+    "ep09-new-read-page-2": {
+      "endpoint": "EP-09",
+      "file": "ep09-new-read-page-2.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/pages/2/extract",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/pages/{page_no}/extract"
+    },
+    "ep09-upstream-failed": {
+      "endpoint": "EP-09",
+      "file": "ep09-upstream-failed.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000001/pages/2/extract",
+      "query": {
+        "fault": "EXTRACT_TIMEOUT"
+      },
+      "role": "CONTROLLER",
+      "status": 502,
+      "template": "/runs/{id}/pages/{page_no}/extract"
+    },
+    "ep10-reconcile-pass": {
+      "endpoint": "EP-10",
+      "file": "ep10-reconcile-pass.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/reconcile",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/reconcile"
+    },
+    "ep10-reconcile-proof-fail": {
+      "endpoint": "EP-10",
+      "file": "ep10-reconcile-proof-fail.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000047/reconcile",
+      "query": {
+        "fault": "PROOF_DROP_ROW"
+      },
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/reconcile"
+    },
+    "ep11-groups": {
+      "endpoint": "EP-11",
+      "file": "ep11-groups.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/groups",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/groups"
+    },
+    "ep11-groups-mismatched": {
+      "endpoint": "EP-11",
+      "file": "ep11-groups-mismatched.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/groups",
+      "query": {
+        "outcome": "MISMATCHED"
+      },
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/groups"
+    },
+    "ep11-groups-post-review": {
+      "endpoint": "EP-11",
+      "file": "ep11-groups-post-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/groups",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/groups"
+    },
+    "ep12-flags": {
+      "endpoint": "EP-12",
+      "file": "ep12-flags.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/flags",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/flags"
+    },
+    "ep13-proof-fail": {
+      "endpoint": "EP-13",
+      "file": "ep13-proof-fail.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000047/proof",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/proof"
+    },
+    "ep13-proof-pass": {
+      "endpoint": "EP-13",
+      "file": "ep13-proof-pass.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/proof",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/proof"
+    },
+    "ep14-all-post-review": {
+      "endpoint": "EP-14",
+      "file": "ep14-all-post-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep14-open-after-1": {
+      "endpoint": "EP-14",
+      "file": "ep14-open-after-1.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {
+        "status": "OPEN"
+      },
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep14-open-after-2": {
+      "endpoint": "EP-14",
+      "file": "ep14-open-after-2.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {
+        "status": "OPEN"
+      },
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep14-open-after-3": {
+      "endpoint": "EP-14",
+      "file": "ep14-open-after-3.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {
+        "status": "OPEN"
+      },
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep14-open-after-4": {
+      "endpoint": "EP-14",
+      "file": "ep14-open-after-4.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {
+        "status": "OPEN"
+      },
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep14-open-finalised": {
+      "endpoint": "EP-14",
+      "file": "ep14-open-finalised.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {
+        "status": "OPEN"
+      },
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep14-open-pre-review": {
+      "endpoint": "EP-14",
+      "file": "ep14-open-pre-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/review-items",
+      "query": {
+        "status": "OPEN"
+      },
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/review-items"
+    },
+    "ep15-409-already-resolved": {
+      "endpoint": "EP-15",
+      "file": "ep15-409-already-resolved.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-000000000048/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 409,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-422-accept-no-read": {
+      "endpoint": "EP-15",
+      "file": "ep15-422-accept-no-read.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-000000000049/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 422,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-422-bad-qty": {
+      "endpoint": "EP-15",
+      "file": "ep15-422-bad-qty.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-000000000049/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 422,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-accept-read-4419": {
+      "endpoint": "EP-15",
+      "file": "ep15-accept-read-4419.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-000000000048/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-acknowledge-backdated-entry-4430": {
+      "endpoint": "EP-15",
+      "file": "ep15-acknowledge-backdated-entry-4430.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-00000000004a/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-acknowledge-sequence-gap-4429": {
+      "endpoint": "EP-15",
+      "file": "ep15-acknowledge-sequence-gap-4429.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-00000000004b/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-cannot-determine-4428": {
+      "endpoint": "EP-15",
+      "file": "ep15-cannot-determine-4428.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-00000000006b/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-enter-value-4428": {
+      "endpoint": "EP-15",
+      "file": "ep15-enter-value-4428.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-000000000049/resolve",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep15-forbidden-ops": {
+      "endpoint": "EP-15",
+      "file": "ep15-forbidden-ops.json",
+      "method": "POST",
+      "path": "/review-items/00000000-0000-4000-8000-000000000048/resolve",
+      "query": {},
+      "role": "OPS",
+      "status": 403,
+      "template": "/review-items/{item_id}/resolve"
+    },
+    "ep16-page-1": {
+      "endpoint": "EP-16",
+      "file": "ep16-page-1.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/pages/1/image",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/pages/{page_no}/image"
+    },
+    "ep16-page-2": {
+      "endpoint": "EP-16",
+      "file": "ep16-page-2.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/pages/2/image",
+      "query": {},
+      "role": "REVIEWER",
+      "status": 200,
+      "template": "/runs/{id}/pages/{page_no}/image"
+    },
+    "ep17-not-ready": {
+      "endpoint": "EP-17",
+      "file": "ep17-not-ready.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000047/finalise",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 409,
+      "template": "/runs/{id}/finalise"
+    },
+    "ep17-sent": {
+      "endpoint": "EP-17",
+      "file": "ep17-sent.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/finalise",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/finalise"
+    },
+    "ep17-summary-failed": {
+      "endpoint": "EP-17",
+      "file": "ep17-summary-failed.json",
+      "method": "POST",
+      "path": "/runs/00000000-0000-4000-8000-00000000006c/finalise",
+      "query": {
+        "fault": "TELEGRAM_DOWN"
+      },
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/finalise"
+    },
+    "ep18-not-finalised": {
+      "endpoint": "EP-18",
+      "file": "ep18-not-finalised.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/report",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 409,
+      "template": "/runs/{id}/report"
+    },
+    "ep18-report-links": {
+      "endpoint": "EP-18",
+      "file": "ep18-report-links.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/report",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/report"
+    },
+    "ep19-events-failed-extract": {
+      "endpoint": "EP-19",
+      "file": "ep19-events-failed-extract.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000001/events",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/events"
+    },
+    "ep19-events-finalised": {
+      "endpoint": "EP-19",
+      "file": "ep19-events-finalised.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/events",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/events"
+    },
+    "ep19-events-pre-review": {
+      "endpoint": "EP-19",
+      "file": "ep19-events-pre-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/events",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/events"
+    },
+    "ep20-audit-failed-extract": {
+      "endpoint": "EP-20",
+      "file": "ep20-audit-failed-extract.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000001/audit",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/audit"
+    },
+    "ep20-audit-finalised": {
+      "endpoint": "EP-20",
+      "file": "ep20-audit-finalised.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/audit",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/audit"
+    },
+    "ep20-audit-post-review": {
+      "endpoint": "EP-20",
+      "file": "ep20-audit-post-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/audit",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/audit"
+    },
+    "ep20-audit-pre-review": {
+      "endpoint": "EP-20",
+      "file": "ep20-audit-pre-review.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/audit",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/audit"
+    },
+    "ep21-norm-log": {
+      "endpoint": "EP-21",
+      "file": "ep21-norm-log.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/normalisation-log",
+      "query": {},
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/normalisation-log"
+    },
+    "ep21-norm-log-4416-sheet": {
+      "endpoint": "EP-21",
+      "file": "ep21-norm-log-4416-sheet.json",
+      "method": "GET",
+      "path": "/runs/00000000-0000-4000-8000-000000000013/normalisation-log",
+      "query": {
+        "source_row_id": "XLS-r18"
+      },
+      "role": "CONTROLLER",
+      "status": 200,
+      "template": "/runs/{id}/normalisation-log"
+    }
+  },
+  "generated_by": "apps/api/scripts/record_web_fixtures.py",
+  "review_items": {
+    "CELL:REG-p2-r05:qty": "00000000-0000-4000-8000-000000000048",
+    "CELL:REG-p2-r14:qty": "00000000-0000-4000-8000-000000000049",
+    "FLAG:BACKDATED_ENTRY:ERP-0028": "00000000-0000-4000-8000-00000000004a",
+    "FLAG:SEQUENCE_GAP:4429": "00000000-0000-4000-8000-00000000004b"
+  },
+  "runs": {
+    "duplicate": "00000000-0000-4000-8000-000000000069",
+    "failed-extract": "00000000-0000-4000-8000-000000000001",
+    "failed-proof": "00000000-0000-4000-8000-000000000047",
+    "main": "00000000-0000-4000-8000-000000000013",
+    "summary-failed": "00000000-0000-4000-8000-00000000006c",
+    "validation-fail": "00000000-0000-4000-8000-00000000006a"
+  },
+  "scenarios": {
+    "duplicate-run": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep03-create-run",
+      "ep06-uploads",
+      "ep07-duplicate-run",
+      "ep05-created"
+    ],
+    "empty": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs-empty"
+    ],
+    "extracting": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-extracting",
+      "ep09-new-read-page-2",
+      "ep10-reconcile-pass",
+      "ep19-events-pre-review"
+    ],
+    "failed-extract": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-failed-extract",
+      "ep09-new-read-page-2",
+      "ep19-events-failed-extract",
+      "ep20-audit-failed-extract"
+    ],
+    "failed-proof": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-failed-proof",
+      "ep11-groups",
+      "ep11-groups-mismatched",
+      "ep12-flags",
+      "ep21-norm-log",
+      "ep21-norm-log-4416-sheet",
+      "ep16-page-1",
+      "ep16-page-2",
+      "ep13-proof-fail",
+      "ep17-not-ready",
+      "ep10-reconcile-pass",
+      "ep19-events-pre-review",
+      "ep20-audit-pre-review"
+    ],
+    "finalised": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-finalised",
+      "ep11-groups-post-review",
+      "ep11-groups",
+      "ep11-groups-mismatched",
+      "ep12-flags",
+      "ep21-norm-log",
+      "ep21-norm-log-4416-sheet",
+      "ep16-page-1",
+      "ep16-page-2",
+      "ep13-proof-pass",
+      "ep14-open-finalised",
+      "ep18-report-links",
+      "ep19-events-finalised",
+      "ep20-audit-finalised"
+    ],
+    "new-run": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep03-create-run",
+      "ep06-uploads",
+      "ep07-new-pages",
+      "ep08-pass",
+      "ep09-new-read-page-1",
+      "ep09-new-read-page-2",
+      "ep10-reconcile-pass",
+      "ep05-pre-review",
+      "ep19-events-pre-review"
+    ],
+    "post-review": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-post-review",
+      "ep11-groups-post-review",
+      "ep11-groups",
+      "ep11-groups-mismatched",
+      "ep12-flags",
+      "ep21-norm-log",
+      "ep21-norm-log-4416-sheet",
+      "ep16-page-1",
+      "ep16-page-2",
+      "ep13-proof-pass",
+      "ep14-all-post-review",
+      "ep17-sent",
+      "ep18-not-finalised",
+      "ep19-events-pre-review",
+      "ep20-audit-post-review"
+    ],
+    "pre-review": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-pre-review",
+      "ep11-groups",
+      "ep11-groups-mismatched",
+      "ep12-flags",
+      "ep21-norm-log",
+      "ep21-norm-log-4416-sheet",
+      "ep16-page-1",
+      "ep16-page-2",
+      "ep13-proof-pass",
+      "ep14-open-pre-review",
+      "ep15-accept-read-4419",
+      "ep15-enter-value-4428",
+      "ep15-acknowledge-sequence-gap-4429",
+      "ep15-acknowledge-backdated-entry-4430",
+      "ep17-sent",
+      "ep18-not-finalised",
+      "ep19-events-pre-review",
+      "ep20-audit-pre-review"
+    ],
+    "summary-failed": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep05-summary-failed",
+      "ep11-groups",
+      "ep11-groups-mismatched",
+      "ep12-flags",
+      "ep21-norm-log",
+      "ep21-norm-log-4416-sheet",
+      "ep16-page-1",
+      "ep16-page-2",
+      "ep13-proof-pass",
+      "ep17-summary-failed",
+      "ep18-report-links",
+      "ep19-events-finalised",
+      "ep20-audit-finalised"
+    ],
+    "validation-fail": [
+      "ep01-health-ok",
+      "ep02-me-controller",
+      "ep04-runs",
+      "ep03-create-run",
+      "ep06-uploads",
+      "ep07-new-pages",
+      "ep08-missing-worksheet",
+      "ep05-validation-fail"
+    ]
+  },
+  "source_rows": {
+    "4416-sheet": "XLS-r18"
+  }
+}

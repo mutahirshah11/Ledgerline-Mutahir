@@ -1,0 +1,310 @@
+{
+  "item": {
+    "context": {
+      "detail": {
+        "high": "4429",
+        "low": "4429"
+      },
+      "flag": "SEQUENCE_GAP"
+    },
+    "field": null,
+    "grn_no": 4429,
+    "id": "00000000-0000-4000-8000-00000000004b",
+    "item_key": "FLAG:SEQUENCE_GAP:4429",
+    "kind": "FLAG_ACK",
+    "note": "Checked GRN 4429 with stores.",
+    "read_a": null,
+    "read_b": null,
+    "reason": "SEQUENCE_GAP",
+    "resolved_at": "2026-10-15T08:31:24+05:00",
+    "resolved_by": "reviewer@kestrel.example",
+    "resolved_value": null,
+    "run_id": "00000000-0000-4000-8000-000000000013",
+    "source_row_id": null,
+    "status": "RESOLVED"
+  },
+  "run": {
+    "counts": {
+      "DUPLICATE": 1,
+      "MATCHED": 22,
+      "MATCHED_AFTER_CONVERSION": 0,
+      "MISMATCHED": 5,
+      "MISSING": 2,
+      "NEEDS_REVIEW": 0,
+      "NON_RECEIPT": 1,
+      "UNMATCHED_NO_KEY": 0
+    },
+    "created_at": "2026-10-15T08:30:21+05:00",
+    "created_by": "controller@kestrel.example",
+    "error_message": null,
+    "exceptions": [
+      {
+        "category": 1,
+        "field": null,
+        "flags": [],
+        "grn_no": 4421,
+        "group_key": "GRN:4421",
+        "kind": "MISSING",
+        "source_row_id": null,
+        "text": "4421 stretch film, 75 ROLL: in register + sheet, NOT in ERP"
+      },
+      {
+        "category": 1,
+        "field": null,
+        "flags": [
+          {
+            "detail": {
+              "days_after": "3",
+              "entered_at": "2026-10-02 18:47",
+              "grn_date": "2026-09-29"
+            },
+            "flag": "BACKDATED_ENTRY",
+            "grn_no": 4430,
+            "id": "00000000-0000-4000-8000-000000000018",
+            "run_id": "00000000-0000-4000-8000-000000000013",
+            "source_row_id": "ERP-0028"
+          },
+          {
+            "detail": {
+              "entered_by": "admin2",
+              "usual": "store.clerk"
+            },
+            "flag": "UNUSUAL_USER",
+            "grn_no": 4430,
+            "id": "00000000-0000-4000-8000-000000000019",
+            "run_id": "00000000-0000-4000-8000-000000000013",
+            "source_row_id": "ERP-0028"
+          }
+        ],
+        "grn_no": 4430,
+        "group_key": "GRN:4430",
+        "kind": "MISSING",
+        "source_row_id": null,
+        "text": "4430 cartons 5-ply, 1900 PCS: ERP only, dated 29 Sep, keyed 2 Oct by admin2"
+      },
+      {
+        "category": 2,
+        "field": "qty",
+        "flags": [],
+        "grn_no": 4417,
+        "group_key": "GRN:4417",
+        "kind": "MISMATCH",
+        "source_row_id": null,
+        "text": "4417 qty: ERP 46 CTN, register + sheet 48 CTN"
+      },
+      {
+        "category": 2,
+        "field": "qty",
+        "flags": [],
+        "grn_no": 4419,
+        "group_key": "GRN:4419",
+        "kind": "MISMATCH",
+        "source_row_id": null,
+        "text": "4419 qty: sheet 60 DRUM, register + ERP 66 DRUM"
+      },
+      {
+        "category": 2,
+        "field": "qty",
+        "flags": [],
+        "grn_no": 4425,
+        "group_key": "GRN:4425",
+        "kind": "MISMATCH",
+        "source_row_id": null,
+        "text": "4425 qty: sheet 1200 M, register 1200 YD = ERP 1097.28 M"
+      },
+      {
+        "category": 2,
+        "field": "lot_no",
+        "flags": [],
+        "grn_no": 4412,
+        "group_key": "GRN:4412",
+        "kind": "MISMATCH",
+        "source_row_id": null,
+        "text": "4412 lot: ERP L2609-021, register + sheet L2609-012"
+      },
+      {
+        "category": 2,
+        "field": "date",
+        "flags": [
+          {
+            "detail": {
+              "date": "2026-09-13"
+            },
+            "flag": "SUNDAY_DATE",
+            "grn_no": 4415,
+            "id": "00000000-0000-4000-8000-00000000001a",
+            "run_id": "00000000-0000-4000-8000-000000000013",
+            "source_row_id": "ERP-0015"
+          }
+        ],
+        "grn_no": 4415,
+        "group_key": "GRN:4415",
+        "kind": "MISMATCH",
+        "source_row_id": null,
+        "text": "4415 date: ERP 13 Sep (Sun), register + sheet 12 Sep"
+      },
+      {
+        "category": 4,
+        "field": null,
+        "flags": [
+          {
+            "detail": {
+              "high": "4429",
+              "low": "4429"
+            },
+            "flag": "SEQUENCE_GAP",
+            "grn_no": 4429,
+            "id": "00000000-0000-4000-8000-00000000001b",
+            "run_id": "00000000-0000-4000-8000-000000000013",
+            "source_row_id": null
+          }
+        ],
+        "grn_no": 4429,
+        "group_key": null,
+        "kind": "FLAG",
+        "source_row_id": null,
+        "text": "GRN 4429 missing everywhere"
+      },
+      {
+        "category": 5,
+        "field": null,
+        "flags": [],
+        "grn_no": 4409,
+        "group_key": null,
+        "kind": "DUPLICATE",
+        "source_row_id": "XLS-r11",
+        "text": "Sheet lists 4409 twice"
+      },
+      {
+        "category": 5,
+        "field": null,
+        "flags": [
+          {
+            "detail": {
+              "date": "2026-09-27"
+            },
+            "flag": "SUNDAY_DATE",
+            "grn_no": null,
+            "id": "00000000-0000-4000-8000-00000000001c",
+            "run_id": "00000000-0000-4000-8000-000000000013",
+            "source_row_id": "XLS-r31"
+          },
+          {
+            "detail": {
+              "date": "2026-09-27",
+              "previous_date": "2026-09-28",
+              "previous_row": "XLS-r30"
+            },
+            "flag": "OUT_OF_ORDER",
+            "grn_no": null,
+            "id": "00000000-0000-4000-8000-00000000001d",
+            "run_id": "00000000-0000-4000-8000-000000000013",
+            "source_row_id": "XLS-r31"
+          }
+        ],
+        "grn_no": null,
+        "group_key": null,
+        "kind": "NON_RECEIPT",
+        "source_row_id": "XLS-r31",
+        "text": "Sheet lists one return (-5000 PCS)"
+      }
+    ],
+    "failed_stage": null,
+    "finalised_at": null,
+    "finalised_by": null,
+    "headline": "29 receipts: 22 match, 7 need attention",
+    "id": "00000000-0000-4000-8000-000000000013",
+    "month": "2026-09",
+    "open_review_items": 0,
+    "proof_status": "PASS",
+    "read_cost": {
+      "actual_usd": "0.011",
+      "estimate_usd": "0.012",
+      "input_tokens": 9639,
+      "new_pages": 1,
+      "output_tokens": 7766
+    },
+    "row_counts": {
+      "ERP": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 1,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "REGISTER": {
+        "DUPLICATE": 0,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 1,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 0,
+        "UNMATCHED_NO_KEY": 0
+      },
+      "SHEET": {
+        "DUPLICATE": 1,
+        "MATCHED": 22,
+        "MATCHED_AFTER_CONVERSION": 0,
+        "MISMATCHED": 5,
+        "MISSING": 1,
+        "NEEDS_REVIEW": 0,
+        "NON_RECEIPT": 1,
+        "UNMATCHED_NO_KEY": 0
+      }
+    },
+    "run_key": "5f6ade40539445514e1622da6807d939925329ed12c88e9ad9843d62260c18d8",
+    "scenario_now": "2026-10-15T08:30:21+05:00",
+    "stage_progress": {
+      "pages": [
+        {
+          "cached": true,
+          "extracted": true,
+          "page_no": 1
+        },
+        {
+          "cached": false,
+          "extracted": true,
+          "page_no": 2
+        }
+      ],
+      "stages": [
+        {
+          "at": "2026-10-15T08:30:27+05:00",
+          "duration_ms": 3000,
+          "stage": "upload",
+          "state": "OK"
+        },
+        {
+          "at": "2026-10-15T08:30:30+05:00",
+          "duration_ms": 400,
+          "stage": "validate",
+          "state": "OK"
+        },
+        {
+          "at": "2026-10-15T08:30:36+05:00",
+          "duration_ms": 400,
+          "stage": "extract",
+          "state": "OK"
+        },
+        {
+          "at": "2026-10-15T08:31:24+05:00",
+          "duration_ms": 0,
+          "stage": "reconcile",
+          "state": "OK"
+        },
+        {
+          "at": "2026-10-15T08:31:24+05:00",
+          "duration_ms": 0,
+          "stage": "proof",
+          "state": "OK"
+        }
+      ]
+    },
+    "status": "READY",
+    "summary": null
+  }
+}
