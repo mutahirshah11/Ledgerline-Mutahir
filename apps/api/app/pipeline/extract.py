@@ -624,7 +624,7 @@ def _final_error(error: BaseException, attempts: int, page_no: int) -> BaseExcep
         detail = f"rejected: {type(error).__name__}"
     else:
         return error
-    return UpstreamFailed("openai", detail, stage="extract", page_no=page_no)
+    return UpstreamFailed("openai", detail, stage="extract", page_no=page_no, attempts=attempts)
 
 
 def _cached_read(repo: Repo, sha: str, variant: ReadVariant, settings: Settings) -> PageRead | None:

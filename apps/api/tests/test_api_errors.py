@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -38,7 +38,11 @@ def _app() -> FastAPI:
 
     @app.get("/t/upstream")
     def upstream() -> None:
-        raise UpstreamFailed("openai", "timeout", stage="extract", page_no=2)
+        raise UpstreamFailed("openai", "timeout", stage="extract", page_no=2, attempts=3)
+
+    @app.get("/t/http-503")
+    def http_503() -> None:
+        raise HTTPException(status_code=503, detail="pool exhausted at db-host:5432")
 
     @app.post("/t/body")
     def body(payload: _Body) -> None:
@@ -47,6 +51,10 @@ def _app() -> FastAPI:
     @app.get("/t/api-error")
     def api_error() -> None:
         raise ApiError(ErrorCode.BAD_MONTH, 400, "Month is not valid", details={"month": "x"})
+
+    @app.get("/t/api-error-bare")
+    def api_error_bare() -> None:
+        raise ApiError(ErrorCode.NOT_ALLOWED, 403, "No access", stage=Stage.REVIEW)
 
     @app.get("/t/boom")
     def boom() -> None:
@@ -88,7 +96,17 @@ def test_state_conflict_maps_409_with_status(client: TestClient) -> None:
 def test_unique_violation_maps_409(client: TestClient) -> None:
     resp = client.get("/t/unique")
     assert resp.status_code == 409
-    assert _error(resp)["code"] == "RUN_STATE_CONFLICT"
+    err = _error(resp)
+    assert (err["code"], err["details"]) == ("RUN_STATE_CONFLICT", {})
+    assert "runs_month_key" not in resp.text
+
+
+def test_http_5xx_hides_detail_as_internal_error(client: TestClient) -> None:
+    resp = client.get("/t/http-503")
+    assert resp.status_code == 500
+    assert _error(resp)["code"] == "INTERNAL_ERROR"
+    assert _error(resp)["message"] == "Unexpected error"
+    assert "db-host" not in resp.text
 
 
 def test_upstream_failed_maps_502(client: TestClient) -> None:
@@ -97,7 +115,7 @@ def test_upstream_failed_maps_502(client: TestClient) -> None:
     err = _error(resp)
     assert err["code"] == "UPSTREAM_FAILED"
     assert err["stage"] == Stage.EXTRACT.value
-    assert err["details"] == {"service": "openai", "page_no": 2}
+    assert err["details"] == {"service": "openai", "attempts": 3, "page_no": 2}
 
 
 def test_request_validation_maps_400_bad_request(client: TestClient) -> None:
@@ -119,6 +137,14 @@ def test_api_error_uses_its_own_status(client: TestClient) -> None:
         "Month is not valid",
         {"month": "x"},
     )
+    bare = client.get("/t/api-error-bare")
+    assert bare.status_code == 403
+    assert _error(bare) == {
+        "code": "NOT_ALLOWED",
+        "message": "No access",
+        "stage": "review",
+        "details": {},
+    }
 
 
 def test_unknown_route_uses_error_shape(client: TestClient) -> None:
@@ -138,13 +164,3 @@ def test_unexpected_exception_500_internal_error_no_trace_in_body(client: TestCl
     }
     assert "secret internals" not in resp.text
     assert "Traceback" not in resp.text
-
-
-def test_api_error_details_default_empty() -> None:
-    err = ApiError(ErrorCode.NOT_ALLOWED, 403, "No access", stage=Stage.REVIEW)
-    assert (err.code, err.http_status, err.stage, err.details) == (
-        ErrorCode.NOT_ALLOWED,
-        403,
-        Stage.REVIEW,
-        {},
-    )

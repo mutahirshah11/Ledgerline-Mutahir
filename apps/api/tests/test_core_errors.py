@@ -29,7 +29,8 @@ def test_state_conflict_carries_current_record() -> None:
 
 def test_upstream_failed_carries_service_and_detail() -> None:
     err = UpstreamFailed("supabase", "timeout")
-    assert (err.service, err.detail) == ("supabase", "timeout")
+    assert (err.service, err.detail, err.attempts) == ("supabase", "timeout", None)
+    assert UpstreamFailed("openai", "timeout", attempts=3).attempts == 3
 
 
 @pytest.mark.parametrize(

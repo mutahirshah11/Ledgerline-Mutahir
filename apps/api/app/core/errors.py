@@ -54,7 +54,8 @@ class AppendOnlyViolation(LedgerlineError):
 class UpstreamFailed(LedgerlineError):
     """G7: a backend service still failed after retries.
 
-    `stage` and `page_no` (003 E7) feed the alert text "Stage: extract (page 2)".
+    `stage` and `page_no` (003 E7) feed the alert text "Stage: extract (page 2)"; `attempts`
+    feeds the API error details (004 data-model.md §1).
     """
 
     def __init__(
@@ -64,12 +65,14 @@ class UpstreamFailed(LedgerlineError):
         *,
         stage: str | None = None,
         page_no: int | None = None,
+        attempts: int | None = None,
     ) -> None:
         super().__init__(f"{service} failed: {detail}")
         self.service = service
         self.detail = detail
         self.stage = stage
         self.page_no = page_no
+        self.attempts = attempts
 
 
 class PageUnreadable(LedgerlineError):
@@ -133,6 +136,18 @@ def _field(current: Any, name: str) -> Any:
     return getattr(value, "value", value)
 
 
+_STAGES = frozenset(s.value for s in Stage)
+
+# Framework HTTP errors (unknown route, bad method, auth) keep the one error shape.
+_HTTP_CODES = {
+    401: ErrorCode.UNAUTHENTICATED,
+    403: ErrorCode.NOT_ALLOWED,
+    404: ErrorCode.NOT_FOUND,
+}
+
+_UNEXPECTED = "Unexpected error"
+
+
 def _to_api_error(exc: Exception) -> ApiError:
     """Map a known exception to its ApiError (data-model.md §1 table)."""
     if isinstance(exc, ApiError):
@@ -148,9 +163,14 @@ def _to_api_error(exc: Exception) -> ApiError:
             ErrorCode.RUN_STATE_CONFLICT, 409, "The run changed state; reload it", details=conflict
         )
     if isinstance(exc, UniqueViolation):
-        return ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, "This record already exists")
+        # Call sites translate this (e.g. DUPLICATE_RUN with run_id); reaching here is a gap.
+        # The constraint name is internal and never leaves the log.
+        logger.warning("untranslated UniqueViolation: %s", exc.constraint)
+        return ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, "This conflicts with existing data")
     if isinstance(exc, UpstreamFailed):
         details: dict[str, Any] = {"service": exc.service}
+        if exc.attempts is not None:
+            details["attempts"] = exc.attempts
         if exc.page_no is not None:
             details["page_no"] = exc.page_no
         stage = Stage(exc.stage) if exc.stage is not None and exc.stage in _STAGES else None
@@ -164,23 +184,13 @@ def _to_api_error(exc: Exception) -> ApiError:
         return ApiError(
             ErrorCode.BAD_REQUEST, 400, "The request is not valid", details={"fields": fields}
         )
-    if isinstance(exc, StarletteHTTPException):
+    if isinstance(exc, StarletteHTTPException) and exc.status_code < 500:
         code = _HTTP_CODES.get(exc.status_code, ErrorCode.BAD_REQUEST)
-        if exc.status_code >= 500:
-            code = ErrorCode.INTERNAL_ERROR
         return ApiError(code, exc.status_code, str(exc.detail))
+    # 5xx HTTPException and anything else: the detail stays in the log, never in the body.
     logger.error("unexpected error", exc_info=exc)
-    return ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error")
-
-
-_STAGES = frozenset(s.value for s in Stage)
-
-_HTTP_CODES = {
-    401: ErrorCode.UNAUTHENTICATED,
-    403: ErrorCode.NOT_ALLOWED,
-    404: ErrorCode.NOT_FOUND,
-}
-"""Framework HTTP errors (unknown route, bad method) keep the one error shape."""
+    # TODO(004): fill `stage` on 500s once stage context is available to the handler.
+    return ApiError(ErrorCode.INTERNAL_ERROR, 500, _UNEXPECTED)
 
 
 async def _handle(request: Request, exc: Exception) -> JSONResponse:

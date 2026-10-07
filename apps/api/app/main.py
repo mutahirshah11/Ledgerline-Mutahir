@@ -1,12 +1,10 @@
 """FastAPI entrypoint (004 plan.md, FR-026, NFR-04, blueprint Section 10).
 
-Route modules live in `app.routes`; each may expose `public_router` and/or `protected_router`
-(plain `APIRouter`s without a prefix). `create_app()` mounts them under `/api/v1`, the protected
-ones behind `PROTECTED_DEPENDENCIES`.
+Route modules (`app/routes/*.py`) expose plain `APIRouter`s without a prefix; they are imported
+explicitly below and listed in `PUBLIC_ROUTERS` / `PROTECTED_ROUTERS`. `create_app()` mounts them
+under `/api/v1`, the protected ones behind `PROTECTED_DEPENDENCIES`.
 """
 
-import importlib
-import pkgutil
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,20 +14,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 
+# Route modules are imported here as they arrive, e.g. `from app.routes import health, runs`.
+
 API_PREFIX = "/api/v1"
 
-PROTECTED_DEPENDENCIES: list[Any] = []
-"""`Depends(...)` applied to every protected route; T025 adds `Depends(current_user)`."""
+PUBLIC_ROUTERS: tuple[APIRouter, ...] = ()
+"""No auth; EP-01 adds `health.public_router` here (T052)."""
 
+PROTECTED_ROUTERS: tuple[APIRouter, ...] = ()
+"""Behind `PROTECTED_DEPENDENCIES`; T025 adds `health.protected_router` (EP-02), later `runs`."""
 
-def _route_modules() -> list[Any]:
-    """The `app.routes.*` modules, in name order; none until route modules exist."""
-    try:
-        package = importlib.import_module("app.routes")
-    except ModuleNotFoundError:
-        return []
-    names = sorted(m.name for m in pkgutil.iter_modules(package.__path__))
-    return [importlib.import_module(f"app.routes.{name}") for name in names]
+PROTECTED_DEPENDENCIES: tuple[Any, ...] = ()
+"""Applied to every protected route. T025 sets this to `(Depends(current_user),)`; tests swap
+the dependency through `app.dependency_overrides`, never by editing this tuple."""
 
 
 def build_routers(
@@ -38,21 +35,15 @@ def build_routers(
     protected_routers: Sequence[APIRouter] | None = None,
     protected_dependencies: Sequence[Any] | None = None,
 ) -> tuple[APIRouter, APIRouter]:
-    """The public and protected `/api/v1` routers; defaults come from `app.routes`."""
-    if public_routers is None or protected_routers is None:
-        modules = _route_modules()
-        if public_routers is None:
-            public_routers = [m.public_router for m in modules if hasattr(m, "public_router")]
-        if protected_routers is None:
-            protected_routers = [
-                m.protected_router for m in modules if hasattr(m, "protected_router")
-            ]
+    """The public and protected `/api/v1` routers; defaults are the module-level tuples."""
+    publics = PUBLIC_ROUTERS if public_routers is None else public_routers
+    protecteds = PROTECTED_ROUTERS if protected_routers is None else protected_routers
     deps = PROTECTED_DEPENDENCIES if protected_dependencies is None else protected_dependencies
     public_router = APIRouter(prefix=API_PREFIX)
     protected_router = APIRouter(prefix=API_PREFIX, dependencies=list(deps))
-    for router in public_routers:
+    for router in publics:
         public_router.include_router(router)
-    for router in protected_routers:
+    for router in protecteds:
         protected_router.include_router(router)
     return public_router, protected_router
 
@@ -73,6 +64,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Authorization", "Content-Type"],
     )
+    # 500s come from Starlette's outermost ServerErrorMiddleware, so they carry no CORS headers.
     install_error_handlers(app)
     for router in build_routers():
         if router.routes:  # an empty router would still mount a placeholder route
