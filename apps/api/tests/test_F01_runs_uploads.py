@@ -67,17 +67,7 @@ def _confirm(client: TestClient, headers: dict[str, str], run_id: str) -> Any:
     return client.post(f"{API}/runs/{run_id}/uploads/confirm", headers=headers)
 
 
-def _move_clock(monkeypatch: pytest.MonkeyPatch, at: datetime) -> None:
-    from app.core import clock
-    from app.core.config import Settings
-
-    settings = Settings(
-        _env_file=None,
-        LEDGERLINE_NOW=at,
-        LEDGERLINE_CLOCK_MODE="frozen",
-        LEDGERLINE_NOW_ANCHOR=None,
-    )
-    monkeypatch.setattr(clock, "get_settings", lambda: settings)
+MoveClock = Callable[[datetime], None]
 
 
 # --- EP-03, EP-06, EP-07 --------------------------------------------------------------
@@ -112,7 +102,10 @@ def test_F01_AC2_missing_sheet_no_objects(
     assert resp.status_code == 400
     assert _error(resp)["code"] == "MISSING_SOURCE"
     assert memory_repo.list_source_files(UUID(run_id)) == []
-    assert memory_blobs._objects == {}
+    paths = [f"{run_id}/erp.csv", f"{run_id}/sheet.xlsx"] + [
+        f"{run_id}/register/p{n}-{f['sha256']}.jpg" for n, f in enumerate(files[:2], 1)
+    ]
+    assert not any(memory_blobs.exists(INPUTS_BUCKET, path) for path in paths)
 
 
 def test_F01_AC3_wrong_hash_422_stays_created(
@@ -136,10 +129,50 @@ def test_F01_AC3_wrong_hash_422_stays_created(
     assert err["details"]["problem"] == "HASH_MISMATCH"
     assert [f["filename"] for f in err["details"]["files"]] == ["t4_erp_grn.csv"]
     assert not memory_blobs.exists(INPUTS_BUCKET, slots[2]["storage_path"])
-    assert slots[2]["file_id"] not in {
-        str(f.id) for f in memory_repo.list_source_files(UUID(run_id))
-    }
+    # FM-02: object deleted, file row kept
+    assert slots[2]["file_id"] in {str(f.id) for f in memory_repo.list_source_files(UUID(run_id))}
     assert memory_repo.get_run(UUID(run_id)).status is RunStatus.CREATED
+
+
+def test_F01_FM02_retry_confirm_without_reupload_422(
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    memory_repo: MemoryRepo,
+    memory_blobs: MemoryBlobStore,
+    pack_files: dict[str, bytes],
+    pack_declared: list[dict[str, Any]],
+) -> None:
+    headers = tokens["controller"]
+    run_id = _create(client, headers)
+    slots = _slots(client, headers, run_id, pack_declared)
+    _put_all(memory_blobs, slots, pack_files)
+    page1 = slots[0]
+    memory_blobs.put(INPUTS_BUCKET, page1["storage_path"], b"another photo", "image/jpeg")
+    first = _error(_confirm(client, headers, run_id))
+    assert first["details"]["problem"] == "HASH_MISMATCH"
+    assert [f["file_id"] for f in first["details"]["files"]] == [page1["file_id"]]
+    resp = _confirm(client, headers, run_id)  # retried without re-uploading page 1
+    assert resp.status_code == 422
+    retry = _error(resp)
+    assert retry["details"]["problem"] == "FILE_MISSING"
+    assert [f["file_id"] for f in retry["details"]["files"]] == [page1["file_id"]]
+    assert len(memory_repo.list_source_files(UUID(run_id))) == 4
+    assert memory_repo.get_run(UUID(run_id)).status is RunStatus.CREATED
+    memory_blobs.put(INPUTS_BUCKET, page1["storage_path"], pack_files[page1["filename"]], "x/y")
+    body = _confirm(client, headers, run_id).json()
+    assert body["new_pages"] == [1, 2]  # no page silently dropped
+
+
+def test_F01_EP07_finalised_run_409(
+    client: TestClient, tokens: dict[str, dict[str, str]], memory_repo: MemoryRepo
+) -> None:
+    from tests.factories import make_run
+
+    done = memory_repo.create_run(make_run(status=RunStatus.FINALISED, run_key="f" * 64))
+    resp = _confirm(client, tokens["controller"], str(done.id))
+    assert resp.status_code == 409
+    assert _error(resp)["code"] == "RUN_STATE_CONFLICT"
+    assert _error(resp)["details"]["status"] == "FINALISED"
 
 
 def test_F01_AC4_second_run_known_pages(pack_upload: Upload) -> None:
@@ -198,12 +231,12 @@ def test_F01_FM01_upload_window_expired_422(
     pack_files: dict[str, bytes],
     pack_declared: list[dict[str, Any]],
     frozen_clock: datetime,
-    monkeypatch: pytest.MonkeyPatch,
+    move_clock: MoveClock,
 ) -> None:
     headers = tokens["controller"]
     run_id = _create(client, headers)
     _put_all(memory_blobs, _slots(client, headers, run_id, pack_declared), pack_files)
-    _move_clock(monkeypatch, frozen_clock + timedelta(minutes=11))
+    move_clock(frozen_clock + timedelta(minutes=11))
     resp = _confirm(client, headers, run_id)
     assert resp.status_code == 422
     assert _error(resp)["details"]["problem"] == "UPLOAD_EXPIRED"
@@ -348,11 +381,11 @@ def test_F01_EP04_list_newest_first_with_counts(
     tokens: dict[str, dict[str, str]],
     memory_repo: MemoryRepo,
     frozen_clock: datetime,
-    monkeypatch: pytest.MonkeyPatch,
+    move_clock: MoveClock,
 ) -> None:
     older = UUID(pack_upload()["run"]["id"])
     _reconciled(memory_repo, older)
-    _move_clock(monkeypatch, frozen_clock + timedelta(minutes=1))
+    move_clock(frozen_clock + timedelta(minutes=1))
     newer = _create(client, tokens["controller"], "2026-10")
     resp = client.get(f"{API}/runs", headers=tokens["reviewer"])
     assert resp.status_code == 200

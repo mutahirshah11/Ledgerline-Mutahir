@@ -77,7 +77,7 @@ def _err(fn: Callable[[], object]) -> ApiError:
 # --- T028 create_run ------------------------------------------------------------------
 
 
-def test_F01_R1_create_run_created_with_clock_and_user(
+def test_svc_create_run_created_with_clock_and_user(
     memory_repo: MemoryRepo, frozen_clock: datetime
 ) -> None:
     run = create_run(memory_repo, USER, "2026-09")
@@ -88,7 +88,9 @@ def test_F01_R1_create_run_created_with_clock_and_user(
 
 
 @pytest.mark.parametrize("month", ["2026-13", "26-09", "2026-00", "2026-9", ""])
-def test_F01_R1_bad_month(memory_repo: MemoryRepo, frozen_clock: datetime, month: str) -> None:
+def test_svc_create_run_bad_month(
+    memory_repo: MemoryRepo, frozen_clock: datetime, month: str
+) -> None:
     err = _err(lambda: create_run(memory_repo, USER, month))
     assert (err.code, err.http_status) == (ErrorCode.BAD_MONTH, 400)
     assert memory_repo.list_runs() == []
@@ -97,7 +99,7 @@ def test_F01_R1_bad_month(memory_repo: MemoryRepo, frozen_clock: datetime, month
 # --- T029 request_uploads -------------------------------------------------------------
 
 
-def test_F01_R2_slots_paths_pages_and_started_event(
+def test_svc_uploads_slots_paths_pages_and_started_event(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     pack = _pack()
@@ -117,7 +119,7 @@ def test_F01_R2_slots_paths_pages_and_started_event(
     assert [(e.stage, e.status) for e in events] == [(Stage.UPLOAD, RunEventStatus.STARTED)]
 
 
-def test_F01_R2_given_page_numbers_kept(
+def test_svc_uploads_given_page_numbers_kept(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     pack = _pack()
@@ -128,7 +130,7 @@ def test_F01_R2_given_page_numbers_kept(
     assert [s.page_no for s in slots[:2]] == [2, 1]
 
 
-def test_F01_R3_missing_source_400_nothing_written(
+def test_svc_uploads_missing_source_400_nothing_written(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     specs = [s for s, _ in _pack() if s.source is not Source.SHEET]
@@ -147,30 +149,48 @@ def _rules(repo: MemoryRepo, blobs: MemoryBlobStore, run: Run, specs: list[Uploa
     return err.details["violations"]
 
 
-def test_F01_R3_file_rules(memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run) -> None:
+def _messages(violations: list[dict[str, Any]]) -> list[str]:
+    return [v["message"] for v in violations]
+
+
+def test_svc_uploads_file_rules(memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run) -> None:
     specs = [s for s, _ in _pack()]
     erp2 = specs[2].model_copy(update={"sha256": "e" * 64})
-    assert _rules(memory_repo, blobs, run, [*specs, erp2])
+    assert _messages(_rules(memory_repo, blobs, run, [*specs, erp2])) == [
+        "Exactly one ERP file is allowed, got 2"
+    ]
     pages = [
         specs[0].model_copy(update={"sha256": f"{n:064x}", "page_no": None}) for n in range(11)
     ]
-    assert _rules(memory_repo, blobs, run, [*pages, specs[2], specs[3]])
+    assert _messages(_rules(memory_repo, blobs, run, [*pages, specs[2], specs[3]])) == [
+        "At most 10 register pages, got 11"
+    ]
     small = specs[0].model_copy(update={"size_bytes": 10 * KB})
-    assert _rules(memory_repo, blobs, run, [small, *specs[1:]])
+    assert _rules(memory_repo, blobs, run, [small, *specs[1:]]) == [
+        {"filename": "p1.jpg", "message": "Register image is smaller than 20 KB"}
+    ]
     big_sheet = specs[3].model_copy(update={"size_bytes": 10 * KB * KB + 1})
-    assert _rules(memory_repo, blobs, run, [*specs[:3], big_sheet])
+    assert _rules(memory_repo, blobs, run, [*specs[:3], big_sheet]) == [
+        {"filename": "sheet.xlsx", "message": "File is larger than 10 MB"}
+    ]
     twin = specs[1].model_copy(update={"sha256": specs[0].sha256})
-    assert _rules(memory_repo, blobs, run, [specs[0], twin, *specs[2:]])
+    assert _messages(_rules(memory_repo, blobs, run, [specs[0], twin, *specs[2:]])) == [
+        "The same file is declared 2 times: p1.jpg, p2.png"
+    ]
     wrong_ext = specs[2].model_copy(update={"filename": "erp.xlsx"})
-    assert _rules(memory_repo, blobs, run, [*specs[:2], wrong_ext, specs[3]])
+    assert _rules(memory_repo, blobs, run, [*specs[:2], wrong_ext, specs[3]]) == [
+        {"filename": "erp.xlsx", "message": "ERP file must be .csv"}
+    ]
     same_page = [
         specs[0].model_copy(update={"page_no": 1}),
         specs[1].model_copy(update={"page_no": 1}),
     ]
-    assert _rules(memory_repo, blobs, run, [*same_page, *specs[2:]])
+    assert _messages(_rules(memory_repo, blobs, run, [*same_page, *specs[2:]])) == [
+        "Page 1 is given 2 times"
+    ]
 
 
-def test_F01_uploads_twice_same_records(
+def test_svc_uploads_twice_same_records(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     specs = [s for s, _ in _pack()]
@@ -180,7 +200,7 @@ def test_F01_uploads_twice_same_records(
     assert len(memory_repo.list_source_files(run.id)) == 4
 
 
-def test_F01_uploads_again_with_other_file_replaces_stale_record(
+def test_svc_uploads_again_with_other_file_replaces_stale_record(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     specs = [s for s, _ in _pack()]
@@ -191,7 +211,7 @@ def test_F01_uploads_again_with_other_file_replaces_stale_record(
     assert len(shas) == 4 and "a" * 64 in shas and specs[3].sha256 not in shas
 
 
-def test_F01_uploads_after_created_409(
+def test_svc_uploads_after_created_409(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     pack = _pack()
@@ -220,7 +240,7 @@ def _finalised_run(repo: MemoryRepo, key: str) -> Run:
     return done
 
 
-def test_F01_AC1_confirm_uploaded_with_key_and_pages(
+def test_svc_confirm_uploaded_with_key_and_pages(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run, frozen_clock: datetime
 ) -> None:
     pack = _pack()
@@ -236,7 +256,7 @@ def test_F01_AC1_confirm_uploaded_with_key_and_pages(
     assert statuses == [RunEventStatus.OK, RunEventStatus.STARTED]  # frozen clock: same `at`
 
 
-def test_F01_R7_audit_once_and_idempotent(
+def test_svc_confirm_audit_once_and_idempotent(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     _upload_all(memory_repo, blobs, run, _pack())
@@ -248,7 +268,7 @@ def test_F01_R7_audit_once_and_idempotent(
     assert {a.actor for a in memory_repo.list_audit(run_id=run.id)} == {USER.email}
 
 
-def test_F01_AC4_second_run_known_pages(
+def test_svc_confirm_second_run_known_pages(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     pack = _pack()
@@ -260,7 +280,7 @@ def test_F01_AC4_second_run_known_pages(
     assert (result.new_pages, result.known_pages) == ([], [1, 2])
 
 
-def test_F01_AC3_hash_mismatch_deletes_object_and_row(
+def test_svc_confirm_hash_mismatch_deletes_object_keeps_row(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     pack = _pack()
@@ -271,16 +291,50 @@ def test_F01_AC3_hash_mismatch_deletes_object_and_row(
     assert (err.code, err.http_status) == (ErrorCode.CONTRACT_VIOLATION, 422)
     assert err.details["problem"] == "HASH_MISMATCH"
     assert [f["file_id"] for f in err.details["files"]] == [str(erp.id)]
-    assert not blobs.exists(INPUTS_BUCKET, erp.storage_path)
-    assert erp.id not in {f.id for f in memory_repo.list_source_files(run.id)}
+    assert not blobs.exists(INPUTS_BUCKET, erp.storage_path)  # FM-02: object deleted
+    assert erp in memory_repo.list_source_files(run.id)  # the row is kept
     assert memory_repo.get_run(run.id).status is RunStatus.CREATED
     assert RunEventStatus.FAILED in {e.status for e in memory_repo.list_run_events(run.id)}
-    # the deleted file must be declared again before a confirm can pass
+    # a retry without re-uploading names the file as missing
     err = _err(lambda: confirm_uploads(memory_repo, blobs, run, USER))
-    assert err.code is ErrorCode.MISSING_SOURCE
+    assert err.details["problem"] == "FILE_MISSING"
+    assert [f["file_id"] for f in err.details["files"]] == [str(erp.id)]
+    blobs.put(INPUTS_BUCKET, erp.storage_path, ERP, "text/csv")
+    assert confirm_uploads(memory_repo, blobs, run, USER).run.status is RunStatus.UPLOADED
 
 
-def test_F01_FM01_missing_object(memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run) -> None:
+def test_svc_confirm_finalised_run_409(
+    memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
+) -> None:
+    done = _finalised_run(memory_repo, "f" * 64)
+    with pytest.raises(StateConflict):
+        confirm_uploads(memory_repo, blobs, done, USER)
+
+
+def test_svc_confirm_lost_race_answers_as_repeat_without_audit(
+    memory_repo: MemoryRepo,
+    blobs: MemoryBlobStore,
+    run: Run,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A concurrent confirm moves the run first; this one gets StateConflict on the CAS."""
+    _upload_all(memory_repo, blobs, run, _pack())
+    real = memory_repo.transition_run
+
+    def racing(run_id: Any, to: RunStatus, **kw: Any) -> Run:
+        current = real(run_id, to, **kw)  # the other request wins
+        raise StateConflict(current)
+
+    monkeypatch.setattr(memory_repo, "transition_run", racing)
+    result = confirm_uploads(memory_repo, blobs, run, USER)
+    assert result.run.status is RunStatus.UPLOADED
+    assert (result.new_pages, result.known_pages) == ([1, 2], [])
+    assert memory_repo.list_audit(run_id=run.id) == []
+
+
+def test_svc_confirm_missing_object(
+    memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
+) -> None:
     request_uploads(memory_repo, blobs, run, [s for s, _ in _pack()])
     err = _err(lambda: confirm_uploads(memory_repo, blobs, run, USER))
     assert err.details["problem"] == "FILE_MISSING"
@@ -289,7 +343,7 @@ def test_F01_FM01_missing_object(memory_repo: MemoryRepo, blobs: MemoryBlobStore
     assert len(memory_repo.list_source_files(run.id)) == 4
 
 
-def test_F01_FM01_window_expired(
+def test_svc_confirm_window_expired(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run, frozen_clock: datetime
 ) -> None:
     _upload_all(memory_repo, blobs, run, _pack())
@@ -303,7 +357,7 @@ def test_F01_FM01_window_expired(
     assert ok.run.status is RunStatus.UPLOADED
 
 
-def test_F01_AC5_duplicate_finalised_run(
+def test_svc_confirm_duplicate_finalised_run(
     memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run
 ) -> None:
     pack = _pack()
@@ -318,7 +372,7 @@ def test_F01_AC5_duplicate_finalised_run(
 # --- OutcomeCounts (data-model.md §2) -------------------------------------------------
 
 
-def test_outcome_counts_groups_and_row_only_outcomes(memory_repo: MemoryRepo, run: Run) -> None:
+def test_svc_outcome_counts_groups_and_row_only_outcomes(memory_repo: MemoryRepo, run: Run) -> None:
     from app.domain.enums import Outcome, RowKind
     from app.domain.models import ReconciliationPayload
     from tests.factories import make_group, make_row

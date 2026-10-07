@@ -286,9 +286,10 @@ def _file_ref(f: SourceFile, problem: str) -> dict[str, Any]:
 
 
 def _verify(
-    repo: Repo, blobs: BlobStore, files: list[SourceFile], issued: datetime | None, at: datetime
+    blobs: BlobStore, files: list[SourceFile], issued: datetime | None, at: datetime
 ) -> list[dict[str, Any]]:
-    """FM-01 / FM-02 for every file; a mismatched object and its record are deleted."""
+    """FM-01 / FM-02 for every file. A mismatched object is deleted and its record kept, so a
+    retry without re-uploading reports FILE_MISSING (blueprint Section 25 FM-02)."""
     window = get_settings().UPLOAD_WINDOW_S
     if issued is None or (at - issued).total_seconds() > window:
         return [_file_ref(f, "UPLOAD_EXPIRED") for f in files]
@@ -298,7 +299,6 @@ def _verify(
             problems.append(_file_ref(f, "FILE_MISSING"))
         elif hashlib.sha256(blobs.get(INPUTS_BUCKET, f.storage_path)).hexdigest() != f.sha256:
             blobs.delete(INPUTS_BUCKET, f.storage_path)
-            repo.delete_source_file(f.id)
             problems.append(_file_ref(f, "HASH_MISMATCH"))
     return problems
 
@@ -339,7 +339,7 @@ def confirm_uploads(
             Stage.UPLOAD,
             {"missing": missing},
         )
-    problems = _verify(repo, blobs, files, issued, at)
+    problems = _verify(blobs, files, issued, at)
     if problems:
         kinds = {p["problem"] for p in problems}
         problem = next(k for k in ("UPLOAD_EXPIRED", "FILE_MISSING", "HASH_MISMATCH") if k in kinds)

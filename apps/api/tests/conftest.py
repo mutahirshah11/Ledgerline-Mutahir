@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 if TYPE_CHECKING:
-    from fastapi.testclient import TestClient
-
     from app.core.config import Settings
     from app.core.db import Repo
     from app.core.memory_repo import MemoryRepo
@@ -120,6 +119,26 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     )
     monkeypatch.setattr(clock, "get_settings", lambda: settings)
     return clock.now()
+
+
+@pytest.fixture
+def move_clock(
+    monkeypatch: pytest.MonkeyPatch, frozen_clock: datetime
+) -> Callable[[datetime], None]:
+    """`move_clock(at)`: re-freeze app.core.clock at `at` (e.g. past the upload window)."""
+    from app.core import clock
+    from app.core.config import Settings
+
+    def move(at: datetime) -> None:
+        settings = Settings(
+            _env_file=None,
+            LEDGERLINE_NOW=at,
+            LEDGERLINE_CLOCK_MODE="frozen",
+            LEDGERLINE_NOW_ANCHOR=None,
+        )
+        monkeypatch.setattr(clock, "get_settings", lambda: settings)
+
+    return move
 
 
 # --- Repo and BlobStore (US4, contracts/repo-interface.md) -------------------------------
@@ -295,12 +314,10 @@ def client(
     memory_blobs: "MemoryBlobStore",
     jwks_fetcher: "FakeJwksFetcher",
     notifier: "FakeNotifier",
-) -> Iterator["TestClient"]:
+) -> Iterator[TestClient]:
     """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
     JWKS, with the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for
     the pack."""
-    from fastapi.testclient import TestClient
-
     from app.core.auth import JwksCache, get_jwks_cache
     from app.core.db import get_repo
     from app.core.deps import get_notifier
@@ -323,9 +340,10 @@ def client(
         yield test_client
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def tokens() -> dict[str, dict[str, str]]:
-    """`Authorization` headers for `controller`, `reviewer`, `ops` and `stranger`."""
+    """`Authorization` headers for `controller`, `reviewer`, `ops` and `stranger` (pure: fixed
+    claims and key, so built once per session)."""
     from tests.fakes.api import make_token
 
     emails = {who: user[0] for who, user in SEEDED_USERS.items()} | {"stranger": STRANGER_EMAIL}
@@ -365,7 +383,7 @@ def pack_declared(pack_files: dict[str, bytes]) -> list[dict[str, Any]]:
 
 @pytest.fixture
 def pack_upload(
-    client: "TestClient",
+    client: TestClient,
     tokens: dict[str, dict[str, str]],
     memory_blobs: "MemoryBlobStore",
     pack_files: dict[str, bytes],
