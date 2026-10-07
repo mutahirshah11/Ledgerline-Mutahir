@@ -61,6 +61,23 @@ def app() -> FastAPI:
     return create_app()
 
 
+PHASE4_PATHS = frozenset(
+    _normalise(API_PREFIX + p)
+    for p in (
+        "/runs/{id}/groups",
+        "/runs/{id}/flags",
+        "/runs/{id}/proof",
+        "/runs/{id}/review-items",
+        "/review-items/{id}/resolve",
+        "/runs/{id}/pages/{page_no}/image",
+        "/runs/{id}/finalise",
+        "/runs/{id}/report",
+    )
+)
+"""EP-11 to EP-18 (specs/005-review-delivery/contracts/openapi.yaml): routed, but not in this
+Phase 3 copy (module docstring); `test_api_phase4_contract.py` covers them."""
+
+
 def test_paths_match_contract(app: FastAPI) -> None:
     """Every path+method in the YAML exists in the app's real routes and vice versa."""
     spec = _load_spec()
@@ -70,7 +87,10 @@ def test_paths_match_contract(app: FastAPI) -> None:
         for method in ops
     }
     actual = {
-        (method, _normalise(route.path)) for route in api_routes(app) for method in route.methods
+        (method, _normalise(route.path))
+        for route in api_routes(app)
+        for method in route.methods
+        if _normalise(route.path) not in PHASE4_PATHS
     }
     missing_in_app = expected - actual
     missing_in_contract = actual - expected
