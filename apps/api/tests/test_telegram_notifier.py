@@ -131,3 +131,46 @@ def test_bot_token_never_in_raised_error_or_logs(caplog: pytest.LogCaptureFixtur
     assert caplog.records, "httpx logs the request line; it must be redacted, not silenced"
     assert TOKEN not in caplog.text
     assert all(TOKEN not in r.getMessage() for r in caplog.records)
+
+
+def test_rate_limited_429_is_retried() -> None:
+    handler = _Handler(httpx.Response(429), _ok(9))
+    waits: list[float] = []
+    assert _notifier(handler, waits).send_message(CHAT, "hi") == 9
+    assert len(handler.requests) == 2 and waits == [1]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.Response(200, content=b"<html>not json</html>"),
+        httpx.Response(200, json={"ok": False, "result": {"message_id": 1}}),
+    ],
+    ids=["non-json", "ok-false"],
+)
+def test_bad_200_answer_rejected_without_retry(answer: httpx.Response) -> None:
+    handler = _Handler(answer)
+    waits: list[float] = []
+    with pytest.raises(UpstreamFailed) as info:
+        _notifier(handler, waits).send_message(CHAT, "hi")
+    assert len(handler.requests) == 1 and waits == []
+    assert info.value.detail.startswith("rejected")
+
+
+def test_close_and_context_manager_close_the_client() -> None:
+    client = httpx.Client(transport=httpx.MockTransport(_Handler(_ok())))
+    with TelegramNotifier(_settings(), client=client, sleep=lambda _: None) as notifier:
+        assert notifier.send_message(CHAT, "hi") == 42
+    assert client.is_closed
+    other = httpx.Client(transport=httpx.MockTransport(_Handler(_ok())))
+    TelegramNotifier(_settings(), client=other).close()
+    assert other.is_closed
+
+
+def test_log_filter_installed_once_by_constructor(monkeypatch: pytest.MonkeyPatch) -> None:
+    httpx_log = logging.getLogger("httpx")
+    monkeypatch.setattr(httpx_log, "filters", [])
+    client = httpx.Client(transport=httpx.MockTransport(_Handler(_ok())))
+    TelegramNotifier(_settings(), client=client)
+    TelegramNotifier(_settings(), client=client)
+    assert len(httpx_log.filters) == 1

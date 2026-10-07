@@ -1,13 +1,14 @@
 """Ops alerts on stage failure (T019; F-11.R4, F-11.R5, contracts/alerts.md, research R9)."""
 
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
 
 from app.core.clock import KARACHI
 from app.core.config import Settings
-from app.core.errors import UpstreamFailed
+from app.core.errors import InvalidReadOutput, PageUnreadable, StateConflict, UpstreamFailed
 from app.core.memory_repo import MemoryRepo
 from app.domain.enums import (
     AuditAction,
@@ -18,8 +19,8 @@ from app.domain.enums import (
     RunStatus,
     Stage,
 )
-from app.domain.models import Run
-from app.services.alerts import stage_failed_alert
+from app.domain.models import Notification, Run
+from app.services.alerts import error_parts, stage_failed_alert
 from tests.factories import make_run
 from tests.fakes.api import FakeNotifier
 
@@ -70,8 +71,8 @@ def _alert(
     error: BaseException = TIMEOUT,
     page_no: int | None = None,
     at: datetime = NOW,
-) -> None:
-    stage_failed_alert(
+) -> Notification | None:
+    return stage_failed_alert(
         repo, notifier, run, stage, error, page_no, settings=settings, now=lambda: at
     )
 
@@ -189,3 +190,73 @@ def test_alert_sent_audited_system_telegram(
     assert (entry.actor, entry.channel) == ("system", AuditChannel.TELEGRAM)
     assert (entry.entity, entry.entity_id, entry.at) == ("notification", str(n.id), NOW)
     assert memory_repo.get_run(RUN_ID).error_message == "Page 2 could not be read"
+
+
+class _BrokenRepo(MemoryRepo):
+    """MemoryRepo whose `update_notification` fails on SENT, or `update_run_fields` fails."""
+
+    def __init__(self, *, sent_fails: bool = False, run_update_fails: bool = False) -> None:
+        super().__init__()
+        self.sent_fails, self.run_update_fails = sent_fails, run_update_fails
+
+    def update_notification(
+        self, notification_id: UUID, *, expected: set[NotificationStatus], **fields: Any
+    ) -> Notification:
+        if self.sent_fails and fields.get("status") is NotificationStatus.SENT:
+            raise RuntimeError("database went away")
+        return super().update_notification(notification_id, expected=expected, **fields)
+
+    def update_run_fields(self, run_id: UUID, **fields: Any) -> Run:
+        if self.run_update_fails:
+            raise StateConflict(self.get_run(run_id))
+        return super().update_run_fields(run_id, **fields)
+
+
+def _failed_run(repo: MemoryRepo, error_message: str | None = "Page 2 could not be read") -> Run:
+    return repo.create_run(
+        make_run(
+            id=RUN_ID,
+            status=RunStatus.FAILED,
+            failed_stage=Stage.EXTRACT,
+            error_message=error_message,
+        )
+    )
+
+
+def test_F11_R5_alert_never_raises_when_repo_fails_after_send(settings: Settings) -> None:
+    repo = _BrokenRepo(sent_fails=True)
+    run = _failed_run(repo)
+    notifier = FakeNotifier()
+    assert _alert(repo, notifier, run, settings) is None
+    assert len(notifier.sent) == 1
+    assert repo.get_run(RUN_ID).error_message == (
+        "Page 2 could not be read; ops alert failed (INTERNAL_ERROR)"
+    )
+
+
+def test_F11_R5_failure_note_without_previous_message(
+    memory_repo: MemoryRepo, settings: Settings
+) -> None:
+    run = _failed_run(memory_repo, error_message=None)
+    _alert(memory_repo, FakeNotifier(fail=True), run, settings)
+    assert memory_repo.get_run(RUN_ID).error_message == "ops alert not delivered (UPSTREAM_FAILED)"
+
+
+def test_F11_R5_run_update_conflict_swallowed(settings: Settings) -> None:
+    repo = _BrokenRepo(run_update_fails=True)
+    run = _failed_run(repo)
+    n = _alert(repo, FakeNotifier(fail=True), run, settings)
+    assert n is not None and n.status is NotificationStatus.FAILED
+    assert repo.get_run(RUN_ID).error_message == "Page 2 could not be read"
+
+
+def test_error_parts_page_unreadable_FM06_numbers_only() -> None:
+    assert error_parts(PageUnreadable(2, 140, 200)) == (
+        "CONTRACT_VIOLATION",
+        "page 2: 140/200 cells illegible",
+    )
+
+
+def test_error_parts_invalid_read_output_FM05_no_model_text() -> None:
+    code, reason = error_parts(InvalidReadOutput("model said: secret supplier text"))
+    assert (code, reason) == ("UPSTREAM_FAILED", "OpenAI invalid output")

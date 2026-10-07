@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     EXTRACT_BACKOFF_S: tuple[int, ...] = EXTRACT_WAITS_S
 
     TELEGRAM_ATTEMPTS: int = 3
-    TELEGRAM_BACKOFF_S: tuple[int, ...] = (1, 4, 10)
+    TELEGRAM_BACKOFF_S: tuple[int, ...] = (1, 4)
     TELEGRAM_TIMEOUT_S: int = 10
 
     UPLOAD_WINDOW_S: int = 600

@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from app.core import clock
 from app.core.config import Settings, get_settings
 from app.core.db import Repo
-from app.core.errors import LedgerlineError, UpstreamFailed
+from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
@@ -21,7 +21,8 @@ from app.domain.enums import (
     NotificationStatus,
     Stage,
 )
-from app.domain.models import AuditEntry, Notification, Run
+from app.domain.models import Notification, Run
+from app.services.audit import audit
 from app.services.telegram import Notifier
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,11 @@ def error_parts(error: BaseException) -> tuple[str, str]:
     if isinstance(error, UpstreamFailed):
         service = _SERVICES.get(error.service, error.service)
         return ErrorCode.UPSTREAM_FAILED.value, f"{service} {error.detail}"
+    if isinstance(error, PageUnreadable):  # FM-06: the photo breaks the input contract (422)
+        reason = f"page {error.page_no}: {error.illegible}/{error.total} cells illegible"
+        return ErrorCode.CONTRACT_VIOLATION.value, reason
+    if isinstance(error, InvalidReadOutput):  # FM-05: same as FM-04 after retries; no model text
+        return ErrorCode.UPSTREAM_FAILED.value, "OpenAI invalid output"
     code = getattr(error, "code", None)
     if isinstance(code, ErrorCode):
         return code.value, str(getattr(error, "message", "") or "")
@@ -78,12 +84,34 @@ def stage_failed_alert(
     *,
     settings: Settings | None = None,
     now: Callable[[], datetime] = clock.now,
-) -> Notification:
+) -> Notification | None:
     """Send one ops alert for a stage that ended FAILED after its retries (contracts/alerts.md
     steps 1 to 5). A repeat in the same scenario minute returns the existing notification
-    without sending. Never raises for a delivery failure."""
+    without sending. Never raises: if anything else fails (e.g. the repo after the send) it
+    logs the error code, notes it on the run (best effort) and returns None."""
     settings = settings or get_settings()
     at = now()
+    try:
+        return _send_alert(repo, notifier, run, stage, error, page_no, settings, at, now)
+    except Exception as exc:  # F-11.R5: the alert must never mask the stage's own error
+        code = _failure_code(exc)
+        log.warning("ops alert failed", extra={"run_id": str(run.id), "error_code": code})
+        _note_on_run(repo, run.id, f"ops alert failed ({code})")
+        return None
+
+
+def _send_alert(
+    repo: Repo,
+    notifier: Notifier,
+    run: Run,
+    stage: Stage,
+    error: BaseException,
+    page_no: int | None,
+    settings: Settings,
+    at: datetime,
+    now: Callable[[], datetime],
+) -> Notification:
+    """Steps 1 to 5 of contracts/alerts.md; a delivery failure is recorded, not raised."""
     pending = Notification(
         id=uuid4(),
         run_id=run.id,
@@ -112,7 +140,7 @@ def stage_failed_alert(
             raise UpstreamFailed("telegram", "ops chat not set")
         text = alert_text(run, stage, error, page_no, settings.APP_BASE_URL)
         message_id = notifier.send_message(chat_id, text)
-    except Exception as exc:  # F-11.R5: a failed alert must not mask the stage's own error
+    except Exception as exc:  # delivery failed: record it (F-11.R5)
         return _record_failure(repo, n, exc, now())
     done = now()
     n = repo.update_notification(
@@ -123,42 +151,46 @@ def stage_failed_alert(
         sent_at=done,
         updated_at=done,
     )
-    repo.append_audit(
-        AuditEntry(
-            id=0,  # assigned by the repo
-            at=done,
-            actor="system",
-            action=AuditAction.ALERT_SENT,
-            entity="notification",
-            entity_id=str(n.id),
-            run_id=run.id,
-            before=None,
-            after={"stage": stage.value, "status": n.status.value},
-            channel=AuditChannel.TELEGRAM,
-        )
+    audit(
+        repo,
+        "system",
+        AuditAction.ALERT_SENT,
+        "notification",
+        str(n.id),
+        run_id=run.id,
+        after={"stage": stage.value, "status": n.status.value},
+        channel=AuditChannel.TELEGRAM,
+        now=lambda: done,
     )
     return n
 
 
+def _failure_code(exc: Exception) -> str:
+    if isinstance(exc, UpstreamFailed):
+        return ErrorCode.UPSTREAM_FAILED.value
+    return ErrorCode.INTERNAL_ERROR.value
+
+
 def _record_failure(repo: Repo, n: Notification, exc: Exception, at: datetime) -> Notification:
     """FAILED with a token-free `last_error`; the run's error_message notes it (F-11.R5)."""
-    if isinstance(exc, UpstreamFailed):
-        code, last_error = ErrorCode.UPSTREAM_FAILED.value, f"UPSTREAM_FAILED: {exc.detail}"
-    else:
-        code = ErrorCode.INTERNAL_ERROR.value
-        last_error = f"{code}: {type(exc).__name__}"
+    code = _failure_code(exc)
+    detail = exc.detail if isinstance(exc, UpstreamFailed) else type(exc).__name__
     log.warning("ops alert not delivered", extra={"run_id": str(n.run_id), "error_code": code})
     n = repo.update_notification(
         n.id,
         expected={NotificationStatus.SENDING},
         status=NotificationStatus.FAILED,
-        last_error=last_error,
+        last_error=f"{code}: {detail}",
         updated_at=at,
     )
-    note = f"ops alert not delivered ({code})"
-    try:
-        current = repo.get_run(n.run_id).error_message
-        repo.update_run_fields(n.run_id, error_message=f"{current}; {note}" if current else note)
-    except LedgerlineError:  # e.g. the run was finalised meanwhile; the notification records it
-        log.warning("alert failure not recorded on run", extra={"run_id": str(n.run_id)})
+    _note_on_run(repo, n.run_id, f"ops alert not delivered ({code})")
     return n
+
+
+def _note_on_run(repo: Repo, run_id: UUID, note: str) -> None:
+    """Best effort: append `note` to the run's error_message (no leading "; " when empty)."""
+    try:
+        current = repo.get_run(run_id).error_message
+        repo.update_run_fields(run_id, error_message=f"{current}; {note}" if current else note)
+    except Exception:  # e.g. StateConflict on a finalised run; the notification records it
+        log.warning("alert failure not recorded on run", extra={"run_id": str(run_id)})

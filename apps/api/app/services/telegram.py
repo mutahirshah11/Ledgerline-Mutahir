@@ -8,7 +8,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, Self
 
 import httpx
 
@@ -40,9 +40,11 @@ class _RedactBotPath(logging.Filter):
         return True
 
 
-_httpx_log = logging.getLogger("httpx")
-if not any(isinstance(f, _RedactBotPath) for f in _httpx_log.filters):
-    _httpx_log.addFilter(_RedactBotPath())
+def _install_log_filter() -> None:
+    """Add the redaction filter to the `httpx` logger once (it logs the request URL)."""
+    httpx_log = logging.getLogger("httpx")
+    if not any(isinstance(f, _RedactBotPath) for f in httpx_log.filters):
+        httpx_log.addFilter(_RedactBotPath())
 
 
 class _Retryable(Exception):
@@ -66,10 +68,21 @@ class TelegramNotifier:
         sleep: Callable[[float], None] = time.sleep,
         fault: Fault | None = None,
     ) -> None:
+        _install_log_filter()
         self._settings = settings or get_settings()
         self._client = client or httpx.Client()
         self._sleep = sleep
         self._fault = fault
+
+    def close(self) -> None:
+        """Close the HTTP client (also an injected one)."""
+        self._client.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     def send_message(self, chat_id: str, text: str) -> int:
         token = self._settings.TELEGRAM_BOT_TOKEN
@@ -79,6 +92,7 @@ class TelegramNotifier:
         attempts = max(1, self._settings.TELEGRAM_ATTEMPTS)
         waits = self._settings.TELEGRAM_BACKOFF_S or (0,)
         cause = ""
+        # TODO(R8): use runlog.retrying with chain=False
         for attempt in range(1, attempts + 1):
             try:
                 return self._post(url, {"chat_id": chat_id, "text": text})
