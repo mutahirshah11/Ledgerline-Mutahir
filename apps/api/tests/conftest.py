@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from app.core.db import Repo
     from app.core.memory_repo import MemoryRepo
     from app.core.storage import MemoryBlobStore
-    from app.domain.models import Run
+    from app.domain.models import Extraction, Run
     from app.pipeline.engine import EngineInputs
     from app.pipeline.model_client import ReplayModelClient
     from tests.fakes.api import FakeJwksFetcher, FakeNotifier
@@ -38,6 +38,26 @@ def ground_truth_dir() -> Path:
 def cached_reads_dir() -> Path:
     """The committed real reads of the pack pages (003 research R10)."""
     return REPO_ROOT / "supabase" / "seed" / "extractions"
+
+
+@pytest.fixture(scope="session")
+def cached_extraction_records(cached_reads_dir: Path) -> list["Extraction"]:
+    """Every committed read in `cached_reads_dir`, parsed and validated once per session.
+
+    `load_cached_extractions` re-reads and re-validates the same ~dozen committed JSON files
+    from disk on every call; a test that only needs them stored in its own fresh `memory_repo`
+    can call `store_cached_extractions(repo, cached_extraction_records)` instead, which skips
+    that repeated file I/O and `Extraction.model_validate_json` cost (NFR-11). `Extraction` is
+    frozen (`DomainModel`), so sharing these records read-only across tests is safe."""
+    from app.pipeline.extract import _parse_cache_dir
+
+    return _parse_cache_dir(cached_reads_dir)
+
+
+def store_cached_extractions(repo: "Repo", records: list["Extraction"]) -> int:
+    """Stores already-parsed `records` (see `cached_extraction_records`) into `repo`; same
+    result as `load_cached_extractions(repo, cached_reads_dir)` without the file I/O."""
+    return sum(1 for record in records if repo.put_extraction(record)[1])
 
 
 def _live_openai_key() -> str | None:
@@ -317,7 +337,11 @@ def client(
 ) -> Iterator[TestClient]:
     """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
     JWKS, with the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for
-    the pack."""
+    the pack.
+
+    A fresh `create_app()` every time, not memoised: some tests (`test_F12_auth._stub_routes`)
+    call `client.app.include_router(...)`, which would otherwise leak routes onto later tests
+    sharing the same app object (test isolation)."""
     from app.core.auth import JwksCache, get_jwks_cache
     from app.core.db import get_repo
     from app.core.deps import get_notifier

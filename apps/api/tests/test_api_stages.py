@@ -26,8 +26,8 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.models import Extraction
-from app.pipeline.extract import load_cached_extractions
 from app.pipeline.model_client import ReplayModelClient
+from tests.conftest import store_cached_extractions
 from tests.fakes.api import FakeNotifier
 
 API = "/api/v1"
@@ -100,9 +100,9 @@ def validated(
 
 
 @pytest.fixture
-def cached(memory_repo: MemoryRepo, cached_reads_dir: Path) -> int:
+def cached(memory_repo: MemoryRepo, cached_extraction_records: list[Extraction]) -> int:
     """Every committed read in the repo, as the seed script loads them."""
-    return load_cached_extractions(memory_repo, cached_reads_dir)
+    return store_cached_extractions(memory_repo, cached_extraction_records)
 
 
 def extract(client: TestClient, headers: Headers, run_id: str, page_no: int, **query: str) -> Any:
