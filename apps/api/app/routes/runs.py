@@ -3,19 +3,21 @@ C25).
 
 EP-03, EP-06 and EP-07 are CONTROLLER only (Clarification 4); EP-04 and EP-05 are open to every
 allow-listed role. Upload logic lives in `app.services.stages`. Phase 4 (005): EP-05 returns
-`RunView` (`app.services.finalise.load_run_view`); EP-11 to EP-13 read groups, flags and proof;
+`RunView` (`app.services.finalise.load_run_view`) and checks a finalised run for a stale summary;
+EP-11 to EP-13 read groups, flags and proof; EP-17 finalises (`app.services.finalise.finalise`);
 EP-18 links the frozen report files.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import BaseModel
 
 from app.core.auth import require_role
+from app.core.config import get_settings
 from app.core.db import Repo, get_repo
 from app.core.deps import get_extract_sleep, get_model_client, get_notifier
 from app.core.errors import NotFound
@@ -35,6 +37,8 @@ from app.domain.enums import (
 from app.domain.models import (
     AllowedUser,
     ControlFlag,
+    FinaliseRequest,
+    FinaliseResponse,
     GroupView,
     Proof,
     ReportLinks,
@@ -46,7 +50,7 @@ from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.services import finalise, stages
 from app.services.stages import ExtractPageResult, ReconcileResult, UploadFileIn, UploadSlot
-from app.services.telegram import Notifier
+from app.services.telegram import Notifier, TelegramNotifier, check_stale_summary
 
 router = APIRouter()
 
@@ -58,6 +62,19 @@ StageCaller = Annotated[AllowedUser, Depends(require_role(Role.CONTROLLER, ops_r
 ModelClientDep = Annotated[ModelClient, Depends(get_model_client)]
 SleepDep = Annotated[Callable[[float], None], Depends(get_extract_sleep)]
 FaultDep = Annotated[Fault | None, Depends(active_fault)]
+
+
+def get_summary_notifier(notifier: NotifierDep, fault: FaultDep) -> Iterator[Notifier]:
+    """EP-17's notifier: under fault `TELEGRAM_DOWN` (Section 25) a real notifier that fails
+    every attempt without a network call, so its retries and run events are the real ones."""
+    if fault is not Fault.TELEGRAM_DOWN:
+        yield notifier
+        return
+    with TelegramNotifier(get_settings(), fault=fault) as down:
+        yield down
+
+
+SummaryNotifierDep = Annotated[Notifier, Depends(get_summary_notifier)]
 
 
 # --- models (data-model.md §2) ---------------------------------------------------------
@@ -182,9 +199,12 @@ def list_runs(repo: RepoDep, limit: Annotated[int, Query(ge=1, le=100)] = 20) ->
 
 
 @router.get("/runs/{id}", response_model=RunView)
-def get_run(id: UUID, repo: RepoDep) -> RunView:
+def get_run(id: UUID, repo: RepoDep, notifier: NotifierDep) -> RunView:
     """EP-05: flat `RunView` (C25, FR-020): Phase 3 `RunDetail` plus row counts, headline,
-    exception list and summary notification (005 data-model.md §2, E3)."""
+    exception list and summary notification (005 data-model.md §2, E3). A `FINALISED` run is
+    checked for a stale summary first (F-10.R7, C22: one ops alert, never a resend)."""
+    if repo.get_run(id).status is RunStatus.FINALISED:
+        check_stale_summary(repo, notifier, id)
     return finalise.load_run_view(repo, id)
 
 
@@ -326,3 +346,27 @@ def report_links(id: UUID, repo: RepoDep, blobs: BlobsDep) -> ReportLinks:
     """EP-18: signed links to `report.html` and `outcomes.csv`, valid 5 minutes (F-09.R5);
     409 `RUN_STATE_CONFLICT` unless the run is `FINALISED`; open to every allow-listed role."""
     return finalise.report_links(repo, blobs, id)
+
+
+@router.post("/runs/{id}/finalise", response_model=FinaliseResponse)
+def finalise_run(
+    id: UUID,
+    request: Request,
+    user: Controller,
+    repo: RepoDep,
+    blobs: BlobsDep,
+    notifier: SummaryNotifierDep,
+    body: FinaliseRequest | None = None,
+) -> FinaliseResponse:
+    """EP-17 (F-10, F-07 AC6, F-12 AC3): CONTROLLER only; 400 `CONFIRM_REQUIRED` without
+    `{"confirm": true}`; 409 `PROOF_NOT_PASSED` or `RUN_STATE_CONFLICT`; 200 with the summary
+    notification (`SENT`, or `FAILED` when Telegram is down; call again to resend)."""
+    return finalise.finalise(
+        repo, blobs, notifier, id, body or FinaliseRequest(), user, _channel(request)
+    )
+
+
+def _channel(request: Request) -> AuditChannel:
+    """WEB for a call from the app's browser origin, else API (data-model.md §8)."""
+    origin = request.headers.get("origin")
+    return AuditChannel.WEB if origin in get_settings().cors_origin_list else AuditChannel.API
