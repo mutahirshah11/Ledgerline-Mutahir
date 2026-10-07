@@ -17,14 +17,13 @@ from uuid import UUID
 from app.core.config import Settings
 from app.domain.enums import ReadVariant
 from app.domain.models import (
-    MergedPage,
     PageExtractionResult,
     PageRead,
     RegisterPageInput,
     ReviewItem,
 )
 from app.pipeline.engine import EngineInputs
-from app.pipeline.extract import cache_file_name, parse_read
+from app.pipeline.extract import cache_file_name, parse_read, register_input
 from scripts.seed_cache import page_image
 from tests.support.pack import PAGES, pack_engine_inputs
 from tests.support.pack_pages import (
@@ -112,20 +111,6 @@ def cached_pack_pages(
     return dict(cached_pack(cache_dir, pack_dir, settings, run_id=run_id).results)
 
 
-def merged_page_input(page: MergedPage) -> RegisterPageInput:
-    """E1 → engine input. Field names differ: `blank_row_slots_a/b` → `blank_slots_a/b`."""
-    return RegisterPageInput(
-        page_no=page.page_no,
-        page_sha256=page.page_sha256,
-        month_written=page.month_written,
-        row_count_a=page.row_count_a,
-        row_count_b=page.row_count_b,
-        blank_slots_a=page.blank_row_slots_a,
-        blank_slots_b=page.blank_row_slots_b,
-        rows=page.rows,
-    )
-
-
 def build_engine_inputs_from_pages(
     pack_dir: Path,
     pages: Mapping[int, PageExtractionResult],
@@ -138,7 +123,7 @@ def build_engine_inputs_from_pages(
     register: list[RegisterPageInput] = []
     items: dict[str, ReviewItem] = {}
     for p in PAGES:
-        register.append(merged_page_input(pages[p].page))
+        register.append(register_input(pages[p].page))
         for item in pages[p].review_items:
             items[item.item_key] = item
     for decision in decisions:

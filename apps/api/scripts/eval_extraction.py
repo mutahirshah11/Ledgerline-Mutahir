@@ -61,6 +61,7 @@ from app.pipeline.model_client import (
     OpenAIModelClient,
     ReplayModelClient,
 )
+from scripts.seed_cache import page_image
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 API_DIR = SCRIPTS_DIR.parent
@@ -351,17 +352,13 @@ def load_ground_truth(directory: Path = GROUND_TRUTH_DIR) -> dict[int, PageRead]
     }
 
 
-def _image(page_no: int, pack_dir: Path) -> bytes:
-    return (pack_dir / f"t4_register_page{page_no}.jpg").read_bytes()
-
-
 def _read_pages(
     client: ModelClient, pages: tuple[int, ...], pack_dir: Path, prompt_version: str
 ) -> list[ReadPair]:
     schema = load_read_schema(prompt_version)
     pairs: list[ReadPair] = []
     for page_no in pages:
-        image = _image(page_no, pack_dir)
+        image = page_image(pack_dir, page_no)
         reads: dict[ReadVariant, PageRead] = {}
         tokens_in = tokens_out = 0
         for variant in (ReadVariant.A, ReadVariant.B):
