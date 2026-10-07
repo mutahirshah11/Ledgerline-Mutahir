@@ -32,8 +32,11 @@ from app.domain.enums import (
 from app.domain.ids import parse_month, run_key
 from app.domain.models import AllowedUser, PageManifestEntry, Run, Sha256Hex, SourceFile
 from app.pipeline.engine import outcome_counts_of
+from app.pipeline.validate import RegisterFile, ValidationProblem, validate_files
+from app.services.alerts import stage_failed_alert
 from app.services.audit import audit
-from app.services.runlog import StepLog
+from app.services.runlog import StepLog, stage_step
+from app.services.telegram import Notifier
 
 Now = Callable[[], datetime]
 
@@ -443,3 +446,94 @@ def run_outcome_counts(repo: Repo, run_id: UUID) -> dict[Outcome, int]:
 
     Two reads (groups, rows) per run; EP-04 calls it per listed run (Phase 5 follow-up)."""
     return outcome_counts_of(repo.list_source_rows(run_id), repo.list_groups(run_id)).flat()
+
+
+# --- EP-08 -----------------------------------------------------------------------------
+
+_VALIDATE_PAST = frozenset(
+    {
+        RunStatus.VALIDATED,
+        RunStatus.EXTRACTING,
+        RunStatus.EXTRACTED,
+        RunStatus.RECONCILED,
+        RunStatus.AWAITING_REVIEW,
+        RunStatus.READY,
+    }
+)
+"""Statuses the run reaches only after passing validate (data-model.md §3 EP-08 row);
+repeating the call here is `{ok: true}`, no writes. `FINALISED` is excluded on purpose: any
+stage call on a finalised run is 409 (data-model.md §3, "any stage" row)."""
+
+
+def _source_bytes(repo: Repo, blobs: BlobStore, run_id: UUID, source: Source) -> bytes:
+    (file,) = repo.list_source_files(run_id, source)
+    return blobs.get(INPUTS_BUCKET, file.storage_path)
+
+
+def _register_files(repo: Repo, blobs: BlobStore, run_id: UUID) -> list[RegisterFile]:
+    files = sorted(repo.list_source_files(run_id, Source.REGISTER), key=lambda f: f.page_no or 0)
+    return [
+        RegisterFile(f.page_no or 0, f.filename, blobs.get(INPUTS_BUCKET, f.storage_path))
+        for f in files
+    ]
+
+
+def _problem_summary(problems: Sequence[ValidationProblem]) -> str:
+    n = len(problems)
+    label = "problem" if n == 1 else "problems"
+    return f"{n} {label}: " + "; ".join(p.message for p in problems)
+
+
+def validate_stage(
+    repo: Repo,
+    blobs: BlobStore,
+    notifier: Notifier,
+    run: Run,
+    user: AllowedUser,
+    *,
+    now: Now = clock.now,
+) -> list[ValidationProblem]:
+    """EP-08 (F-02.R5, Clarification 3, data-model.md §3). Only a run `UPLOADED` is checked;
+    `VALIDATED` or later repeats as `{ok: true}` with no writes; any other status (including
+    `CREATED` and `FAILED` at any stage) is 409 `RUN_STATE_CONFLICT` — validate has no retry
+    from `FAILED` (FR-024): a run failed at validate must be re-created, not retried."""
+    if run.status in _VALIDATE_PAST:
+        return []
+    if run.status is not RunStatus.UPLOADED:
+        raise StateConflict(run)
+    with stage_step(repo, run.id, Stage.VALIDATE, now=now):
+        erp = _source_bytes(repo, blobs, run.id, Source.ERP)
+        sheet = _source_bytes(repo, blobs, run.id, Source.SHEET)
+        registers = _register_files(repo, blobs, run.id)
+        problems = validate_files(run.month, erp, sheet, registers)
+        if not problems:
+            moved = repo.transition_run(run.id, RunStatus.VALIDATED, expected={RunStatus.UPLOADED})
+            audit(
+                repo,
+                user.email,
+                AuditAction.RUN_VALIDATED,
+                "run",
+                str(run.id),
+                run.id,
+                after={"status": moved.status.value},
+                channel=AuditChannel.WEB,
+                now=now,
+            )
+            return []
+        summary = _problem_summary(problems)
+        err = ApiError(
+            ErrorCode.CONTRACT_VIOLATION,
+            422,
+            "The inputs break the contract; see details.problems",
+            Stage.VALIDATE,
+            {"problems": [p.model_dump(mode="json") for p in problems]},
+        )
+        failed = repo.transition_run(
+            run.id,
+            RunStatus.FAILED,
+            expected={RunStatus.UPLOADED},
+            failed_stage=Stage.VALIDATE,
+            error_message=summary,
+        )
+        stage_failed_alert(repo, notifier, failed, Stage.VALIDATE, err, now=now)
+        raise err  # `stage_step` writes the FAILED run event on the way out

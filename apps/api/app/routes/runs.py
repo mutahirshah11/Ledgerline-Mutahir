@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app.core.auth import require_role
 from app.core.config import get_settings
 from app.core.db import Repo, get_repo
+from app.core.deps import get_notifier
 from app.core.storage import BlobStore, get_blobstore
 from app.domain.enums import (
     Outcome,
@@ -27,14 +28,18 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.models import AllowedUser, Run, RunEvent
+from app.pipeline.validate import ValidationProblem
 from app.services import stages
 from app.services.stages import UploadFileIn, UploadSlot
+from app.services.telegram import Notifier
 
 router = APIRouter()
 
 RepoDep = Annotated[Repo, Depends(get_repo)]
 BlobsDep = Annotated[BlobStore, Depends(get_blobstore)]
+NotifierDep = Annotated[Notifier, Depends(get_notifier)]
 Controller = Annotated[AllowedUser, Depends(require_role(Role.CONTROLLER))]
+StageCaller = Annotated[AllowedUser, Depends(require_role(Role.CONTROLLER, ops_retry=True))]
 
 
 # --- models (data-model.md §2) ---------------------------------------------------------
@@ -74,6 +79,11 @@ class ConfirmResponse(BaseModel):
     run: RunOut
     new_pages: list[int]
     known_pages: list[int]
+
+
+class ValidateResponse(BaseModel):
+    ok: Literal[True]
+    problems: list[ValidationProblem]
 
 
 StageState = Literal["PENDING", "RUNNING", "OK", "FAILED"]
@@ -245,3 +255,13 @@ def confirm_uploads(id: UUID, user: Controller, repo: RepoDep, blobs: BlobsDep) 
     return ConfirmResponse(
         run=RunOut.of(result.run), new_pages=result.new_pages, known_pages=result.known_pages
     )
+
+
+@router.post("/runs/{id}/validate", response_model=ValidateResponse)
+def validate_run(
+    id: UUID, user: StageCaller, repo: RepoDep, blobs: BlobsDep, notifier: NotifierDep
+) -> ValidateResponse:
+    """EP-08 (F-02.R5); CONTROLLER always, OPS only to retry a `FAILED` run (contracts/auth.md);
+    validate itself has no retry from `FAILED` (data-model.md §3, FR-024)."""
+    problems = stages.validate_stage(repo, blobs, notifier, repo.get_run(id), user)
+    return ValidateResponse(ok=True, problems=problems)
