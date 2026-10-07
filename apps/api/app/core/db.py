@@ -9,6 +9,7 @@ from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from app.domain.enums import (
+    NotificationKind,
     NotificationStatus,
     Outcome,
     ReadVariant,
@@ -168,6 +169,10 @@ class Repo(Protocol):
     def list_notifications(self, run_id: UUID) -> list[Notification]: ...
     def list_stale_sending(self, older_than: datetime) -> list[Notification]:
         """F-10.R7: SENDING and updated_at < older_than."""
+        ...
+
+    def get_latest_notification(self, kind: NotificationKind) -> Notification | None:
+        """004 E2 (F-11.R5): latest of `kind` by updated_at, then id; None if none."""
         ...
 
     # run events (F-11.R2)

@@ -37,6 +37,9 @@ class BlobStore(Protocol):
     def signed_download_url(
         self, bucket: str, path: str, expires_s: int = 300
     ) -> tuple[str, datetime]: ...
+    def bucket_ok(self, bucket: str) -> bool:
+        """004 E3 (F-11.R7): the bucket exists and is reachable; never raises if missing."""
+        ...
 
 
 class MemoryBlobStore:
@@ -70,6 +73,9 @@ class MemoryBlobStore:
         if bucket == REPORTS_BUCKET:
             raise AppendOnlyViolation(f"{bucket}/{path}")
         self._objects.pop((bucket, path), None)
+
+    def bucket_ok(self, bucket: str) -> bool:
+        return bucket in BUCKETS
 
     def _url(self, bucket: str, path: str, expires_at: datetime) -> str:
         _check_bucket(bucket)

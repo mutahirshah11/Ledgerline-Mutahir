@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.core.errors import AppendOnlyViolation, NotFound, StateConflict, UniqueViolation
 from app.domain.enums import (
+    NotificationKind,
     NotificationStatus,
     Outcome,
     ReadVariant,
@@ -547,6 +548,10 @@ class MemoryRepo:
             for n in self._notifications.values()
             if n.status is NotificationStatus.SENDING and n.updated_at < older_than
         ]
+
+    def get_latest_notification(self, kind: NotificationKind) -> Notification | None:
+        found = [n for n in self._notifications.values() if n.kind is kind]
+        return _copy(max(found, key=lambda n: (n.updated_at, n.id))) if found else None
 
     # --- run events ----------------------------------------------------------------------
 

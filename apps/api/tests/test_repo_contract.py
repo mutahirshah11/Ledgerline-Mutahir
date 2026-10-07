@@ -12,6 +12,7 @@ from app.core.db import Repo
 from app.core.errors import AppendOnlyViolation, NotFound, StateConflict, UniqueViolation
 from app.domain.enums import (
     AuditAction,
+    NotificationKind,
     NotificationStatus,
     Outcome,
     ReadVariant,
@@ -86,11 +87,12 @@ REPO_METHODS = {
     "update_notification",
     "list_notifications",
     "list_stale_sending",
+    "get_latest_notification",
     "add_run_event",
     "list_run_events",
     "append_audit",
     "list_audit",
-}  # data-model.md Section 7: 39 methods
+}  # data-model.md Section 7: 39 methods, plus 004 E2
 
 
 def _new_run(repo: Repo, **over: object) -> Run:
@@ -983,6 +985,31 @@ def test_list_stale_sending(repo: Repo) -> None:
     )
     assert repo.list_stale_sending(at(5)) == [old]  # strictly older than
     assert repo.list_stale_sending(at(6)) == [old, boundary]
+
+
+def test_repo_contract_get_latest_notification(repo: Repo) -> None:
+    """004 E2: latest of a kind by updated_at, then id; None when there is none."""
+    assert repo.get_latest_notification(NotificationKind.ALERT) is None
+    run = _new_run(repo)
+    alert = NotificationKind.ALERT
+    ids = sorted([uuid4(), uuid4()])
+    repo.insert_notification(make_notification(run.id, kind=alert, updated_at=at(1)))
+    low, _ = repo.insert_notification(
+        make_notification(run.id, id=ids[0], kind=alert, updated_at=at(3))
+    )
+    high, _ = repo.insert_notification(
+        make_notification(run.id, id=ids[1], kind=alert, updated_at=at(3))
+    )
+    repo.insert_notification(make_notification(run.id, updated_at=at(9)))  # SUMMARY
+    assert repo.get_latest_notification(alert) == high  # tie on updated_at: larger id
+    failed = repo.update_notification(
+        low.id,
+        expected={NotificationStatus.PENDING},
+        status=NotificationStatus.FAILED,
+        updated_at=at(4),
+    )
+    assert repo.get_latest_notification(alert) == failed
+    assert repo.get_latest_notification(NotificationKind.SUMMARY) is not None
 
 
 # --- run events and audit ----------------------------------------------------------------
