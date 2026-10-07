@@ -10,6 +10,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "pydantic>=2.11",
     "pydantic-settings",
+    "pyjwt[crypto]>=2.10",
     "supabase>=2.32.0",
     "tenacity>=9.1.4",
     "tzdata>=2026.5",
