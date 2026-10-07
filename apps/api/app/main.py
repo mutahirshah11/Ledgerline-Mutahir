@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.auth import current_user
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
+from app.core.logging import RequestLogMiddleware, configure_logging
 from app.routes import health
 
 API_PREFIX = "/api/v1"
@@ -65,6 +66,8 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
     # 500s come from Starlette's outermost ServerErrorMiddleware, so they carry no CORS headers.
+    configure_logging(settings)
+    app.add_middleware(RequestLogMiddleware)  # outermost: one JSON line per request (F-11.R3)
     install_error_handlers(app)
     for router in build_routers():
         if router.routes:  # an empty router would still mount a placeholder route
