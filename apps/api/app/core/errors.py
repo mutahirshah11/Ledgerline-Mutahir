@@ -1,6 +1,17 @@
-"""Domain errors raised by the Repo and BlobStore (contracts/repo-interface.md G4 to G7)."""
+"""Domain errors raised by the Repo and BlobStore (contracts/repo-interface.md G4 to G7), and
+the API error model and handlers (004 data-model.md §1, blueprint Section 11, C17, FR-026)."""
 
+import logging
 from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.domain.enums import ErrorCode, Stage
+
+logger = logging.getLogger("ledgerline.api")
 
 
 class LedgerlineError(Exception):
@@ -77,3 +88,115 @@ class InvalidReadOutput(LedgerlineError):
     def __init__(self, detail: str) -> None:
         super().__init__(f"invalid read output: {detail}")
         self.detail = detail
+
+
+# --- API error model (004 data-model.md §1) -------------------------------------------------
+
+
+class ApiError(LedgerlineError):
+    """An error the API returns as `{"error": {"code", "message", "stage", "details"}}`.
+
+    `message` is plain language and never carries secrets; `details` must be JSON-safe.
+    """
+
+    def __init__(
+        self,
+        code: ErrorCode,
+        http_status: int,
+        message: str,
+        stage: Stage | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.message = message
+        self.stage = stage
+        self.details: dict[str, Any] = details if details is not None else {}
+
+
+def error_response(err: ApiError) -> JSONResponse:
+    """The single error body of Section 11."""
+    body = {
+        "error": {
+            "code": err.code.value,
+            "message": err.message,
+            "stage": err.stage.value if err.stage is not None else None,
+            "details": err.details,
+        }
+    }
+    return JSONResponse(status_code=err.http_status, content=body)
+
+
+def _field(current: Any, name: str) -> Any:
+    value = current.get(name) if isinstance(current, dict) else getattr(current, name, None)
+    return getattr(value, "value", value)
+
+
+def _to_api_error(exc: Exception) -> ApiError:
+    """Map a known exception to its ApiError (data-model.md §1 table)."""
+    if isinstance(exc, ApiError):
+        return exc
+    if isinstance(exc, NotFound):
+        return ApiError(ErrorCode.NOT_FOUND, 404, f"{exc.entity} not found")
+    if isinstance(exc, StateConflict):
+        conflict = {
+            "status": _field(exc.current, "status"),
+            "failed_stage": _field(exc.current, "failed_stage"),
+        }
+        return ApiError(
+            ErrorCode.RUN_STATE_CONFLICT, 409, "The run changed state; reload it", details=conflict
+        )
+    if isinstance(exc, UniqueViolation):
+        return ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, "This record already exists")
+    if isinstance(exc, UpstreamFailed):
+        details: dict[str, Any] = {"service": exc.service}
+        if exc.page_no is not None:
+            details["page_no"] = exc.page_no
+        stage = Stage(exc.stage) if exc.stage is not None and exc.stage in _STAGES else None
+        return ApiError(
+            ErrorCode.UPSTREAM_FAILED, 502, f"{exc.service} failed after retries", stage, details
+        )
+    if isinstance(exc, RequestValidationError):
+        fields = [
+            {"loc": list(e.get("loc", ())), "msg": str(e.get("msg", ""))} for e in exc.errors()
+        ]
+        return ApiError(
+            ErrorCode.BAD_REQUEST, 400, "The request is not valid", details={"fields": fields}
+        )
+    if isinstance(exc, StarletteHTTPException):
+        code = _HTTP_CODES.get(exc.status_code, ErrorCode.BAD_REQUEST)
+        if exc.status_code >= 500:
+            code = ErrorCode.INTERNAL_ERROR
+        return ApiError(code, exc.status_code, str(exc.detail))
+    logger.error("unexpected error", exc_info=exc)
+    return ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error")
+
+
+_STAGES = frozenset(s.value for s in Stage)
+
+_HTTP_CODES = {
+    401: ErrorCode.UNAUTHENTICATED,
+    403: ErrorCode.NOT_ALLOWED,
+    404: ErrorCode.NOT_FOUND,
+}
+"""Framework HTTP errors (unknown route, bad method) keep the one error shape."""
+
+
+async def _handle(request: Request, exc: Exception) -> JSONResponse:
+    return error_response(_to_api_error(exc))
+
+
+def install_error_handlers(app: FastAPI) -> None:
+    """Route every error through the Section 11 shape; unknown ones become 500 INTERNAL_ERROR."""
+    for exc_type in (
+        ApiError,
+        NotFound,
+        StateConflict,
+        UniqueViolation,
+        UpstreamFailed,
+        RequestValidationError,
+        StarletteHTTPException,
+        Exception,
+    ):
+        app.add_exception_handler(exc_type, _handle)
