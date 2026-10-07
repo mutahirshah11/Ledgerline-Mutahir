@@ -4,11 +4,14 @@ EP-14 and EP-16 are open to every allow-listed role (FR-038); EP-15 is CONTROLLE
 (F-12.R4). The decision flow lives in `app.services.review`.
 """
 
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.auth import require_role
@@ -32,7 +35,31 @@ from app.domain.models import AllowedUser, Cell, PageImageLink, ResolveRequest, 
 from app.services import review
 from app.services.telegram import Notifier
 
+
+class _ResolveRoute(APIRoute):
+    """EP-15: a body that fails `ResolveBody` (unknown action, extra field, too long, not an
+    object) is 422 `INVALID_REVIEW_ACTION`, the only 422 the contract lists; path errors stay
+    400."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def checked(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError as exc:
+                locs = [tuple(e.get("loc", ())) for e in exc.errors()]
+                if not locs or any(loc[:1] != ("body",) for loc in locs):
+                    raise
+                first = exc.errors()[0]
+                field = str(locs[0][1]) if len(locs[0]) > 1 else "body"
+                raise InvalidReviewAction(field, str(first.get("msg", ""))) from None
+
+        return checked
+
+
 router = APIRouter()
+_resolve_router = APIRouter(route_class=_ResolveRoute)
 
 RepoDep = Annotated[Repo, Depends(get_repo)]
 BlobsDep = Annotated[BlobStore, Depends(get_blobstore)]
@@ -94,15 +121,16 @@ def _channel(request: Request) -> AuditChannel:
 def list_review_items(
     id: UUID, repo: RepoDep, status: Annotated[ReviewStatus | None, Query()] = None
 ) -> list[ReviewCard]:
-    """EP-14: card order (F-08.R2, the repo's order), each with its card context (R3)."""
+    """EP-14: card order (F-08.R2, the repo's order), each with its card context (R3); OPEN
+    items only while current (engine `open_review_items`)."""
     repo.get_run(id)
     return [
-        ReviewCard(**{**item.model_dump(), "context": review.review_card_context(repo, item)})
-        for item in repo.list_review_items(id, status)
+        ReviewCard(**{**item.model_dump(), "context": context})
+        for item, context in review.list_cards(repo, id, status)
     ]
 
 
-@router.post("/review-items/{item_id}/resolve", response_model=ResolveResponse)
+@_resolve_router.post("/review-items/{item_id}/resolve", response_model=ResolveResponse)
 def resolve_review_item(
     item_id: UUID,
     body: ResolveBody,
@@ -117,6 +145,9 @@ def resolve_review_item(
     return review.resolve(
         repo, blobs, notifier, item_id, _request(body), user, _channel(request), fault=fault
     )
+
+
+router.include_router(_resolve_router)
 
 
 @router.get("/runs/{id}/pages/{page_no}/image", response_model=PageImageLink)

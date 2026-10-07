@@ -4,20 +4,24 @@
 for the item's reason, value (`ACCEPT_READ` / validated `ENTER_VALUE`), compare-and-set on the
 `OPEN` item (FM-09), run events `review`, the Phase 3 `reconcile_stage` (one extra pass when
 another decision landed meanwhile, FR-012), `equals_sources` and one `REVIEW_RESOLVED` audit.
-`review_card_context` adds the EP-14 view fields to an item's stored context (never stored).
+`review_card_context` adds the EP-14 view fields to an item's stored context (never stored),
+from one `CardData` load per request. Only current OPEN items (engine `open_review_items`) are
+listed as open or decidable.
 """
 
+import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from app.core import clock
 from app.core.config import get_settings
 from app.core.db import Repo
-from app.core.errors import InvalidReviewAction, ItemAlreadyResolved, NotFound, StateConflict
+from app.core.errors import InvalidReviewAction, ItemAlreadyResolved, StateConflict
 from app.core.faults import Fault
 from app.core.storage import BlobStore
 from app.domain.enums import (
@@ -47,16 +51,18 @@ from app.domain.models import (
     ReviewItem,
     Run,
     RunView,
-    StageProgressView,
+    SourceFile,
 )
-from app.pipeline.engine import open_review_count, outcome_counts_of
-from app.pipeline.normalise import load_mappings
+from app.pipeline.engine import open_review_items
+from app.pipeline.normalise import _QTY_MAX_EXPONENT, load_mappings
 from app.services.audit import audit
+from app.services.finalise import load_run_view
 from app.services.runlog import stage_step
 from app.services.stages import reconcile_stage
 from app.services.telegram import Notifier
 
 Now = Callable[[], datetime]
+log = logging.getLogger(__name__)
 
 # --- allowed actions (data-model 1.1, Clarification 2, C24) ------------------------------
 
@@ -86,7 +92,11 @@ ALLOWED_ACTIONS: dict[ReviewReason, frozenset[ReviewAction]] = {
 """Per reason (each reason belongs to one kind, so this is the kind matrix of data-model 1.1)."""
 
 
-def _field_name(item: ReviewItem) -> str:
+def field_of(item: ReviewItem) -> str:
+    """The field an item decides (data-model 1.1): its stored `field`; `grn_no` for
+    `UNMATCHED_NO_KEY` (stored with no field); else the kind's name."""
+    if item.reason is ReviewReason.UNMATCHED_NO_KEY:
+        return "grn_no"
     return item.field or item.kind.value
 
 
@@ -94,16 +104,17 @@ def check_action(item: ReviewItem, action: ReviewAction) -> None:
     """FR-004: `InvalidReviewAction` unless `action` is allowed for the item's kind/reason."""
     if action not in ALLOWED_ACTIONS[item.reason]:
         raise InvalidReviewAction(
-            _field_name(item), f"{action.value} is not allowed for {item.reason.value}"
+            field_of(item), f"{action.value} is not allowed for {item.reason.value}"
         )
 
 
 # --- values (data-model 1.2, research R16) ---------------------------------------------
 
 _ACCEPTABLE = frozenset({CellStatus.CLEAR, CellStatus.CORRECTED})
-_DATE = re.compile(r"\d{2}/\d{2}")
-_LOT = re.compile(r"L\d{4}-\d{3}")
-_GRN = re.compile(r"\d{3,6}")
+_QTY = re.compile(r"[0-9]+(\.[0-9]+)?")  # ASCII digits only, as the engine reads them
+_DATE = re.compile(r"[0-9]{2}/[0-9]{2}")
+_LOT = re.compile(r"L[0-9]{4}-[0-9]{3}")
+_GRN = re.compile(r"[0-9]{3,6}")
 
 
 def _same(a: str | None, b: str | None) -> bool:
@@ -114,7 +125,7 @@ def accept_read_value(item: ReviewItem) -> str | None:
     """FR-005: the value both reads give (CLEAR or CORRECTED current value, equal after trim
     and case-fold), else `InvalidReviewAction`. `ROW_IN_ONE_READ` keeps the row as read (no
     value); `PAGE_LABEL_MISMATCH` takes the page label both reads wrote (C20, C24)."""
-    field = _field_name(item)
+    field = field_of(item)
     if item.reason is ReviewReason.ROW_IN_ONE_READ:
         return None
     ctx = item.context
@@ -138,21 +149,21 @@ def _readable(cell: Cell | None) -> bool:
 
 def validate_value(field: str, raw: str, run: Run) -> str:
     """FR-006: the stored form of an entered value for `field`, else `InvalidReviewAction`.
-    qty a finite decimal ≥ 0; date `DD/MM`, a real date in the run month's year; lot
-    `L\\d{4}-\\d{3}` (upper-cased); unit an alias in `unit_map.csv`; supplier an alias in
-    `supplier_map.csv` or a code listed there; `grn_no` 3 to 6 digits."""
+    qty ASCII digits with an optional fraction, below the engine's limit (normalise
+    `_QTY_MAX_EXPONENT`); date `DD/MM`, a real date in the run month's year; lot `L` 4 digits
+    `-` 3 digits (upper-cased); unit an alias in `unit_map.csv`; supplier an alias in
+    `supplier_map.csv` or a code listed there; `grn_no` 3 to 6 digits and not 0 (F-04.R3).
+    Digits are ASCII only, as the engine reads them."""
     text = raw.strip()
 
     def bad(reason: str) -> InvalidReviewAction:
         return InvalidReviewAction(field, reason)
 
     if field == "qty":
-        try:
-            qty = Decimal(text)
-        except InvalidOperation:
-            raise bad("qty must be a number") from None
-        if not qty.is_finite() or qty < 0:
+        if not _QTY.fullmatch(text):
             raise bad("qty must be a number of 0 or more")
+        if Decimal(text).adjusted() >= _QTY_MAX_EXPONENT:  # the engine would read it unclear
+            raise bad("qty is too large")
         return text
     if field == "date":
         if not _DATE.fullmatch(text):
@@ -178,7 +189,7 @@ def validate_value(field: str, raw: str, run: Run) -> str:
             raise bad("supplier is not in the supplier mapping file")
         return text
     if field == "grn_no":
-        if not _GRN.fullmatch(text):
+        if not _GRN.fullmatch(text) or int(text) < 1:
             raise bad("GRN must be 3 to 6 digits")
         return text
     raise bad("a value cannot be entered for this field")
@@ -189,28 +200,44 @@ def validate_value(field: str, raw: str, run: Run) -> str:
 _CANONICAL = {"qty": "qty", "unit": "uom", "supplier": "supplier_code", "lot_no": "lot_no"}
 
 
-def _decided_row(repo: Repo, run_id: UUID, item: ReviewItem) -> CanonicalRow | None:
-    if item.source_row_id is None:
+@dataclass
+class CardData:
+    """One request's reads for cards and `equals_sources`: the run's rows, groups and register
+    files, each listed once, and read A per page fetched at most once (EP-14 N+1)."""
+
+    repo: Repo
+    run_id: UUID
+    rows: dict[str, CanonicalRow]
+    groups: Sequence[Group]
+    pages: Sequence[SourceFile]
+    _reads: dict[int, PageRead | None] = field(default_factory=dict)
+
+    def row(self, item: ReviewItem) -> CanonicalRow | None:
+        return None if item.source_row_id is None else self.rows.get(item.source_row_id)
+
+    def group_of(self, item: ReviewItem, row: CanonicalRow | None) -> Group | None:
+        if row is not None and row.group_id is not None:
+            return next((g for g in self.groups if g.id == row.group_id), None)
+        if item.grn_no is not None:
+            return next((g for g in self.groups if g.grn_no == item.grn_no), None)
         return None
-    try:
-        return repo.get_source_row(run_id, item.source_row_id)
-    except NotFound:
-        return None
+
+    def rows_by_source(self, group: Group) -> dict[Source, list[CanonicalRow]]:
+        ids = [i for s in Source for i in group.row_ids.get(s, [])]
+        rows = [self.rows[i] for i in ids if i in self.rows]
+        return {s: [r for r in rows if r.source is s] for s in Source}
+
+    def page_read_a(self, page_no: int) -> PageRead | None:
+        if page_no not in self._reads:
+            self._reads[page_no] = _read_a(self.repo, self.pages, page_no)
+        return self._reads[page_no]
 
 
-def _group_of(repo: Repo, run_id: UUID, item: ReviewItem, row: CanonicalRow | None) -> Group | None:
-    groups = repo.list_groups(run_id)
-    if row is not None and row.group_id is not None:
-        return next((g for g in groups if g.id == row.group_id), None)
-    if item.grn_no is not None:
-        return next((g for g in groups if g.grn_no == item.grn_no), None)
-    return None
-
-
-def _rows_by_source(repo: Repo, run_id: UUID, group: Group) -> dict[Source, list[CanonicalRow]]:
-    ids = {i for row_ids in group.row_ids.values() for i in row_ids}
-    rows = [r for r in repo.list_source_rows(run_id) if r.source_row_id in ids]
-    return {s: [r for r in rows if r.source is s] for s in Source}
+def load_card_data(repo: Repo, run_id: UUID) -> CardData:
+    """The reads one EP-14 request (or one EP-15 decision after re-reconcile) needs."""
+    rows = {r.source_row_id: r for r in repo.list_source_rows(run_id)}
+    pages = repo.list_source_files(run_id, Source.REGISTER)
+    return CardData(repo, run_id, rows, repo.list_groups(run_id), pages)
 
 
 def _shown(row: CanonicalRow, field: str) -> str | None:
@@ -238,47 +265,42 @@ def _compared(row: CanonicalRow, field: str) -> object:
     return getattr(row, _CANONICAL.get(field, field), None)
 
 
-def _own_source(item: ReviewItem, row: CanonicalRow | None) -> Source:
-    return row.source if row is not None else Source.REGISTER
-
-
-def _other_sources(repo: Repo, run_id: UUID, item: ReviewItem) -> dict[str, str | None]:
+def _other_sources(data: CardData, item: ReviewItem) -> dict[str, str | None]:
     """R3: the other sources' canonical values for the item's field in the same GRN group."""
-    row = _decided_row(repo, run_id, item)
-    own = _own_source(item, row)
-    group = _group_of(repo, run_id, item, row)
-    by_source = _rows_by_source(repo, run_id, group) if group is not None else {}
-    field = item.field or ""
+    row = data.row(item)
+    own = row.source if row is not None else Source.REGISTER
+    group = data.group_of(item, row)
+    by_source = data.rows_by_source(group) if group is not None else {}
+    name = field_of(item)
     out: dict[str, str | None] = {}
     for source in Source:
         if source is own:
             continue
-        shown = [v for r in by_source.get(source, []) if (v := _shown(r, field)) is not None]
+        shown = [v for r in by_source.get(source, []) if (v := _shown(r, name)) is not None]
         out[source.value] = ", ".join(shown) or None
     return out
 
 
-def equals_sources(repo: Repo, run_id: UUID, item: ReviewItem) -> list[Source]:
+def equals_sources(data: CardData, item: ReviewItem) -> list[Source]:
     """research R4: the other sources whose compared value of the item's field equals the
     decided row's, read after re-reconcile; [] without a value or a placed decided row."""
     if item.status is not ReviewStatus.RESOLVED or item.resolved_value is None:
         return []
-    row = _decided_row(repo, run_id, item)
-    if row is None or item.field is None:
+    row = data.row(item)
+    group = None if row is None else data.group_of(item, row)
+    if row is None or group is None:
         return []
-    group = _group_of(repo, run_id, item, row)
-    if group is None:
-        return []
-    by_source = _rows_by_source(repo, run_id, group)
-    if item.field == "grn_no":  # membership: the decided row now groups with these sources
+    by_source = data.rows_by_source(group)
+    name = field_of(item)
+    if name == "grn_no":  # membership: the decided row now groups with these sources
         return [s for s in Source if s is not row.source and by_source[s]]
-    mine = _compared(row, item.field)
+    mine = _compared(row, name)
     if mine is None:
         return []
     return [
         s
         for s in Source
-        if s is not row.source and any(_compared(r, item.field) == mine for r in by_source[s])
+        if s is not row.source and any(_compared(r, name) == mine for r in by_source[s])
     ]
 
 
@@ -299,10 +321,9 @@ _VALUE_REASONS = frozenset(
 """Items whose card shows `other_sources` (001 data-model "ReviewContext" view fields)."""
 
 
-def page_read_a(repo: Repo, run_id: UUID, page_no: int) -> PageRead | None:
-    """The run's read A of register page `page_no` under the current model and prompt."""
+def _read_a(repo: Repo, pages: Sequence[SourceFile], page_no: int) -> PageRead | None:
     settings = get_settings()
-    for f in repo.list_source_files(run_id, Source.REGISTER):
+    for f in pages:
         if f.page_no == page_no:
             read = repo.get_extraction(
                 f.sha256, ReadVariant.A, settings.EXTRACT_MODEL, settings.PROMPT_VERSION
@@ -311,7 +332,12 @@ def page_read_a(repo: Repo, run_id: UUID, page_no: int) -> PageRead | None:
     return None
 
 
-def review_card_context(repo: Repo, item: ReviewItem) -> dict[str, Any]:
+def page_read_a(repo: Repo, run_id: UUID, page_no: int) -> PageRead | None:
+    """The run's read A of register page `page_no` under the current model and prompt."""
+    return _read_a(repo, repo.list_source_files(run_id, Source.REGISTER), page_no)
+
+
+def review_card_context(data: CardData, item: ReviewItem) -> dict[str, Any]:
     """The item's stored context plus EP-14 view fields, in evidence order (R3): page and row
     first, the stored evidence, the page's table edges, then the other sources' values for
     reference (never a pre-filled value) and, after a decision, `equals_sources`."""
@@ -320,49 +346,47 @@ def review_card_context(repo: Repo, item: ReviewItem) -> dict[str, Any]:
     if item.kind is ReviewKind.CELL and reason is not ReviewReason.PAGE_LABEL_MISMATCH:
         page_no = ctx["page_no"]
         ctx = {"page_no": page_no, "row_index": ctx["row_index"], **ctx}
-        read = page_read_a(repo, item.run_id, page_no)
+        read = data.page_read_a(page_no)
         ctx["table_top"] = None if read is None else read.table_top
         ctx["table_bottom"] = None if read is None else read.table_bottom
     if reason in _VALUE_REASONS:
-        ctx["other_sources"] = _other_sources(repo, item.run_id, item)
+        ctx["other_sources"] = _other_sources(data, item)
         ctx["other_sources_label"] = OTHER_SOURCES_LABEL
-        ctx["equals_sources"] = [s.value for s in equals_sources(repo, item.run_id, item)]
+        ctx["equals_sources"] = [s.value for s in equals_sources(data, item)]
     return ctx
 
 
-# --- run view (injection point; US2's `load_run_view` replaces the default) ------------
-
-RunViewBuilder = Callable[[Repo, UUID], RunView]
-
-
-def basic_run_view(repo: Repo, run_id: UUID) -> RunView:
-    """A `RunView` without F-09 fields (headline "", no exceptions, no summary, no stage
-    progress): counts, row counts, proof status and the open-item rule."""
-    run = repo.get_run(run_id)
-    counts = outcome_counts_of(repo.list_source_rows(run_id), repo.list_groups(run_id))
-    proof = repo.get_proof(run_id)
-    return RunView(
-        **run.model_dump(),
-        stage_progress=StageProgressView(stages=[], pages=[]),
-        counts=counts.flat(),
-        row_counts={s: {o: counts.rows_by_outcome[o][s] for o in Outcome} for s in Source},
-        proof_status=None if proof is None else proof.status,
-        open_review_items=open_review_count(repo, run_id),
-        headline="",
-        exceptions=[],
-        summary=None,
-    )
+def list_cards(
+    repo: Repo, run_id: UUID, status: ReviewStatus | None
+) -> list[tuple[ReviewItem, dict[str, Any]]]:
+    """EP-14: the run's items in card order (F-08.R2) with their card context; OPEN items only
+    when current (engine `open_review_items`), so the queue matches `open_review_items`."""
+    current = open_review_items(repo, run_id)
+    if status is ReviewStatus.OPEN:
+        items = current
+    else:
+        ids = {i.id for i in current}
+        items = [
+            i
+            for i in repo.list_review_items(run_id, status)
+            if i.status is not ReviewStatus.OPEN or i.id in ids
+        ]
+    data = load_card_data(repo, run_id)
+    return [(item, review_card_context(data, item)) for item in items]
 
 
 # --- EP-15 decision flow (plan "Key design points" 1) ----------------------------------
 
+RunViewBuilder = Callable[[Repo, UUID], RunView]
 _DECIDABLE = frozenset({RunStatus.AWAITING_REVIEW, RunStatus.READY})
 
 
 def _fingerprint(repo: Repo, run_id: UUID) -> list[tuple[str, str, str | None]]:
-    """research R3: every decision of the run."""
+    """research R3: every decision of the run (OPEN items are not decisions)."""
     return sorted(
-        (i.item_key, i.status.value, i.resolved_value) for i in repo.list_review_items(run_id)
+        (i.item_key, i.status.value, i.resolved_value)
+        for i in repo.list_review_items(run_id)
+        if i.status is not ReviewStatus.OPEN
     )
 
 
@@ -374,7 +398,7 @@ def _decision(
         return ReviewStatus.RESOLVED, accept_read_value(item)
     if request.action is ReviewAction.ENTER_VALUE:
         assert request.value is not None  # ResolveRequest rule
-        return ReviewStatus.RESOLVED, validate_value(_field_name(item), request.value, run)
+        return ReviewStatus.RESOLVED, validate_value(field_of(item), request.value, run)
     if request.action is ReviewAction.CANNOT_DETERMINE:
         return ReviewStatus.CANNOT_DETERMINE, None
     return ReviewStatus.RESOLVED, None
@@ -403,19 +427,23 @@ def resolve(
     channel: AuditChannel,
     *,
     fault: Fault | None = None,
-    run_view: RunViewBuilder = basic_run_view,
+    run_view: RunViewBuilder = load_run_view,
     now: Now = clock.now,
 ) -> ResolveResponse:
     """EP-15 (F-08.R4 to R8, FM-09, FR-009 to FR-014). `RUN_STATE_CONFLICT` unless the run is
     `AWAITING_REVIEW` or `READY`; `ItemAlreadyResolved` when the item is decided (before or by
-    a racing reviewer); `InvalidReviewAction` for a disallowed action or value. The audit entry
-    is written after re-reconcile, and also when it raises (decision kept, outcome null)."""
+    a racing reviewer); `InvalidReviewAction` for a disallowed action or value, or an OPEN item
+    the newest reconcile no longer produces. The audit entry is written after re-reconcile, and
+    also when it raises (decision kept, outcome null; an audit error then is logged and the
+    original error propagates)."""
     item = repo.get_review_item(item_id)
     run = repo.get_run(item.run_id)
     if run.status not in _DECIDABLE:
         raise StateConflict(run)
     if item.status is not ReviewStatus.OPEN:
         raise ItemAlreadyResolved(item)
+    if item.id not in {i.id for i in open_review_items(repo, run.id)}:
+        raise InvalidReviewAction(field_of(item), "item is no longer current")
     status, value = _decision(item, request, run)
     try:
         decided = repo.resolve_review_item(
@@ -431,6 +459,7 @@ def resolve(
     group_outcome: Outcome | None = None
     group_key: str | None = None
     equal: list[Source] = []
+    failed = False
     try:
         detail = {"item_key": item.item_key, "action": request.action.value}
         with stage_step(repo, run.id, Stage.REVIEW, detail, now=now):
@@ -440,11 +469,14 @@ def resolve(
                 current = repo.get_run(run.id)
                 reconcile_stage(repo, blobs, notifier, current, actor, fault, now=now)
         decided = repo.get_review_item(item.id)
-        row = _decided_row(repo, run.id, decided)
-        group = _group_of(repo, run.id, decided, row)
+        data = load_card_data(repo, run.id)
+        group = data.group_of(decided, data.row(decided))
         if group is not None:
             group_key, group_outcome = group.group_key, group.outcome
-        equal = equals_sources(repo, run.id, decided)
+        equal = equals_sources(data, decided)
+    except BaseException:
+        failed = True
+        raise
     finally:
         after = ReviewDecisionAudit(
             item_key=item.item_key,
@@ -456,16 +488,21 @@ def resolve(
             group_key=group_key,
             group_outcome=group_outcome,
         )
-        audit(
-            repo,
-            actor.email,
-            AuditAction.REVIEW_RESOLVED,
-            "review_item",
-            str(item.id),
-            run.id,
-            before=_before(item),
-            after=after.model_dump(mode="json"),
-            channel=channel,
-            now=now,
-        )
+        try:
+            audit(
+                repo,
+                actor.email,
+                AuditAction.REVIEW_RESOLVED,
+                "review_item",
+                str(item.id),
+                run.id,
+                before=_before(item),
+                after=after.model_dump(mode="json"),
+                channel=channel,
+                now=now,
+            )
+        except Exception:
+            if not failed:
+                raise
+            log.exception("review audit failed after a failed re-reconcile")  # keep the cause
     return ResolveResponse(item=decided, run=run_view(repo, run.id))

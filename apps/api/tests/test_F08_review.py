@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.errors import InvalidReviewAction
 from app.domain.enums import (
     AuditAction,
+    AuditChannel,
     CellStatus,
     FlagType,
     Outcome,
@@ -40,7 +41,14 @@ from app.domain.models import (
     RowInOneReadContext,
 )
 from app.services import review, stages
-from tests.factories import T0, flag_review, make_review, make_run, mapping_review
+from tests.factories import (
+    T0,
+    flag_review,
+    make_review,
+    make_run,
+    mapping_review,
+    unmatched_review,
+)
 from tests.fakes.api import FakeNotifier
 from tests.support.pack_run import CONTROLLER, PackRun
 
@@ -73,6 +81,18 @@ def _resolve(
     params = {"fault": fault} if fault else None
     item_id = _item(pack, key).id
     return client.post(f"{API}/review-items/{item_id}/resolve", json=body, params=params)
+
+
+def _decide(pack: PackRun, key: str, value: str | None, by: str = REVIEWER_EMAIL) -> None:
+    """A stored decision without the EP-15 re-reconcile (keeps setup-only decisions fast)."""
+    pack.repo.resolve_review_item(
+        _item(pack, key).id,
+        status=ReviewStatus.RESOLVED,
+        resolved_value=value,
+        resolved_by=by,
+        resolved_at=pack.run.scenario_now,
+        note=None,
+    )
 
 
 def _ok(resp: Response) -> dict[str, Any]:
@@ -134,6 +154,8 @@ def test_F08_AC2_accept_read_4419_mismatched_outlier_sheet(
     assert group.outcome is Outcome.MISMATCHED
     assert [d.field.value for d in group.diffs] == ["qty"]
     assert group.diffs[0].outlier is Source.SHEET
+    (card,) = _cards(api_client_as("reviewer"), pack_run, status="RESOLVED")
+    assert card["context"]["equals_sources"] == ["ERP"]  # 66 equals ERP only (R4)
 
 
 def test_F08_AC3_enter_250_on_4428_matched_equals_erp_sheet(
@@ -149,9 +171,12 @@ def test_F08_AC3_enter_250_on_4428_matched_equals_erp_sheet(
     ]
     assert entry.entity == "review_item" and entry.entity_id == str(item.id)
     assert entry.actor == REVIEWER_EMAIL and entry.at == pack_run.run.scenario_now
+    assert entry.channel is AuditChannel.API  # no browser origin (data-model §8)
     assert entry.before is not None and entry.before["status"] == "OPEN"
     assert entry.after is not None and entry.after["equals_sources"] == ["ERP", "SHEET"]
     assert entry.after["resolved_value"] == "250" and entry.after["group_outcome"] == "MATCHED"
+    (card,) = _cards(api_client_as("reviewer"), pack_run, status="RESOLVED")
+    assert card["item_key"] == QTY_4428 and card["context"]["equals_sources"] == ["ERP", "SHEET"]
 
 
 def _unchanged(pack: PackRun, events_before: int, key: str) -> None:
@@ -181,9 +206,8 @@ def test_F08_AC5_enter_abc_for_qty_returns_422(pack_run: PackRun, api_client_as:
 def test_F08_AC6_resolved_items_survive_rereconcile(
     pack_run: PackRun, api_client_as: Client
 ) -> None:
-    reviewer = api_client_as("reviewer")
-    _ok(_resolve(reviewer, pack_run, QTY_4419, ACCEPT))
-    _ok(_resolve(reviewer, pack_run, QTY_4428, ENTER_250))
+    _decide(pack_run, QTY_4419, "66")
+    _decide(pack_run, QTY_4428, "250")
     before = [_item(pack_run, k) for k in (QTY_4419, QTY_4428)]
     for _ in range(2):
         resp = api_client_as("controller").post(f"{API}/runs/{pack_run.run_id}/reconcile")
@@ -200,6 +224,7 @@ def test_F08_AC7_all_resolved_sets_ready(pack_run: PackRun, api_client_as: Clien
     _ok(_resolve(reviewer, pack_run, GAP_4429, ACK))
     run = _ok(_resolve(reviewer, pack_run, BACKDATED_4430, {**ACK, "note": "keyed late"}))["run"]
     assert run["status"] == "READY" and run["open_review_items"] == 0
+    assert run["headline"] == "29 receipts: 22 match, 7 need attention"  # full RunView (EP-15)
     assert {o: run["counts"][o] for o in ("MATCHED", "MISMATCHED", "MISSING", "NEEDS_REVIEW")} == {
         "MATCHED": 22,
         "MISMATCHED": 5,
@@ -215,7 +240,7 @@ def test_F08_AC7_all_resolved_sets_ready(pack_run: PackRun, api_client_as: Clien
 def test_F08_FM09_second_reviewer_gets_first_decision(
     pack_run: PackRun, api_client_as: Client
 ) -> None:
-    _ok(_resolve(api_client_as("controller"), pack_run, QTY_4419, ACCEPT))
+    _decide(pack_run, QTY_4419, "66", by=CONTROLLER.email)
     events = len(pack_run.repo.list_run_events(pack_run.run_id))
     second = {"action": "ENTER_VALUE", "value": "60"}
     error = _error(
@@ -335,13 +360,24 @@ def test_F08_R4_action_matrix(reason: ReviewReason, action: ReviewAction) -> Non
         ("qty", "abc", None),
         ("qty", "NaN", None),
         ("qty", "Infinity", None),
+        ("qty", "1_000", None),
+        ("qty", "1e3", None),
+        ("qty", "1e20", None),
+        ("qty", "+5", None),
+        ("qty", "-0", None),
+        ("qty", ".5", None),
+        ("qty", "٥", None),  # Arabic-Indic 5
+        ("qty", "999999999999999.99", "999999999999999.99"),  # engine limit: below 10**15
+        ("qty", "1" + "0" * 15, None),
         ("date", "28/09", "28/09"),
         ("date", "31/09", None),  # not a real date
         ("date", "29/02", None),  # 2026 is not a leap year
         ("date", "1/9", None),
         ("date", "2026-09-28", None),
+        ("date", "٢٨/٠٩", None),  # Arabic-Indic 28/09
         ("lot_no", "l2609-128", "L2609-128"),
         ("lot_no", "L2609-12", None),
+        ("lot_no", "L٢609-128", None),
         ("unit", " Bags ", "Bags"),
         ("unit", "crates of joy", None),
         ("supplier", "Qasr Packaging", "Qasr Packaging"),
@@ -352,6 +388,8 @@ def test_F08_R4_action_matrix(reason: ReviewReason, action: ReviewAction) -> Non
         ("grn_no", "12", None),
         ("grn_no", "1234567", None),
         ("grn_no", "44a1", None),
+        ("grn_no", "٤٤٠١", None),  # Arabic-Indic 4401: not a GRN (F-04.R3)
+        ("grn_no", "000", None),  # the engine reads GRN 0 as malformed
         ("item", "anything", None),  # not an enterable field
     ],
 )
@@ -364,14 +402,11 @@ def test_F08_R4_value_validators(field: str, raw: str, stored: str | None) -> No
         assert review.validate_value(field, raw, run) == stored
 
 
-@pytest.mark.parametrize("note", [None, "", "   "])
-def test_F08_R4_cannot_determine_requires_note(
-    pack_run: PackRun, api_client_as: Client, note: str | None
-) -> None:
-    body = {"action": "CANNOT_DETERMINE", "note": note}
-    _error(
-        _resolve(api_client_as("reviewer"), pack_run, QTY_4428, body), 422, "INVALID_REVIEW_ACTION"
-    )
+def test_F08_R4_cannot_determine_requires_note(pack_run: PackRun, api_client_as: Client) -> None:
+    reviewer = api_client_as("reviewer")
+    for note in (None, "", "   "):
+        body = {"action": "CANNOT_DETERMINE", "note": note}
+        _error(_resolve(reviewer, pack_run, QTY_4428, body), 422, "INVALID_REVIEW_ACTION")
     assert _item(pack_run, QTY_4428).status is ReviewStatus.OPEN
 
 
@@ -434,18 +469,9 @@ def test_F08_R3_card_evidence_order_no_prefill(pack_run: PackRun, api_client_as:
     assert ctx["table_top"] is not None and ctx["table_bottom"] is not None
 
 
-def test_F08_R3_card_equals_sources_after_decision(
-    pack_run: PackRun, api_client_as: Client
-) -> None:
-    reviewer = api_client_as("reviewer")
-    _ok(_resolve(reviewer, pack_run, QTY_4428, ENTER_250))
-    (card,) = _cards(reviewer, pack_run, status="RESOLVED")
-    assert card["item_key"] == QTY_4428 and card["context"]["equals_sources"] == ["ERP", "SHEET"]
-
-
 def test_F08_R2_card_order(pack_run: PackRun, api_client_as: Client) -> None:
     reviewer = api_client_as("reviewer")
-    _ok(_resolve(reviewer, pack_run, GAP_4429, ACK))
+    _decide(pack_run, GAP_4429, None)
     assert [c["item_key"] for c in _cards(reviewer, pack_run)] == [
         QTY_4419,  # CELL by page, row
         QTY_4428,
@@ -576,9 +602,118 @@ def test_F08_R4_accept_read_value_rules() -> None:
     assert review.accept_read_value(_item_for(ReviewReason.PAGE_LABEL_MISMATCH)) == "1"
 
 
-def test_F08_R5_equals_sources_unit_level(pack_run: PackRun, api_client_as: Client) -> None:
-    _ok(_resolve(api_client_as("reviewer"), pack_run, QTY_4419, ACCEPT))
-    item = _item(pack_run, QTY_4419)
-    assert review.equals_sources(pack_run.repo, pack_run.run_id, item) == [Source.ERP]
-    flag = _item(pack_run, GAP_4429)
-    assert review.equals_sources(pack_run.repo, pack_run.run_id, flag) == []
+def test_F08_R4_unmatched_no_key_enters_grn() -> None:
+    """data-model 1.1: an `UNMATCHED_NO_KEY` item takes a `grn_no` (stored `field` is null)."""
+    item = _item_for(ReviewReason.UNMATCHED_NO_KEY)
+    assert item.field is None and review.field_of(item) == "grn_no"
+    assert review.validate_value(review.field_of(item), " 4402 ", make_run()) == "4402"
+
+
+# --- review fixes: current items, data loads, channel, errors, body ----------------------
+
+
+def test_F08_R2_only_current_open_items_listed_or_decidable(
+    pack_run: PackRun, api_client_as: Client
+) -> None:
+    """The one open-item rule (engine): an OPEN item the newest reconcile did not produce is
+    not in the EP-14 queue and EP-15 rejects it (so a READY run has no decidable item)."""
+    stale = unmatched_review(pack_run.run_id, "ROW:XLS-r99").model_copy(
+        update={"source_row_id": "XLS-r99"}
+    )
+    pack_run.repo.upsert_review_items(pack_run.run_id, [stale])
+    reviewer = api_client_as("reviewer")
+    keys = [c["item_key"] for c in _cards(reviewer, pack_run, status="OPEN")]
+    assert keys == [QTY_4419, QTY_4428, BACKDATED_4430, GAP_4429]
+    assert "ROW:XLS-r99" not in [c["item_key"] for c in _cards(reviewer, pack_run)]
+    error = _error(
+        _resolve(reviewer, pack_run, "ROW:XLS-r99", {"action": "ENTER_VALUE", "value": "4402"}),
+        422,
+        "INVALID_REVIEW_ACTION",
+    )
+    assert error["details"]["reason"] == "item is no longer current"
+
+
+def test_F08_R3_cards_read_run_data_once(
+    pack_run: PackRun, api_client_as: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: dict[str, int] = {}
+    repo = pack_run.repo
+    for name in ("list_groups", "list_source_rows", "list_source_files", "get_extraction"):
+        real = getattr(repo, name)
+
+        def counted(*args: Any, _real: Any = real, _name: str = name, **kwargs: Any) -> Any:
+            calls[_name] = calls.get(_name, 0) + 1
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(repo, name, counted)
+    assert len(_cards(api_client_as("reviewer"), pack_run)) == 4  # two CELL items on page 2
+    assert calls == {
+        "list_groups": 1,
+        "list_source_rows": 1,
+        "list_source_files": 1,
+        "get_extraction": 1,
+    }
+
+
+def test_F08_R4_audit_channel_web_or_api(pack_run: PackRun, api_client_as: Client) -> None:
+    """data-model §8: WEB from the app's browser origin (CORS_ORIGINS); API without one is
+    asserted in AC3."""
+    reviewer = api_client_as("reviewer")
+    item_id = _item(pack_run, GAP_4429).id
+    headers = {"Origin": "http://localhost:3000"}
+    _ok(reviewer.post(f"{API}/review-items/{item_id}/resolve", json=ACK, headers=headers))
+    (entry,) = [
+        a
+        for a in pack_run.repo.list_audit(run_id=pack_run.run_id)
+        if a.action is AuditAction.REVIEW_RESOLVED
+    ]
+    assert entry.channel is AuditChannel.WEB
+
+
+def test_F08_R6_audit_failure_does_not_mask_reconcile_error(
+    pack_run: PackRun, api_client_as: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken_reconcile(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("re-reconcile broke")
+
+    def broken_audit(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("audit broke")
+
+    monkeypatch.setattr("app.services.review.reconcile_stage", broken_reconcile)
+    monkeypatch.setattr("app.services.review.audit", broken_audit)
+    with pytest.raises(RuntimeError, match="re-reconcile broke"):
+        _resolve(api_client_as("reviewer"), pack_run, GAP_4429, ACK)
+
+
+def test_F08_R4_bad_body_returns_422(pack_run: PackRun, api_client_as: Client) -> None:
+    """Unknown action, extra field, over-length value or note, no action: 422, not 400."""
+    reviewer = api_client_as("reviewer")
+    bodies: list[dict[str, Any]] = [
+        {"action": "SHRUG"},
+        {"action": "ACKNOWLEDGE", "extra": 1},
+        {"action": "ENTER_VALUE", "value": "1" * 65},
+        {"action": "CANNOT_DETERMINE", "note": "n" * 501},
+        {},
+    ]
+    for body in bodies:
+        _error(_resolve(reviewer, pack_run, GAP_4429, body), 422, "INVALID_REVIEW_ACTION")
+    assert _item(pack_run, GAP_4429).status is ReviewStatus.OPEN
+
+
+def test_F08_FR012_new_open_item_needs_no_extra_pass(
+    pack_run: PackRun, api_client_as: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """research R3: only decisions trigger the extra pass, not items a reconcile opened."""
+    real = stages.reconcile_stage
+    calls: list[int] = []
+
+    def opening(*args: Any, **kwargs: Any) -> Any:
+        result = real(*args, **kwargs)
+        calls.append(1)
+        new = unmatched_review(pack_run.run_id, f"ROW:XLS-r9{len(calls)}")
+        pack_run.repo.upsert_review_items(pack_run.run_id, [new])
+        return result
+
+    monkeypatch.setattr("app.services.review.reconcile_stage", opening)
+    _ok(_resolve(api_client_as("reviewer"), pack_run, GAP_4429, ACK))
+    assert len(calls) == 1
