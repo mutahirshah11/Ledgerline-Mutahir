@@ -458,3 +458,4 @@ def test_reconcile_writes_reconciled_audit(
     assert entry.after["proof_status"] == "PASS"
     assert entry.after["groups"]["MATCHED"] == 21
     assert body["status"] == entry.after["status"]
+    assert entry.after["open_review_items"] == body["open_review_items"]  # incl. CELL items
