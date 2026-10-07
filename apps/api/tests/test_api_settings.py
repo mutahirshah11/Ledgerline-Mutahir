@@ -1,0 +1,39 @@
+"""Phase 3 settings (004 data-model.md §5, NFR-03, Section 10)."""
+
+import pytest
+
+from app.core.config import Settings
+
+
+def test_phase3_setting_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REPO_BACKEND")  # set to `memory` by the autouse hermetic_settings
+    s = Settings(_env_file=None)
+    assert (s.OPENAI_TIMEOUT_S, s.EXTRACT_ATTEMPTS, s.EXTRACT_BACKOFF_S) == (60, 3, (2, 8))
+    assert (s.TELEGRAM_ATTEMPTS, s.TELEGRAM_BACKOFF_S, s.TELEGRAM_TIMEOUT_S) == (3, (1, 4), 10)
+    assert (s.UPLOAD_WINDOW_S, s.DOWNLOAD_URL_S, s.JWKS_CACHE_S) == (600, 300, 600)
+    assert s.JWKS_MIN_REFETCH_S == 30
+    assert s.REPO_BACKEND == "supabase"
+
+
+def test_jwks_cache_not_shorter_than_min_refetch() -> None:
+    """F-12.R3: a cache shorter than the refetch interval would serve 502s between TTL expiry
+    and the next allowed fetch after a failure."""
+    with pytest.raises(ValueError, match="JWKS_CACHE_S"):
+        Settings(_env_file=None, JWKS_CACHE_S=10, JWKS_MIN_REFETCH_S=30)
+    assert Settings(_env_file=None, JWKS_CACHE_S=30, JWKS_MIN_REFETCH_S=30).JWKS_CACHE_S == 30
+
+
+def test_cors_origins_split_on_commas() -> None:
+    s = Settings(_env_file=None, CORS_ORIGINS="http://a.test, http://b.test")
+    assert s.cors_origin_list == ["http://a.test", "http://b.test"]
+
+
+def test_secret_values_returns_only_set_secrets() -> None:
+    s = Settings(
+        _env_file=None,
+        SUPABASE_SERVICE_ROLE_KEY="srk-1",
+        TELEGRAM_BOT_TOKEN="bot-2",
+    )
+    assert s.secret_values() == ["srk-1", "bot-2"]
+    s3 = Settings(_env_file=None, OPENAI_API_KEY="oa-3")
+    assert s3.secret_values() == ["oa-3"]

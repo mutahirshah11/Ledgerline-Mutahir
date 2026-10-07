@@ -1,12 +1,13 @@
 """Shared fixtures. Pack files are resolved by path, not symlinked (research R15)."""
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
     from app.domain.models import Run
     from app.pipeline.engine import EngineInputs
     from app.pipeline.model_client import ReplayModelClient
+    from tests.fakes.api import FakeJwksFetcher, FakeNotifier
     from tests.support.pack_pages import PackPages
 
 API_DIR = Path(__file__).resolve().parents[1]
@@ -86,13 +88,21 @@ def live_settings() -> "Settings":
 
 @pytest.fixture(autouse=True)
 def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Settings see no .env and no OS env vars, so local runs behave like CI."""
+    """Settings see no .env and no OS env vars, so local runs behave like CI; the backend is
+    `memory` and the process-wide memory stores start empty in every test."""
     from app.core.config import get_settings
+    from app.core.db import shared_memory_repo
+    from app.core.storage import shared_memory_blobstore
     from tests.support.pack_pages import make_settings_hermetic
 
     make_settings_hermetic(monkeypatch)
+    monkeypatch.setenv("REPO_BACKEND", "memory")
+    shared_memory_repo.cache_clear()
+    shared_memory_blobstore.cache_clear()
     yield
     get_settings.cache_clear()
+    shared_memory_repo.cache_clear()
+    shared_memory_blobstore.cache_clear()
 
 
 @pytest.fixture
@@ -109,6 +119,26 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     )
     monkeypatch.setattr(clock, "get_settings", lambda: settings)
     return clock.now()
+
+
+@pytest.fixture
+def move_clock(
+    monkeypatch: pytest.MonkeyPatch, frozen_clock: datetime
+) -> Callable[[datetime], None]:
+    """`move_clock(at)`: re-freeze app.core.clock at `at` (e.g. past the upload window)."""
+    from app.core import clock
+    from app.core.config import Settings
+
+    def move(at: datetime) -> None:
+        settings = Settings(
+            _env_file=None,
+            LEDGERLINE_NOW=at,
+            LEDGERLINE_CLOCK_MODE="frozen",
+            LEDGERLINE_NOW_ANCHOR=None,
+        )
+        monkeypatch.setattr(clock, "get_settings", lambda: settings)
+
+    return move
 
 
 # --- Repo and BlobStore (US4, contracts/repo-interface.md) -------------------------------
@@ -227,3 +257,157 @@ def pack_pages(
     return extract_pack(
         "live", repo=MemoryRepo(), client=client, settings=settings, pack_dir=pack_dir
     )
+
+
+# --- API client (004 T010, contracts/auth.md) --------------------------------------------
+
+SEEDED_USERS = {
+    "controller": ("controller@kestrel.example", "Controller (Demo)", "CONTROLLER"),
+    "reviewer": ("reviewer@kestrel.example", "Reviewer (Demo)", "REVIEWER"),
+    "ops": ("ops@kestrel.example", "Ops (Demo)", "OPS"),
+}
+"""The allowlist of `supabase/seed/allowed_users.sql` (C13), seeded into the client's repo."""
+STRANGER_EMAIL = "stranger@kestrel.example"
+"""Signs valid tokens but is not on the allowlist (F-12 AC2)."""
+
+
+@pytest.fixture
+def api_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`SUPABASE_URL` for API tests, so `TEST_ISS` is the expected issuer."""
+    from app.core.config import get_settings
+    from tests.fakes.api import TEST_SUPABASE_URL
+
+    monkeypatch.setenv("SUPABASE_URL", TEST_SUPABASE_URL)
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def faults_on(monkeypatch: pytest.MonkeyPatch, api_settings: None) -> None:
+    """`ALLOW_FAULTS=true` (Section 25). Request it before `client` when the app's docs routes
+    matter; `active_fault` reads settings per request either way."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ALLOW_FAULTS", "true")
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def jwks_fetcher() -> "FakeJwksFetcher":
+    """The JWKS source behind `client`; set `.fail` or swap `.keys` to simulate Supabase."""
+    from tests.fakes.api import FakeJwksFetcher
+
+    return FakeJwksFetcher()
+
+
+@pytest.fixture
+def notifier() -> "FakeNotifier":
+    from tests.fakes.api import FakeNotifier
+
+    return FakeNotifier()
+
+
+@pytest.fixture
+def client(
+    api_settings: None,
+    frozen_clock: datetime,
+    memory_repo: "MemoryRepo",
+    memory_blobs: "MemoryBlobStore",
+    jwks_fetcher: "FakeJwksFetcher",
+    notifier: "FakeNotifier",
+) -> Iterator[TestClient]:
+    """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
+    JWKS, with the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for
+    the pack."""
+    from app.core.auth import JwksCache, get_jwks_cache
+    from app.core.db import get_repo
+    from app.core.deps import get_notifier
+    from app.core.storage import get_blobstore
+    from app.domain.enums import Role
+    from app.domain.models import AllowedUser
+    from app.main import create_app
+
+    for email, name, role in SEEDED_USERS.values():
+        memory_repo.upsert_allowed_user(
+            AllowedUser(email=email, display_name=name, role=Role(role))
+        )
+    jwks = JwksCache(jwks_fetcher)
+    app = create_app()
+    app.dependency_overrides[get_repo] = lambda: memory_repo
+    app.dependency_overrides[get_blobstore] = lambda: memory_blobs
+    app.dependency_overrides[get_notifier] = lambda: notifier
+    app.dependency_overrides[get_jwks_cache] = lambda: jwks
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture(scope="session")
+def tokens() -> dict[str, dict[str, str]]:
+    """`Authorization` headers for `controller`, `reviewer`, `ops` and `stranger` (pure: fixed
+    claims and key, so built once per session)."""
+    from tests.fakes.api import make_token
+
+    emails = {who: user[0] for who, user in SEEDED_USERS.items()} | {"stranger": STRANGER_EMAIL}
+    return {who: {"Authorization": f"Bearer {make_token(e)}"} for who, e in emails.items()}
+
+
+PACK_FILES = {
+    "t4_register_page1.jpg": "REGISTER",
+    "t4_register_page2.jpg": "REGISTER",
+    "t4_erp_grn.csv": "ERP",
+    "t4_store_sheet.xlsx": "SHEET",
+}
+"""The pack's four files and their sources, in upload order (pages 1 and 2 first)."""
+
+
+@pytest.fixture(scope="session")
+def pack_files(pack_dir: Path) -> dict[str, bytes]:
+    """The bytes of the four pack files, read once, by file name."""
+    return {name: (pack_dir / name).read_bytes() for name in PACK_FILES}
+
+
+@pytest.fixture(scope="session")
+def pack_declared(pack_files: dict[str, bytes]) -> list[dict[str, Any]]:
+    """The EP-06 `files` list for the pack (sha256 computed as the browser does, F-01.R2)."""
+    import hashlib
+
+    return [
+        {
+            "source": PACK_FILES[name],
+            "filename": name,
+            "size_bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        for name, data in pack_files.items()
+    ]
+
+
+@pytest.fixture
+def pack_upload(
+    client: TestClient,
+    tokens: dict[str, dict[str, str]],
+    memory_blobs: "MemoryBlobStore",
+    pack_files: dict[str, bytes],
+    pack_declared: list[dict[str, Any]],
+) -> Callable[..., dict[str, Any]]:
+    """`pack_upload(month="2026-09")`: EP-03 → EP-06 → blob put → EP-07 as the controller for the
+    pack (004 T010); returns the EP-07 body (`run`, `new_pages`, `known_pages`)."""
+    from app.core.storage import INPUTS_BUCKET
+
+    def upload(month: str = "2026-09") -> dict[str, Any]:
+        headers = tokens["controller"]
+        created = client.post("/api/v1/runs", json={"month": month}, headers=headers)
+        assert created.status_code == 201, created.text
+        run_id = created.json()["id"]
+        slots = client.post(
+            f"/api/v1/runs/{run_id}/uploads", json={"files": pack_declared}, headers=headers
+        )
+        assert slots.status_code == 200, slots.text
+        for slot in slots.json()["uploads"]:
+            data = pack_files[slot["filename"]]
+            memory_blobs.put(INPUTS_BUCKET, slot["storage_path"], data, "application/octet-stream")
+        confirmed = client.post(f"/api/v1/runs/{run_id}/uploads/confirm", headers=headers)
+        assert confirmed.status_code == 200, confirmed.text
+        body: dict[str, Any] = confirmed.json()
+        return body
+
+    return upload

@@ -6,7 +6,7 @@ and the `RECONCILED` audit entry. Times come only from the `now` callable (E2).
 """
 
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -21,6 +21,7 @@ from app.domain.enums import (
     Fault,
     Outcome,
     ProofStatus,
+    ReviewKind,
     ReviewStatus,
     RowKind,
     RunEventStatus,
@@ -78,6 +79,20 @@ class OutcomeCounts:
             },
         }
 
+    def flat(self) -> dict[Outcome, int]:
+        """004 data-model.md §2 `OutcomeCounts`: groups per outcome, except the row-only
+        outcomes (DUPLICATE, NON_RECEIPT), which count rows over all sources."""
+        return {
+            o: sum(self.rows_by_outcome[o].values())
+            if o in ROW_ONLY_OUTCOMES
+            else self.groups_by_outcome[o]
+            for o in Outcome
+        }
+
+
+ROW_ONLY_OUTCOMES = frozenset({Outcome.DUPLICATE, Outcome.NON_RECEIPT})
+"""Outcomes a row gets without a group (Section 8 count table, "n/a" groups)."""
+
 
 @dataclass(frozen=True)
 class PipelineResult:
@@ -89,7 +104,8 @@ class PipelineResult:
     counts: OutcomeCounts
 
 
-def _counts(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> OutcomeCounts:
+def outcome_counts_of(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> OutcomeCounts:
+    """Groups and rows per outcome (also used by the API read views, 004 EP-04/EP-05)."""
     by_group = Counter(g.outcome for g in groups)
     by_row = Counter((r.outcome, r.source) for r in rows if r.outcome is not None)
     return OutcomeCounts(
@@ -157,7 +173,7 @@ def run_pipeline(
         ),
         review_items=review_items,
         proof=proof,
-        counts=_counts(rows, groups),
+        counts=outcome_counts_of(rows, groups),
     )
 
 
@@ -310,8 +326,8 @@ def _fail_on_proof(repo: Repo, log: _Log, run: Run, proof: Proof) -> None:
 def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> None:
     """The pipeline (step 2) or a write in steps 4 to 7 failed: log `reconcile/FAILED` and move
     the run to `FAILED` at stage `reconcile` if its current status allows (a run finalised
-    meanwhile stays put)."""
-    message = repr(exc)
+    meanwhile stays put). The stored text is the error's type name only (constitution VIII)."""
+    message = f"internal error ({type(exc).__name__})"
     log.event(Stage.RECONCILE, RunEventStatus.FAILED, {"error": message})
     current = repo.get_run(run_id)
     if can_transition(current.status, RunStatus.FAILED):
@@ -326,19 +342,39 @@ def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> N
 
 def _advance_status(repo: Repo, run: Run, current: Sequence[ReviewItem]) -> tuple[RunStatus, int]:
     """Step 7: `EXTRACTED` → `RECONCILED`, then `AWAITING_REVIEW` if any current review item is
-    open, else `READY`. Only stored OPEN items whose `item_key` this reconcile produced count;
-    older items stay stored, untouched (user decision 2026-10-07). Returns the new status and
-    the open item count."""
+    open, else `READY`. Stored OPEN items count when this reconcile produced their `item_key`,
+    or when they are CELL items: those come only from extraction (Phase 2), which the engine
+    never re-produces, so they are always current. Other older items stay stored, untouched
+    (user decision 2026-10-07). Returns the new status and the open item count."""
     status = run.status
     if status is RunStatus.EXTRACTED:
         status = repo.transition_run(run.id, RunStatus.RECONCILED, expected={status}).status
     keys = {item.item_key for item in current}
-    open_count = sum(
-        1 for item in repo.list_review_items(run.id, ReviewStatus.OPEN) if item.item_key in keys
-    )
+    open_count = count_open_items(repo.list_review_items(run.id, ReviewStatus.OPEN), keys)
     to = RunStatus.AWAITING_REVIEW if open_count else RunStatus.READY
     repo.transition_run(run.id, to, expected={status})
     return to, open_count
+
+
+def count_open_items(open_items: Iterable[ReviewItem], current_keys: Collection[str]) -> int:
+    """The one open-review-item rule (step 7; 004 decision (a)): an OPEN item counts when the
+    reconcile produced its `item_key` (`current_keys`), or when it is a CELL item (those come
+    only from extraction and the engine never re-produces them). Status moves, the
+    `RECONCILED` audit, EP-05 and EP-10 all use it; the F-09 finalise guard must too."""
+    return sum(1 for i in open_items if i.item_key in current_keys or i.kind is ReviewKind.CELL)
+
+
+def open_review_count(repo: Repo, run_id: UUID) -> int:
+    """`open_review_items` for read views (EP-05, EP-10) without a pipeline result: the newest
+    `RECONCILED` audit's figure, which the same reconcile's status move used, so status and
+    count never contradict; before any reconcile, the run's OPEN CELL items. Review decisions
+    re-reconcile at once (F-08.R4), which refreshes the figure."""
+    for entry in repo.list_audit(run_id=run_id):  # newest first
+        if entry.action is AuditAction.RECONCILED and entry.after is not None:
+            count = entry.after.get("open_review_items")
+            if isinstance(count, int):
+                return count
+    return count_open_items(repo.list_review_items(run_id, ReviewStatus.OPEN), ())
 
 
 def _audit_reconciled(

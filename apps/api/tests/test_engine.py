@@ -23,14 +23,22 @@ from app.domain.enums import (
     ProofStatus,
     RegisterField,
     ReviewKind,
+    ReviewReason,
     ReviewStatus,
     RunEventStatus,
     RunStatus,
     Stage,
 )
-from app.domain.models import Group, Run
+from app.domain.models import Group, Run, RunEvent
 from app.pipeline.engine import EngineInputs, proof_failure_message, reconcile_run, run_pipeline
 from tests.support.pack import build_engine_inputs, resolved_cell
+
+
+def _oldest_first(repo: MemoryRepo, run_id: UUID) -> list[RunEvent]:
+    """Run events in insertion order: `list_run_events` is newest first, and the frozen clock
+    gives every event the same `at` (ties are newest insertion first, C27)."""
+    return list(reversed(repo.list_run_events(run_id)))
+
 
 _RECONCILE_PATHS: dict[RunStatus, tuple[RunStatus, ...]] = {
     RunStatus.RECONCILED: (RunStatus.RECONCILED,),
@@ -84,7 +92,7 @@ def test_engine_atomic_write_keeps_previous(
     first = reconcile_run(memory_repo, engine_inputs)
     previous = _state(memory_repo, extracted_run.id)
     audit_before = len(memory_repo.list_audit(extracted_run.id))
-    events_before = memory_repo.list_run_events(extracted_run.id)
+    events_before = _oldest_first(memory_repo, extracted_run.id)
     last_key = first.payload.groups[-1].group_key
 
     real_copy = memory_repo_module._copy
@@ -111,10 +119,10 @@ def test_engine_atomic_write_keeps_previous(
     }
     run = memory_repo.get_run(extracted_run.id)
     assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.RECONCILE)
-    assert run.error_message == repr(RuntimeError("write failed on the last group"))
+    assert run.error_message == "internal error (RuntimeError)"
     assert memory_repo.get_group(extracted_run.id, "GRN:4419").outcome is Outcome.NEEDS_REVIEW
     assert len(memory_repo.list_audit(extracted_run.id)) == audit_before
-    events = memory_repo.list_run_events(extracted_run.id)  # one frozen instant: insertion order
+    events = _oldest_first(memory_repo, extracted_run.id)
     assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
         (Stage.RECONCILE, RunEventStatus.STARTED),
         (Stage.PROOF, RunEventStatus.STARTED),
@@ -148,15 +156,15 @@ def test_engine_failure_after_replace_marks_run_failed(
     assert (run.status, run.failed_stage, run.error_message) == (
         RunStatus.FAILED,
         Stage.RECONCILE,
-        repr(error),
+        "internal error (RuntimeError)",
     )
-    events = memory_repo.list_run_events(extracted_run.id)
+    events = _oldest_first(memory_repo, extracted_run.id)
     assert [(e.stage, e.status) for e in events] == [
         (Stage.RECONCILE, RunEventStatus.STARTED),
         (Stage.PROOF, RunEventStatus.STARTED),
         (Stage.RECONCILE, RunEventStatus.FAILED),
     ]
-    assert events[-1].detail == {"error": repr(error)}
+    assert events[-1].detail == {"error": "internal error (RuntimeError)"}
     assert memory_repo.list_audit(extracted_run.id) == []
 
 
@@ -168,10 +176,10 @@ def test_engine_pipeline_error_marks_run_failed_at_reconcile(
     reconcile_run(memory_repo, engine_inputs)
     assert memory_repo.get_run(extracted_run.id).status is RunStatus.AWAITING_REVIEW
     previous = _state(memory_repo, extracted_run.id)
-    events_before = memory_repo.list_run_events(extracted_run.id)
+    events_before = _oldest_first(memory_repo, extracted_run.id)
     audit_before = memory_repo.list_audit(extracted_run.id)
 
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValueError, match="not a readable"):
         reconcile_run(memory_repo, replace(engine_inputs, sheet_bytes=b"not a zip"))
 
     after = _state(memory_repo, extracted_run.id)
@@ -182,15 +190,15 @@ def test_engine_pipeline_error_marks_run_failed_at_reconcile(
     assert (run.status, run.failed_stage, run.error_message) == (
         RunStatus.FAILED,
         Stage.RECONCILE,
-        repr(exc.value),
+        "internal error (ValueError)",
     )
-    events = memory_repo.list_run_events(extracted_run.id)
+    events = _oldest_first(memory_repo, extracted_run.id)
     assert events[: len(events_before)] == events_before
     assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
         (Stage.RECONCILE, RunEventStatus.STARTED),
         (Stage.RECONCILE, RunEventStatus.FAILED),
     ]
-    assert events[-1].detail == {"error": repr(exc.value)}
+    assert events[-1].detail == {"error": "internal error (ValueError)"}
     assert memory_repo.list_audit(extracted_run.id) == audit_before
 
 
@@ -199,7 +207,7 @@ def test_engine_proof_fail_keeps_previous_reconciliation(
 ) -> None:
     reconcile_run(memory_repo, engine_inputs)
     previous = _state(memory_repo, extracted_run.id)
-    events_before = memory_repo.list_run_events(extracted_run.id)
+    events_before = _oldest_first(memory_repo, extracted_run.id)
     audit_before = memory_repo.list_audit(extracted_run.id)
 
     result = reconcile_run(memory_repo, engine_inputs, faults=frozenset({Fault.PROOF_DROP_ROW}))
@@ -213,7 +221,7 @@ def test_engine_proof_fail_keeps_previous_reconciliation(
     run = memory_repo.get_run(extracted_run.id)
     assert (run.status, run.failed_stage) == (RunStatus.FAILED, Stage.PROOF)
     assert run.error_message == proof_failure_message(result.proof)
-    events = memory_repo.list_run_events(extracted_run.id)
+    events = _oldest_first(memory_repo, extracted_run.id)
     assert events[: len(events_before)] == events_before
     assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
         (Stage.RECONCILE, RunEventStatus.STARTED),
@@ -250,14 +258,14 @@ def test_engine_proof_fail_on_finalised_run_keeps_its_proof(
         finalised_by="controller@example.com",
     )
     proof = memory_repo.get_proof(stale.id)
-    events_before = memory_repo.list_run_events(stale.id)
+    events_before = _oldest_first(memory_repo, stale.id)
     monkeypatch.setattr(memory_repo, "get_run", lambda _: stale)
 
     with pytest.raises(StateConflict):
         reconcile_run(memory_repo, again, faults=frozenset({Fault.PROOF_DROP_ROW}))
 
     assert memory_repo.get_proof(stale.id) == proof
-    events = memory_repo.list_run_events(stale.id)
+    events = _oldest_first(memory_repo, stale.id)
     assert [(e.stage, e.status) for e in events[len(events_before) :]] == [
         (Stage.RECONCILE, RunEventStatus.STARTED),
         (Stage.PROOF, RunEventStatus.STARTED),
@@ -330,6 +338,47 @@ def test_engine_status_counts_only_current_open_items(
     assert entry.after is not None and entry.after["open_review_items"] == 0
 
 
+def test_engine_open_extraction_cell_items_hold_awaiting_review(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+) -> None:
+    """CELL items come only from extraction (Phase 2), never from the engine: an OPEN one is
+    still current, so it holds the run in `AWAITING_REVIEW` and counts in `open_review_items`
+    after every flag item is resolved (Phase 1 follow-up; F-08, F-09 guard on READY)."""
+    run_id = extracted_run.id
+    cell = resolved_cell(
+        run_id, "REG-p2-r05", RegisterField.QTY, "66", reason=ReviewReason.CORRECTED
+    ).model_copy(
+        update={
+            "status": ReviewStatus.OPEN,
+            "resolved_value": None,
+            "resolved_by": None,
+            "resolved_at": None,
+        }
+    )
+    memory_repo.upsert_review_items(run_id, [cell])  # queued by extract_page
+    reconcile_run(memory_repo, build_engine_inputs(pack_dir, ground_truth_dir, run_id, [cell]))
+    for item in memory_repo.list_review_items(run_id, ReviewStatus.OPEN):
+        if item.kind is not ReviewKind.CELL:
+            memory_repo.resolve_review_item(
+                item.id,
+                status=ReviewStatus.RESOLVED,
+                resolved_value=None,
+                resolved_by="reviewer@example.com",
+                resolved_at=frozen_clock,
+                note="checked with stores",
+            )
+    stored = memory_repo.list_review_items(run_id)
+    reconcile_run(memory_repo, build_engine_inputs(pack_dir, ground_truth_dir, run_id, stored))
+
+    assert memory_repo.get_run(run_id).status is RunStatus.AWAITING_REVIEW
+    entry = max(memory_repo.list_audit(run_id), key=lambda e: e.id)
+    assert entry.after is not None and entry.after["open_review_items"] == 1
+
+
 @pytest.mark.parametrize("status", list(_RECONCILE_PATHS))
 def test_engine_rejects_other_statuses(
     memory_repo: MemoryRepo, extracted_run: Run, engine_inputs: EngineInputs, status: RunStatus
@@ -338,7 +387,7 @@ def test_engine_rejects_other_statuses(
     for to in _RECONCILE_PATHS[status]:
         failed = {"failed_stage": Stage.EXTRACT} if to is RunStatus.FAILED else {}
         run = memory_repo.transition_run(run.id, to, expected={run.status}, **failed)
-    events_before = memory_repo.list_run_events(run.id)
+    events_before = _oldest_first(memory_repo, run.id)
 
     with pytest.raises(StateConflict):
         reconcile_run(memory_repo, engine_inputs)
@@ -348,7 +397,7 @@ def test_engine_rejects_other_statuses(
     assert memory_repo.list_groups(run.id) == []
     assert memory_repo.list_review_items(run.id) == []
     assert memory_repo.get_proof(run.id) is None
-    assert memory_repo.list_run_events(run.id) == events_before
+    assert _oldest_first(memory_repo, run.id) == events_before
     assert memory_repo.list_audit(run.id) == []
 
 
@@ -376,7 +425,7 @@ def test_engine_events_and_audit(
 ) -> None:
     result = reconcile_run(memory_repo, engine_inputs)
 
-    events = memory_repo.list_run_events(extracted_run.id)
+    events = _oldest_first(memory_repo, extracted_run.id)
     assert Counter((e.stage, e.status) for e in events) == Counter(
         {
             (Stage.RECONCILE, RunEventStatus.STARTED): 1,

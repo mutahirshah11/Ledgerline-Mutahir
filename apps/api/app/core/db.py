@@ -4,11 +4,15 @@ Every method returns copies of models. Errors come from `app.core.errors`: `NotF
 `UniqueViolation`, `StateConflict(current)`, `AppendOnlyViolation`, `UpstreamFailed`.
 """
 
+import importlib
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from uuid import UUID
 
+from app.core.config import get_settings
 from app.domain.enums import (
+    NotificationKind,
     NotificationStatus,
     Outcome,
     ReadVariant,
@@ -33,6 +37,9 @@ from app.domain.models import (
     RunEvent,
     SourceFile,
 )
+
+if TYPE_CHECKING:
+    from app.core.memory_repo import MemoryRepo
 
 
 @runtime_checkable
@@ -170,6 +177,10 @@ class Repo(Protocol):
         """F-10.R7: SENDING and updated_at < older_than."""
         ...
 
+    def get_latest_notification(self, kind: NotificationKind) -> Notification | None:
+        """004 E2 (F-11.R5): latest of `kind` by updated_at, then id; None if none."""
+        ...
+
     # run events (F-11.R2)
     def add_run_event(self, event: RunEvent) -> RunEvent: ...
     def list_run_events(self, run_id: UUID) -> list[RunEvent]:
@@ -184,3 +195,25 @@ class Repo(Protocol):
     def list_audit(self, run_id: UUID | None = None, actor: str | None = None) -> list[AuditEntry]:
         """Newest first; filters are ANDed."""
         ...
+
+
+@lru_cache(maxsize=1)
+def shared_memory_repo() -> "MemoryRepo":
+    """The process-wide `MemoryRepo` behind `REPO_BACKEND=memory`; tests clear the cache."""
+    from app.core.memory_repo import MemoryRepo
+
+    return MemoryRepo()
+
+
+@lru_cache(maxsize=1)
+def _supabase_repo() -> Repo:
+    # imported lazily: `app.core.supabase_repo` is built in T064 (`SupabaseRepo(settings)`)
+    module = importlib.import_module("app.core.supabase_repo")
+    return cast(Repo, module.SupabaseRepo(get_settings()))
+
+
+def get_repo() -> Repo:
+    """FastAPI dependency (004 data-model §5): the store chosen by `REPO_BACKEND`."""
+    if get_settings().REPO_BACKEND == "memory":
+        return shared_memory_repo()
+    return _supabase_repo()

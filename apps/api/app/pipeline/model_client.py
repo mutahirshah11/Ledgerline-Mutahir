@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import httpx2
-import openai
 
 from app.core.config import EXTRACT_TIMEOUT_S, get_settings
 from app.core.errors import InvalidReadOutput
@@ -96,12 +95,19 @@ class OpenAIModelClient:
         return f"OpenAIModelClient(model={self.model!r}, timeout_s={self.timeout_s!r})"
 
     def _client(self) -> Any:
-        """The SDK client, built once on first use (double-checked under a lock)."""
+        """The SDK client, built once on first use (double-checked under a lock).
+
+        `openai` is imported here, not at module level: importing its SDK costs real time
+        (pulls in its full types/graders tree) that every test would otherwise pay even when
+        no test builds a real client (NFR-11 offline suite budget).
+        """
         if self._sdk is None:
             with self._sdk_lock:
                 if self._sdk is None:
                     if not self._api_key:
                         raise RuntimeError("OPENAI_API_KEY is not set; cannot call the model")
+                    import openai
+
                     self._sdk = openai.OpenAI(
                         api_key=self._api_key, max_retries=0, timeout=self.timeout_s
                     )
@@ -265,6 +271,8 @@ class FaultModelClient:
         schema: dict[str, Any],
     ) -> RawRead:
         if self.fault is Fault.EXTRACT_TIMEOUT:
+            import openai
+
             raise openai.APITimeoutError(request=httpx2.Request("POST", _FAULT_REQUEST_URL))
         return RawRead(
             payload=dict(BAD_JSON_PAYLOAD), input_tokens=0, output_tokens=0, latency_ms=0

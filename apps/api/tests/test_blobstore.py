@@ -73,3 +73,19 @@ def test_signed_url_shapes(memory_blobs: MemoryBlobStore) -> None:
     url2, expires2 = memory_blobs.signed_download_url("reports", "r1/report.html", expires_s=60)
     assert expires2 == T0 + timedelta(seconds=60)
     assert re.fullmatch(r"memory://reports/r1/report\.html\?exp=\d+", url2)
+
+
+def test_blobstore_bucket_ok(memory_blobs: MemoryBlobStore) -> None:
+    """004 E3: True for both buckets; False, never an error, for any other name."""
+    assert memory_blobs.bucket_ok("inputs") is True
+    assert memory_blobs.bucket_ok("reports") is True
+    assert memory_blobs.bucket_ok("missing") is False
+
+
+def test_get_blobstore_memory_backend_is_one_process_wide_store() -> None:
+    """004 T013: REPO_BACKEND=memory (set by conftest) selects one shared MemoryBlobStore."""
+    from app.core.storage import get_blobstore
+
+    first = get_blobstore()
+    assert isinstance(first, MemoryBlobStore)
+    assert get_blobstore() is first

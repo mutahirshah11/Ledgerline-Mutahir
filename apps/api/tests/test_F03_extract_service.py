@@ -438,6 +438,7 @@ def test_F03_AC7_timeout_three_attempts_upstream_failed(repo: MemoryRepo) -> Non
     assert _by_variant(client) == {A: 3, B: 3}  # 3 attempts per read
     assert sleeps.per_read() == {A: [2, 8], B: [2, 8]}  # 2 s then 8 s, per read
     assert (error.service, error.stage, error.page_no) == ("openai", "extract", PAGE_NO)
+    assert error.attempts == 3
     assert error.detail == "timeout after 3 attempts"
     assert stored(repo, A) is None and stored(repo, B) is None  # cache empty
     assert repo.list_review_items(RUN_ID) == []

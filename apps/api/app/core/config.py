@@ -21,6 +21,7 @@ EXTRACT_WAITS_S = (2, 8)
 """F-03.R5: seconds to wait before the second and third attempts."""
 
 ClockMode = Literal["frozen", "offset"]
+RepoBackend = Literal["memory", "supabase"]
 
 
 class Settings(BaseSettings):
@@ -57,6 +58,34 @@ class Settings(BaseSettings):
     API_BASE_URL: str = "http://localhost:8000"
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    OPENAI_TIMEOUT_S: int = EXTRACT_TIMEOUT_S
+    EXTRACT_ATTEMPTS: int = EXTRACT_ATTEMPTS
+    EXTRACT_BACKOFF_S: tuple[int, ...] = EXTRACT_WAITS_S
+
+    TELEGRAM_ATTEMPTS: int = 3
+    TELEGRAM_BACKOFF_S: tuple[int, ...] = (1, 4)
+    TELEGRAM_TIMEOUT_S: int = 10
+
+    UPLOAD_WINDOW_S: int = 600
+    """Section 10 / C19: seconds a signed upload stays valid for EP-07."""
+    DOWNLOAD_URL_S: int = 300
+    JWKS_CACHE_S: int = 600
+    JWKS_MIN_REFETCH_S: int = 30
+    """F-12.R3: least seconds between JWKS refetches forced by an unknown `kid` or a failure."""
+
+    REPO_BACKEND: RepoBackend = "supabase"
+    """Tests select `memory`; anything else uses Supabase (004 data-model §5)."""
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """`CORS_ORIGINS` split on commas, blanks dropped."""
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    def secret_values(self) -> list[str]:
+        """The set secret values, for log redaction (F-11.R3). Never log the result."""
+        secrets = (self.SUPABASE_SERVICE_ROLE_KEY, self.OPENAI_API_KEY, self.TELEGRAM_BOT_TOKEN)
+        return [s.get_secret_value() for s in secrets if s is not None and s.get_secret_value()]
+
     @property
     def clock_mode(self) -> ClockMode:
         """`frozen` unless `offset` is chosen explicitly (contracts/clock.md)."""
@@ -70,6 +99,13 @@ class Settings(BaseSettings):
             and self.LEDGERLINE_NOW_ANCHOR is None
         ):
             raise ValueError("LEDGERLINE_NOW_ANCHOR is required when LEDGERLINE_CLOCK_MODE=offset")
+        return self
+
+    @model_validator(mode="after")
+    def _jwks_cache_covers_refetch_interval(self) -> Self:
+        # F-12.R3: keys must outlive the refetch throttle, or a failed refresh 502s until it ends.
+        if self.JWKS_CACHE_S < self.JWKS_MIN_REFETCH_S:
+            raise ValueError("JWKS_CACHE_S must be at least JWKS_MIN_REFETCH_S")
         return self
 
 

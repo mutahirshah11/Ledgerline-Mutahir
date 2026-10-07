@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-import openai
 from pydantic import ValidationError
 from tenacity import (
     RetryCallState,
@@ -23,10 +22,11 @@ from tenacity import (
     stop_after_attempt,
     wait_chain,
     wait_fixed,
+    wait_none,
 )
 
 from app.core import clock
-from app.core.config import EXTRACT_ATTEMPTS, EXTRACT_WAITS_S, Settings
+from app.core.config import Settings
 from app.core.db import Repo
 from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
 from app.domain.enums import (
@@ -538,14 +538,17 @@ def _read_with_retries(
     instructions: str,
     schema: dict[str, Any],
     page_no: int,
+    attempts: int,
+    waits: tuple[int, ...],
     on_retry: Callable[[RetryInfo], None] | None,
     sleep: Callable[[float], None],
 ) -> _ReadOutcome:
     """One read with bounded retries (contract §4, research R5): an attempt is a model call
-    plus validation; retryable failures wait 2 s then 8 s (`sleep`), reporting each retry to
-    `on_retry` first. `on_retry` runs on this read's worker thread; an exception it raises is
-    logged and ignored, never aborting the read. Never raises: the last error is returned in
-    the outcome."""
+    plus validation; up to `attempts` (settings `EXTRACT_ATTEMPTS`, default 3) and retryable
+    failures wait `waits` (`EXTRACT_BACKOFF_S`, default 2 s then 8 s; the last repeats) via
+    `sleep`, reporting each retry to `on_retry` first. `on_retry` runs on this read's worker
+    thread; an exception it raises is logged and ignored, never aborting the read. Never
+    raises: the last error is returned in the outcome."""
     outcome = _ReadOutcome()
 
     def attempt() -> tuple[PageRead, RawRead]:
@@ -577,8 +580,8 @@ def _read_with_retries(
                 )
 
     retrying = Retrying(
-        stop=stop_after_attempt(EXTRACT_ATTEMPTS),
-        wait=wait_chain(*(wait_fixed(s) for s in EXTRACT_WAITS_S)),
+        stop=stop_after_attempt(attempts),
+        wait=wait_chain(*(wait_fixed(s) for s in waits)) if waits else wait_none(),
         retry=retry_if_exception(lambda e: retry_cause(e) is not None),
         before_sleep=before_sleep,
         sleep=sleep,
@@ -592,7 +595,13 @@ def _read_with_retries(
 
 
 def retry_cause(error: BaseException | None) -> str | None:
-    """The contract §4 cause of a retryable failure, or None when it must not be retried."""
+    """The contract §4 cause of a retryable failure, or None when it must not be retried.
+
+    `openai` is imported here, not at module level: its SDK import is real time (full
+    types/graders tree) every test would otherwise pay even offline (NFR-11 suite budget).
+    """
+    import openai
+
     if isinstance(error, openai.APITimeoutError):  # before its base, APIConnectionError
         return "timeout"
     if isinstance(error, openai.APIConnectionError):
@@ -615,6 +624,8 @@ def _final_error(error: BaseException, attempts: int, page_no: int) -> BaseExcep
     """Contract §4 final detail. Any other `openai.APIError` (e.g. a response that fails the
     SDK's own validation) is upstream trouble too (FR-012); non-openai errors (bugs, e.g. a
     replay cache miss) are returned unchanged."""
+    import openai
+
     cause = retry_cause(error)
     if cause is not None:
         detail = f"{cause} after {attempts} attempts"
@@ -624,7 +635,7 @@ def _final_error(error: BaseException, attempts: int, page_no: int) -> BaseExcep
         detail = f"rejected: {type(error).__name__}"
     else:
         return error
-    return UpstreamFailed("openai", detail, stage="extract", page_no=page_no)
+    return UpstreamFailed("openai", detail, stage="extract", page_no=page_no, attempts=attempts)
 
 
 def _cached_read(repo: Repo, sha: str, variant: ReadVariant, settings: Settings) -> PageRead | None:
@@ -718,6 +729,8 @@ def _obtain_reads(
                 instructions=prompts[v],
                 schema=schema,
                 page_no=page_no,
+                attempts=settings.EXTRACT_ATTEMPTS,
+                waits=settings.EXTRACT_BACKOFF_S,
                 on_retry=on_retry,
                 sleep=sleep,
             ): v
@@ -743,6 +756,36 @@ def _obtain_reads(
         )
         raise failure
     return reads, calls_made
+
+
+def page_result(
+    read_a: PageRead,
+    read_b: PageRead,
+    *,
+    run_id: UUID,
+    run_month: str,
+    page_no: int,
+    page_sha256: str,
+    calls_made: int = 0,
+) -> PageExtractionResult:
+    """Contract §3 steps 6 to 9 without I/O: merge, FM-06 check, review items, counts. Pure,
+    so a repeat EP-09 call can answer from the stored reads with no write and no model call.
+
+    Raises:
+        PageUnreadable: more than half the merged cells are illegible (FM-06).
+    """
+    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=page_sha256)
+    check_readable(page)
+    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)
+    return PageExtractionResult(
+        page_no=page_no,
+        cached=calls_made == 0,
+        page=page,
+        review_items=items,
+        review_cells=len(items),
+        disagreements=_disagreements(page),
+        calls_made=calls_made,
+    )
 
 
 def extract_page(
@@ -781,20 +824,16 @@ def extract_page(
         on_retry=on_retry,
         sleep=sleep,
     )
-    read_a, read_b = reads[ReadVariant.A], reads[ReadVariant.B]
-    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=sha)  # 6
-    check_readable(page)  # 7
-    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)  # 8
-    repo.upsert_review_items(run_id, items)
-    result = PageExtractionResult(  # 9
+    result = page_result(  # 6 to 8, then 9
+        reads[ReadVariant.A],
+        reads[ReadVariant.B],
+        run_id=run_id,
+        run_month=run_month,
         page_no=page_no,
-        cached=calls_made == 0,
-        page=page,
-        review_items=items,
-        review_cells=len(items),
-        disagreements=_disagreements(page),
+        page_sha256=sha,
         calls_made=calls_made,
     )
+    repo.upsert_review_items(run_id, result.review_items)  # 8
     logger.info(
         "extract page=%d sha=%s cached=%s calls=%d review_cells=%d disagreements=%d",
         page_no,

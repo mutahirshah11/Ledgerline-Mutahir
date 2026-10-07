@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.core.errors import AppendOnlyViolation, NotFound, StateConflict, UniqueViolation
 from app.domain.enums import (
+    NotificationKind,
     NotificationStatus,
     Outcome,
     ReadVariant,
@@ -241,7 +242,9 @@ class MemoryRepo:
     # --- source files --------------------------------------------------------------------
 
     def add_source_file(self, file: SourceFile) -> SourceFile:
-        self._run(file.run_id)
+        run = self._run(file.run_id)
+        if run.status is not RunStatus.CREATED:  # as the 0002 insert trigger
+            raise StateConflict(_copy(run))
         if file.id in self._files:
             raise UniqueViolation("source_files_pkey")
         key = (file.run_id, file.sha256)
@@ -548,6 +551,10 @@ class MemoryRepo:
             if n.status is NotificationStatus.SENDING and n.updated_at < older_than
         ]
 
+    def get_latest_notification(self, kind: NotificationKind) -> Notification | None:
+        found = [n for n in self._notifications.values() if n.kind is kind]
+        return _copy(max(found, key=lambda n: (n.updated_at, n.id))) if found else None
+
     # --- run events ----------------------------------------------------------------------
 
     def add_run_event(self, event: RunEvent) -> RunEvent:
@@ -559,9 +566,10 @@ class MemoryRepo:
         return _copy(event)
 
     def list_run_events(self, run_id: UUID) -> list[RunEvent]:
-        events = [e for e in self._events if e.run_id == run_id]
-        events.sort(key=lambda e: e.at, reverse=True)  # stable: insertion order on ties
-        return [_copy(e) for e in events]
+        # at desc, then newest insertion first (C27: the Postgres `seq` desc)
+        events = [(e.at, i, e) for i, e in enumerate(self._events) if e.run_id == run_id]
+        events.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return [_copy(e) for _, _, e in events]
 
     # --- audit ---------------------------------------------------------------------------
 

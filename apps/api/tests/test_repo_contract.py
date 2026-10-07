@@ -12,6 +12,7 @@ from app.core.db import Repo
 from app.core.errors import AppendOnlyViolation, NotFound, StateConflict, UniqueViolation
 from app.domain.enums import (
     AuditAction,
+    NotificationKind,
     NotificationStatus,
     Outcome,
     ReadVariant,
@@ -86,11 +87,12 @@ REPO_METHODS = {
     "update_notification",
     "list_notifications",
     "list_stale_sending",
+    "get_latest_notification",
     "add_run_event",
     "list_run_events",
     "append_audit",
     "list_audit",
-}  # data-model.md Section 7: 39 methods
+}  # data-model.md Section 7: 39 methods, plus 004 E2
 
 
 def _new_run(repo: Repo, **over: object) -> Run:
@@ -125,6 +127,16 @@ def test_protocol_lists_every_method(repo: Repo) -> None:
     protocol_methods = {n for n in vars(Repo) if not n.startswith("_")}
     assert protocol_methods == REPO_METHODS
     assert isinstance(repo, Repo)
+
+
+def test_get_repo_memory_backend_is_one_process_wide_repo() -> None:
+    """004 T013: REPO_BACKEND=memory (set by conftest) selects one shared MemoryRepo."""
+    from app.core.db import get_repo
+    from app.core.memory_repo import MemoryRepo
+
+    first = get_repo()
+    assert isinstance(first, MemoryRepo)
+    assert get_repo() is first
 
 
 def test_ping(repo: Repo) -> None:
@@ -375,6 +387,17 @@ def test_source_file_unique_run_sha(repo: Repo) -> None:
         repo.add_source_file(make_file(run.id, id=first.id, sha256=sha(2)))
     assert exc.value.constraint == "source_files_pkey"
     repo.add_source_file(make_file(other.id, sha256=sha(1)))  # other run: allowed
+    assert len(repo.list_source_files(run.id)) == 1
+
+
+def test_source_file_add_only_while_created(repo: Repo) -> None:
+    """EP-06 racing EP-07: no file is added once the run left CREATED (0002 insert trigger)."""
+    run = _new_run(repo)
+    repo.add_source_file(make_file(run.id, sha256=sha(1)))
+    repo.transition_run(run.id, S.UPLOADED, expected={S.CREATED})
+    with pytest.raises(StateConflict) as exc:
+        repo.add_source_file(make_file(run.id, sha256=sha(2)))
+    assert exc.value.current.status is S.UPLOADED
     assert len(repo.list_source_files(run.id)) == 1
 
 
@@ -985,6 +1008,31 @@ def test_list_stale_sending(repo: Repo) -> None:
     assert repo.list_stale_sending(at(6)) == [old, boundary]
 
 
+def test_repo_contract_get_latest_notification(repo: Repo) -> None:
+    """004 E2: latest of a kind by updated_at, then id; None when there is none."""
+    assert repo.get_latest_notification(NotificationKind.ALERT) is None
+    run = _new_run(repo)
+    alert = NotificationKind.ALERT
+    ids = sorted([uuid4(), uuid4()])
+    repo.insert_notification(make_notification(run.id, kind=alert, updated_at=at(1)))
+    low, _ = repo.insert_notification(
+        make_notification(run.id, id=ids[0], kind=alert, updated_at=at(3))
+    )
+    high, _ = repo.insert_notification(
+        make_notification(run.id, id=ids[1], kind=alert, updated_at=at(3))
+    )
+    repo.insert_notification(make_notification(run.id, updated_at=at(9)))  # SUMMARY
+    assert repo.get_latest_notification(alert) == high  # tie on updated_at: larger id
+    failed = repo.update_notification(
+        low.id,
+        expected={NotificationStatus.PENDING},
+        status=NotificationStatus.FAILED,
+        updated_at=at(4),
+    )
+    assert repo.get_latest_notification(alert) == failed
+    assert repo.get_latest_notification(NotificationKind.SUMMARY) is not None
+
+
 # --- run events and audit ----------------------------------------------------------------
 
 
@@ -996,8 +1044,8 @@ def test_run_events_newest_first(repo: Repo) -> None:
     t1 = repo.add_run_event(make_event(run.id, at=at(2), stage=Stage.VALIDATE))
     t2 = repo.add_run_event(make_event(run.id, at=at(2), stage=Stage.EXTRACT))
     repo.add_run_event(make_event(other.id, at=at(9)))
-    # at desc, then insertion order for equal `at`
-    assert [e.id for e in repo.list_run_events(run.id)] == [e3.id, t1.id, t2.id, e1.id]
+    # at desc, then newest insertion first for equal `at` (C27 seq; a frozen clock ties all)
+    assert [e.id for e in repo.list_run_events(run.id)] == [e3.id, t2.id, t1.id, e1.id]
 
 
 def test_audit_append_assigns_increasing_ids(repo: Repo) -> None:
