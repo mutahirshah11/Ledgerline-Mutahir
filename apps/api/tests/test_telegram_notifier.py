@@ -2,6 +2,8 @@
 
 import json
 import logging
+import traceback
+from typing import Any
 
 import httpx
 import pytest
@@ -128,6 +130,7 @@ def test_bot_token_never_in_raised_error_or_logs(caplog: pytest.LogCaptureFixtur
             assert all(TOKEN not in f"{e!s} {e!r}" for e in chain if e is not None)
             assert exc.__cause__ is None
             assert exc.__context__ is None or exc.__suppress_context__
+            assert TOKEN not in "".join(traceback.format_exception(exc))
     assert caplog.records, "httpx logs the request line; it must be redacted, not silenced"
     assert TOKEN not in caplog.text
     assert all(TOKEN not in r.getMessage() for r in caplog.records)
@@ -163,7 +166,7 @@ def test_close_and_context_manager_close_the_client() -> None:
         assert notifier.send_message(CHAT, "hi") == 42
     assert client.is_closed
     other = httpx.Client(transport=httpx.MockTransport(_Handler(_ok())))
-    TelegramNotifier(_settings(), client=other).close()
+    TelegramNotifier(_settings(), client=other, sleep=lambda _: None).close()
     assert other.is_closed
 
 
@@ -171,6 +174,36 @@ def test_log_filter_installed_once_by_constructor(monkeypatch: pytest.MonkeyPatc
     httpx_log = logging.getLogger("httpx")
     monkeypatch.setattr(httpx_log, "filters", [])
     client = httpx.Client(transport=httpx.MockTransport(_Handler(_ok())))
-    TelegramNotifier(_settings(), client=client)
-    TelegramNotifier(_settings(), client=client)
+    TelegramNotifier(_settings(), client=client, sleep=lambda _: None)
+    TelegramNotifier(_settings(), client=client, sleep=lambda _: None)
     assert len(httpx_log.filters) == 1
+
+
+def test_upstream_failed_reports_attempts() -> None:
+    for answer, attempts in ((httpx.Response(503), 3), (httpx.Response(400), 1)):
+        with pytest.raises(UpstreamFailed) as info:
+            _notifier(_Handler(answer), []).send_message(CHAT, "hi")
+        assert info.value.attempts == attempts
+
+
+def test_on_retry_hears_each_retry() -> None:
+    heard: list[dict[str, Any]] = []
+    handler = _Handler(httpx.Response(502), httpx.Response(429), _ok(5))
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(
+        _settings(), client=client, sleep=lambda _: None, on_retry=heard.append
+    )
+    assert notifier.send_message(CHAT, "hi") == 5
+    assert heard == [
+        {"service": "telegram", "attempt": 2, "cause": "server error"},
+        {"service": "telegram", "attempt": 3, "cause": "rate limited"},
+    ]
+
+
+def test_no_backoff_retries_without_waiting() -> None:
+    handler = _Handler(httpx.Response(500))
+    waits: list[float] = []
+    with pytest.raises(UpstreamFailed):
+        _notifier(handler, waits, TELEGRAM_BACKOFF_S=()).send_message(CHAT, "hi")
+    assert len(handler.requests) == 3
+    assert all(w == 0 for w in waits)

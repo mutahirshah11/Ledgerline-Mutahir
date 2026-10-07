@@ -129,21 +129,14 @@ def test_protocol_lists_every_method(repo: Repo) -> None:
     assert isinstance(repo, Repo)
 
 
-def test_get_repo_memory_backend_is_one_process_wide_repo(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """004 T013: REPO_BACKEND=memory selects one shared MemoryRepo."""
-    from app.core.config import get_settings
-    from app.core.db import get_repo, shared_memory_repo
+def test_get_repo_memory_backend_is_one_process_wide_repo() -> None:
+    """004 T013: REPO_BACKEND=memory (set by conftest) selects one shared MemoryRepo."""
+    from app.core.db import get_repo
     from app.core.memory_repo import MemoryRepo
 
-    monkeypatch.setenv("REPO_BACKEND", "memory")
-    get_settings.cache_clear()
-    shared_memory_repo.cache_clear()
     first = get_repo()
     assert isinstance(first, MemoryRepo)
     assert get_repo() is first
-    shared_memory_repo.cache_clear()
 
 
 def test_ping(repo: Repo) -> None:

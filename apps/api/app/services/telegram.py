@@ -15,6 +15,7 @@ import httpx
 from app.core.config import Settings, get_settings
 from app.core.errors import UpstreamFailed
 from app.domain.enums import Fault
+from app.services.runlog import OnRetry, retrying
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,11 @@ class _Retryable(Exception):
         self.cause = cause
 
 
+def _cause_of(error: BaseException) -> str | None:
+    """Only `_Retryable` retries; `_post` already turned every httpx error into a cause word."""
+    return error.cause if isinstance(error, _Retryable) else None
+
+
 class TelegramNotifier:
     """`sendMessage` as plain text (no `parse_mode`), `TELEGRAM_ATTEMPTS` attempts with the
     `TELEGRAM_BACKOFF_S` waits and `TELEGRAM_TIMEOUT_S` per call. 4xx answers are not retried.
@@ -67,12 +73,14 @@ class TelegramNotifier:
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         fault: Fault | None = None,
+        on_retry: OnRetry | None = None,
     ) -> None:
         _install_log_filter()
         self._settings = settings or get_settings()
         self._client = client or httpx.Client()
         self._sleep = sleep
         self._fault = fault
+        self._on_retry = on_retry
 
     def close(self) -> None:
         """Close the HTTP client (also an injected one)."""
@@ -89,21 +97,21 @@ class TelegramNotifier:
         if token is None or not token.get_secret_value():
             raise UpstreamFailed("telegram", "bot token not set")
         url = f"{TELEGRAM_API}/bot{token.get_secret_value()}/sendMessage"
-        attempts = max(1, self._settings.TELEGRAM_ATTEMPTS)
-        waits = self._settings.TELEGRAM_BACKOFF_S or (0,)
-        cause = ""
-        # TODO(R8): use runlog.retrying with chain=False
-        for attempt in range(1, attempts + 1):
-            try:
-                return self._post(url, {"chat_id": chat_id, "text": text})
-            except _Retryable as exc:
-                cause = exc.cause
-            if attempt < attempts:
-                log.warning(
-                    "telegram send failed; retrying", extra={"cause": cause, "attempt": attempt}
-                )
-                self._sleep(waits[min(attempt - 1, len(waits) - 1)])
-        raise UpstreamFailed("telegram", f"{cause} after {attempts} attempts")
+        policy = retrying(
+            "telegram",
+            max(1, self._settings.TELEGRAM_ATTEMPTS),
+            self._settings.TELEGRAM_BACKOFF_S,
+            self._retry_heard,
+            sleep=self._sleep,
+            chain=False,
+            cause_of=_cause_of,
+        )
+        return policy(lambda: self._post(url, {"chat_id": chat_id, "text": text}))
+
+    def _retry_heard(self, detail: dict[str, object]) -> None:
+        log.warning("telegram send failed; retrying", extra=detail)
+        if self._on_retry is not None:
+            self._on_retry(detail)
 
     def _post(self, url: str, payload: dict[str, str]) -> int:
         """One call: the message id, `_Retryable`, or UpstreamFailed for a final rejection.
