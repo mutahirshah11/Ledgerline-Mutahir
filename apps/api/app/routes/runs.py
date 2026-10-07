@@ -7,7 +7,7 @@ allow-listed role. Upload logic lives in `app.services.stages`.
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query
@@ -20,6 +20,9 @@ from app.core.deps import get_extract_sleep, get_model_client, get_notifier
 from app.core.faults import Fault, active_fault
 from app.core.storage import BlobStore, get_blobstore
 from app.domain.enums import (
+    AuditAction,
+    AuditChannel,
+    NormCode,
     Outcome,
     ProofStatus,
     ReadVariant,
@@ -130,6 +133,41 @@ class RunSummary(BaseModel):
     created_at: datetime
     counts: dict[Outcome, int]
     proof_status: ProofStatus | None
+
+
+class RunEventOut(BaseModel):
+    """EP-19 `RunEvent` (data-model.md §2); newest first (FR-034)."""
+
+    id: UUID
+    stage: Stage
+    status: RunEventStatus
+    at: datetime
+    duration_ms: int | None
+    detail: dict[str, Any]
+
+
+class AuditEntryOut(BaseModel):
+    """EP-20 `AuditEntry` (data-model.md §2); newest first, optional `?actor=` (FR-034)."""
+
+    id: int
+    at: datetime
+    actor: str
+    action: AuditAction
+    entity: str
+    entity_id: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    channel: AuditChannel
+
+
+class NormLogEntryOut(BaseModel):
+    """EP-21 `NormLogEntry` (data-model.md §2), filtered by `?source_row_id=` (FR-034)."""
+
+    source_row_id: str
+    field: str
+    code: NormCode
+    before: str | None
+    after: str | None
 
 
 # --- views -----------------------------------------------------------------------------
@@ -304,3 +342,39 @@ def reconcile(
 ) -> ReconcileResult:
     """EP-10 (F-04 to F-07, FR-021, FR-022, C25); CONTROLLER, or OPS to retry a `FAILED` run."""
     return stages.reconcile_stage(repo, blobs, notifier, repo.get_run(id), user, fault)
+
+
+# --- read endpoints (US6, FR-034) -------------------------------------------------------
+# EP-19 to EP-21 are open to every allow-listed role (contracts/auth.md); the protected
+# router's `current_user` dependency is the only guard. `repo.get_run` 404s an unknown run.
+
+
+@router.get("/runs/{id}/events", response_model=list[RunEventOut])
+def list_run_events(id: UUID, repo: RepoDep) -> list[RunEventOut]:
+    """EP-19: the run's events, newest first, with durations (F-11.R2, FR-034)."""
+    repo.get_run(id)
+    return [RunEventOut.model_validate(e.model_dump()) for e in repo.list_run_events(id)]
+
+
+@router.get("/runs/{id}/audit", response_model=list[AuditEntryOut])
+def list_run_audit(
+    id: UUID, repo: RepoDep, actor: Annotated[str | None, Query()] = None
+) -> list[AuditEntryOut]:
+    """EP-20: the run's audit entries, newest first, optionally filtered by `actor` (FR-034)."""
+    repo.get_run(id)
+    return [
+        AuditEntryOut.model_validate(a.model_dump())
+        for a in repo.list_audit(run_id=id, actor=actor)
+    ]
+
+
+@router.get("/runs/{id}/normalisation-log", response_model=list[NormLogEntryOut])
+def list_norm_log(
+    id: UUID, repo: RepoDep, source_row_id: Annotated[str | None, Query()] = None
+) -> list[NormLogEntryOut]:
+    """EP-21: the run's normalisation log, optionally filtered by `source_row_id` (F-04, FR-034)."""
+    repo.get_run(id)
+    return [
+        NormLogEntryOut.model_validate(n.model_dump())
+        for n in repo.list_norm_log(id, source_row_id)
+    ]
