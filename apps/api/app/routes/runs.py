@@ -150,6 +150,7 @@ class AuditEntryOut(BaseModel):
     action: AuditAction
     entity: str
     entity_id: str
+    run_id: UUID | None
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     channel: AuditChannel
