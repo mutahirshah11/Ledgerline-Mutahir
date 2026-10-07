@@ -4,9 +4,12 @@ Deep copies in and out (G1); dict indexes for unique keys (G5), raising `UniqueV
 with the constraint names of `supabase/migrations/0001_init.sql`. Batch writes
 (`replace_reconciliation`, `upsert_review_items`) validate everything first and write only
 after success, so a failure leaves nothing changed. The audit log is an append-only tuple.
+Every public method holds one re-entrant lock: FastAPI runs sync routes on a threadpool.
 """
 
-from collections.abc import Collection, Iterator
+import functools
+import threading
+from collections.abc import Callable, Collection, Iterator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 from uuid import UUID
@@ -133,6 +136,7 @@ class MemoryRepo:
     """Dict-backed `Repo`. Stored models are never handed out; callers get deep copies."""
 
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._users: dict[str, AllowedUser] = {}
         self._runs: dict[UUID, Run] = {}
         self._files: dict[UUID, SourceFile] = {}
@@ -586,6 +590,20 @@ class MemoryRepo:
         ]
         entries.sort(key=lambda e: (e.at, e.id), reverse=True)
         return entries
+
+
+def _locked(method: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(method)
+    def call(self: MemoryRepo, *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return call
+
+
+for _name, _method in list(vars(MemoryRepo).items()):
+    if callable(_method) and not _name.startswith("_"):
+        setattr(MemoryRepo, _name, _locked(_method))
 
 
 def _review_sort_key(item: ReviewItem) -> tuple[int, bool, int, bool, int, str]:

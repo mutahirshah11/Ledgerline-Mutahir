@@ -1101,3 +1101,25 @@ def test_memory_audit_log_is_append_only() -> None:
     with pytest.raises(AppendOnlyViolation):
         log.clear()
     assert len(mem.list_audit()) == 1
+
+
+def test_memory_repo_calls_are_serialised() -> None:
+    """MemoryRepo behind the threadpool: every call holds one re-entrant lock, so a write
+    waits while another thread holds it (no torn dict updates or iteration errors)."""
+    import threading
+
+    from app.core.memory_repo import MemoryRepo
+
+    repo = MemoryRepo()
+    done = threading.Event()
+
+    def write() -> None:
+        repo.create_run(make_run())
+        done.set()
+
+    with repo._lock:
+        worker = threading.Thread(target=write)
+        worker.start()
+        assert not done.wait(0.05)  # blocked while the lock is held elsewhere
+    worker.join(5)
+    assert done.is_set()
