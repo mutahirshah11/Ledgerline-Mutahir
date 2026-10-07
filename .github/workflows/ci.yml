@@ -30,11 +30,21 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    env:
+      API_BASE_URL: http://127.0.0.1:3999
+      APP_BASE_URL: http://localhost:3100
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
     defaults:
       run:
         working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+        working-directory: apps/api
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: apps/web/package.json
@@ -45,7 +55,16 @@ jobs:
           cache-dependency-path: apps/web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - run: pnpm typecheck
+      # gen-api freshness (T006/T009, research R5): lib/api-types.ts must already match the
+      # current apps/api schema — never hand-edited, never stale.
+      - run: uv run python -m scripts.export_openapi
+        working-directory: apps/api
+      - run: pnpm gen:api
+      - run: git diff --exit-code lib/api-types.ts
       - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
 
   db:
     # Applies supabase/migrations/0001, 0002 and 0003 to a real Postgres (on top of a minimal Supabase
