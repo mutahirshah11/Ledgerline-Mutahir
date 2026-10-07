@@ -587,6 +587,84 @@ drop function public.smoke_probe_definer_fn();
 
 
 -- =============================================================================================
+-- 10. 0003: no review decision on a FINALISED run (F-08.R8)
+-- =============================================================================================
+insert into public.review_items (run_id, kind, item_key, reason, context, status)
+values (smoke.finalised_run(), 'CELL', 'CELL:REG-p1-r01:qty', 'CORRECTED',
+        '{"page_no": 1, "row_index": 1}', 'OPEN');
+do $$
+begin
+    perform smoke.expect_error('decision on a FINALISED run',
+        format($q$update public.review_items set status = 'RESOLVED', resolved_value = '12',
+                  resolved_by = 'reviewer@kestrel.example', resolved_at = now()
+                  where run_id = %L$q$, smoke.finalised_run()),
+        '55000', null, 'service_role', 'RUN_STATE_CONFLICT%');
+    update public.review_items set note = note where run_id = smoke.run_id();
+    raise notice 'ok   review items of an unfinalised run can be updated';
+end;
+$$;
+
+-- the upsert_review_items refresh (ON CONFLICT DO UPDATE) is refused on a FINALISED run too
+do $$
+begin
+    perform smoke.expect_error('upsert refresh on a FINALISED run',
+        format($q$select count(*) from public.upsert_review_items(%L, %L::jsonb)$q$,
+               smoke.finalised_run(),
+               jsonb_build_array(jsonb_build_object(
+                   'id', gen_random_uuid(), 'run_id', smoke.finalised_run(), 'kind', 'CELL',
+                   'item_key', 'CELL:REG-p1-r01:qty', 'reason', 'CORRECTED',
+                   'context', '{"page_no": 1, "row_index": 1}'::jsonb))),
+        '55000', null, 'service_role', 'RUN_STATE_CONFLICT%');
+end;
+$$;
+
+-- 0003 runs_refuse_unreconciled_finalise: no FINALISED while a decision is not reconciled
+insert into public.runs (id, month, status, run_key, scenario_now, created_by, created_at)
+values ('00000000-0000-4000-8000-0000000000f3', '2026-07', 'READY', repeat('c', 64),
+        '2026-10-01 09:00+05', 'controller@kestrel.example', '2026-10-01 09:00+05');
+insert into public.review_items (run_id, kind, item_key, reason, context, status,
+                                 resolved_value, resolved_by, resolved_at)
+values ('00000000-0000-4000-8000-0000000000f3', 'CELL', 'CELL:REG-p1-r02:qty', 'CORRECTED',
+        '{"page_no": 1, "row_index": 2}', 'RESOLVED', '12', 'reviewer@kestrel.example',
+        '2026-10-01 09:10+05'),
+       ('00000000-0000-4000-8000-0000000000f3', 'CELL', 'CELL:REG-p1-r03:qty', 'CORRECTED',
+        '{"page_no": 1, "row_index": 3}', 'OPEN', null, null, null);
+do $$
+declare
+    run  constant uuid := '00000000-0000-4000-8000-0000000000f3';
+    fin  constant text := format(
+        $q$update public.runs set status = 'FINALISED', finalised_at = now(),
+              finalised_by = 'controller@kestrel.example' where id = %L$q$,
+        '00000000-0000-4000-8000-0000000000f3');
+begin
+    perform smoke.expect_error('FINALISED with an unreconciled decision (no reconcile yet)',
+        fin, '55000', null, 'service_role', 'RUN_STATE_CONFLICT%');
+    insert into public.audit_log (at, actor, action, entity, entity_id, run_id, after, channel)
+    values ('2026-10-01 09:05+05', 'system', 'RECONCILED', 'run', run::text, run,
+            '{"status": "READY", "open_item_keys": []}', 'SYSTEM');
+    perform smoke.expect_error('FINALISED with an unreconciled decision (legacy marker)',
+        fin, '55000', null, 'service_role', 'RUN_STATE_CONFLICT%');
+    insert into public.audit_log (at, actor, action, entity, entity_id, run_id, after, channel)
+    values ('2026-10-01 09:20+05', 'system', 'RECONCILED', 'run', run::text, run,
+            '{"decided_item_keys": ["CELL:REG-p1-r02:qty"]}', 'SYSTEM'),
+           -- same run, older `at` but newer id: a stale reconcile written last wins
+           ('2026-10-01 09:15+05', 'system', 'RECONCILED', 'run', run::text, run,
+            '{"decided_item_keys": []}', 'SYSTEM');
+    perform smoke.expect_error('FINALISED with an unreconciled decision (newest by id)',
+        fin, '55000', null, 'service_role', 'RUN_STATE_CONFLICT%');
+    insert into public.audit_log (at, actor, action, entity, entity_id, run_id, after, channel)
+    values ('2026-10-01 09:15+05', 'system', 'RECONCILED', 'run', run::text, run,
+            '{"decided_item_keys": ["CELL:REG-p1-r02:qty"]}', 'SYSTEM');
+    set local role service_role;
+    execute fin;
+    reset role;
+    perform smoke.eq((select status::text from public.runs where id = run), 'FINALISED',
+        'a run whose decisions are all reconciled is finalised');
+end;
+$$;
+
+
+-- =============================================================================================
 -- Done
 -- =============================================================================================
 drop schema smoke cascade;

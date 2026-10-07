@@ -1,0 +1,205 @@
+{#- F-09.R3 frozen report (contracts/frozen-files.md): self-contained, no script, no external
+    asset; every number comes from ReportContext; run id, hashes and check ids are opaque. -#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ledgerline receiving check: {{ ctx.month_label }}</title>
+{% if fingerprint and ctx.run.finalised_at %}
+<meta name="ledgerline:finalised-at" content="{{ ctx.run.finalised_at.isoformat() }}">
+<meta name="ledgerline:finalised-by" content="{{ ctx.run.finalised_by or '' }}">
+<meta name="ledgerline:fingerprint" content="{{ fingerprint }}">
+{% endif %}
+<style>
+body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; background: #ffffff; margin: 24px; font-size: 14px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; border-bottom: 1px solid #999999; padding-bottom: 4px; margin-top: 28px; }
+h3 { font-size: 15px; margin: 16px 0 6px; }
+table { border-collapse: collapse; margin: 6px 0 12px; }
+th, td { border: 1px solid #bbbbbb; padding: 3px 7px; text-align: left; vertical-align: top; }
+th { background: #eeeeee; }
+td.differs { background: #fff1d6; font-weight: bold; }
+.mono { font-family: Consolas, "Courier New", monospace; }
+.status { font-weight: bold; }
+dl { display: grid; grid-template-columns: max-content auto; gap: 2px 12px; }
+dt { font-weight: bold; }
+dd { margin: 0; }
+</style>
+</head>
+<body>
+<section id="header">
+<h1>Ledgerline receiving check: {{ ctx.month_label }}</h1>
+<dl>
+<dt>Run</dt><dd><span class="mono" data-trace="opaque">{{ ctx.run.id }}</span></dd>
+<dt>Finalised by</dt><dd>{{ ctx.run.finalised_by or "" }}</dd>
+<dt>Finalised at</dt><dd>{{ ctx.run.finalised_at | instant }} (Asia/Karachi)</dd>
+<dt>Scenario clock</dt><dd>{{ ctx.scenario_now | instant }} (Asia/Karachi)</dd>
+</dl>
+<p class="status">{{ ctx.headline }}</p>
+</section>
+
+<section id="proof">
+<h2>Completeness proof</h2>
+{% if ctx.proof %}
+{% set c = ctx.proof.checks %}
+<p>Status: <span class="status">{{ ctx.proof.status.value }}</span></p>
+<h3>Rows per source (<span data-trace="opaque">C1</span>): {{ "PASS" if c.C1.pass_ else "FAIL" }}</h3>
+<table>
+<tr><th>Source</th><th>In</th><th>Placed</th></tr>
+{% for source, count in c.C1.per_source.items() %}
+<tr><td>{{ source.value }}</td><td>{{ count.in_ }}</td><td>{{ count.placed }}</td></tr>
+{% endfor %}
+</table>
+<h3>Every row placed once (<span data-trace="opaque">C2</span>): {{ "PASS" if c.C2.pass_ else "FAIL" }}</h3>
+<table>
+<tr><th>Rows</th><td>{{ c.C2.rows }}</td></tr>
+<tr><th>Unplaced</th><td>{{ c.C2.unplaced | join(", ") or "none" }}</td></tr>
+<tr><th>Placed twice</th><td>{{ c.C2.placed_twice | join(", ") or "none" }}</td></tr>
+</table>
+<h3>Rows read per source (<span data-trace="opaque">C3</span>): {{ "PASS" if c.C3.pass_ else "FAIL" }}</h3>
+<table>
+<tr><th>Source</th><th>Rows</th></tr>
+{% for source, count in c.C3.per_source.items() %}
+<tr><td>{{ source.value }}</td><td>{{ count }}</td></tr>
+{% endfor %}
+</table>
+{% if c.C3.problems %}
+<ul>
+{% for problem in c.C3.problems %}
+<li>{{ problem }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+<h3>Quantity balance (<span data-trace="opaque">C4</span>): {{ "PASS" if c.C4.pass_ else "FAIL" }}</h3>
+<table>
+<tr><th>Source</th><th>Unit</th><th>In</th><th>Placed</th></tr>
+{% for key, balance in c.C4.by_source_unit.items() %}
+{% set parts = key.split("|", 1) %}
+<tr><td>{{ parts[0] }}</td><td>{{ parts[1] if parts | length > 1 else "" }}</td><td>{{ balance.in_ | qty }}</td><td>{{ balance.placed | qty }}</td></tr>
+{% endfor %}
+</table>
+<p>Qty unknown: {{ c.C4.qty_unknown | join(", ") or "none" }}</p>
+<h3>GRN sequence (<span data-trace="opaque">C5</span>): {{ "PASS" if c.C5.pass_ else "FAIL" }}</h3>
+<table>
+<tr><th>GRNs</th><td>{{ c.C5.grns }}</td></tr>
+<tr><th>Gaps</th><td>{{ c.C5.gaps | join(", ") or "none" }}</td></tr>
+</table>
+{% else %}
+<p>Status: <span class="status">not computed</span></p>
+{% endif %}
+</section>
+
+<section id="exceptions">
+<h2>Exceptions</h2>
+{% for category, title in CATEGORY_TITLE.items() %}
+{% set items = ctx.exceptions | selectattr("category", "equalto", category) | list %}
+{% if items %}
+<h3>{{ title }}</h3>
+<ul>
+{% for item in items %}
+<li>{{ item.text }}{% if item.flags %} <em>(flags: {{ item.flags | map(attribute="flag.value") | map("label") | join(", ") }})</em>{% endif %}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% endfor %}
+{% if not ctx.exceptions %}
+<p>No exceptions.</p>
+{% endif %}
+</section>
+
+<section id="receipts">
+<h2>All receipts</h2>
+<p>Cells marked ≠ differ from the other sources; the odd source out is named.</p>
+<table>
+<tr><th>GRN</th><th>Outcome</th><th>Field</th>{% for source in SOURCES %}<th>{{ SOURCE_TITLE[source] }}</th>{% endfor %}<th>Outlier</th></tr>
+{% for view in ctx.groups %}
+{% set lines = receipt_lines(view) %}
+{% for line in lines %}
+<tr>
+{% if loop.first %}
+<td rowspan="{{ lines | length }}">{{ view.group.grn_no if view.group.grn_no is not none else view.group.group_key }}</td>
+<td rowspan="{{ lines | length }}">{{ view.group.outcome.value | label }}</td>
+{% endif %}
+<td>{{ line.label }}</td>
+{% for source in SOURCES %}
+{% set cell = line.cells[source] %}
+<td{% if cell.differs %} class="differs"{% endif %}>{% if cell.differs %}≠ {% endif %}{{ cell.text }}</td>
+{% endfor %}
+<td>{{ line.outlier }}</td>
+</tr>
+{% endfor %}
+{% endfor %}
+</table>
+</section>
+
+<section id="flags">
+<h2>Control flags</h2>
+{% if ctx.flags %}
+<table>
+<tr><th>Flag</th><th>GRN</th><th>Row</th><th>Detail</th></tr>
+{% for flag in ctx.flags %}
+<tr><td>{{ flag.flag.value | label }}</td><td>{{ flag.grn_no if flag.grn_no is not none else "" }}</td><td>{{ flag.source_row_id or "" }}</td><td>{% for key, value in flag.detail | dictsort %}{{ key }}: {{ value }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No control flags.</p>
+{% endif %}
+</section>
+
+<section id="decisions">
+<h2>Review decisions</h2>
+{% set decided = ctx.decisions | rejectattr("item.status.value", "equalto", "OPEN") | list %}
+{% set still_open = ctx.decisions | selectattr("item.status.value", "equalto", "OPEN") | list %}
+{% if decided %}
+<table>
+<tr><th>GRN</th><th>Field</th><th>Action</th><th>Value</th><th>Reviewer</th><th>Time</th><th>Note</th><th>Equals sources</th></tr>
+{% for d in decided %}
+<tr><td>{{ d.item.grn_no if d.item.grn_no is not none else d.item.source_row_id or "" }}</td><td>{{ d.item.field or "" }}</td><td>{{ (d.action or d.item.status.value) | label }}</td><td>{{ d.item.resolved_value or "" }}</td><td>{{ d.item.resolved_by or "" }}</td><td>{{ d.item.resolved_at | instant }}</td><td>{{ d.item.note or "" }}</td><td>{{ d.equals_sources | map(attribute="value") | join(", ") or "none" }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No review decisions.</p>
+{% endif %}
+{% if still_open %}
+<h3>Still open</h3>
+<table>
+<tr><th>GRN</th><th>Row</th><th>Field</th><th>Reason</th></tr>
+{% for d in still_open %}
+<tr><td>{{ d.item.grn_no if d.item.grn_no is not none else "" }}</td><td>{{ d.item.source_row_id or "" }}</td><td>{{ d.item.field or "" }}</td><td>{{ d.item.reason.value | label }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+</section>
+
+<section id="normalisation">
+<h2>Normalisation</h2>
+{% if ctx.norm_summary %}
+<table>
+<tr><th>Code</th><th>Entries</th></tr>
+{% for code, count in ctx.norm_summary %}
+<tr><td>{{ code.value | label }}</td><td>{{ count }}</td></tr>
+{% endfor %}
+</table>
+<h3>First entries</h3>
+<table>
+<tr><th>Row</th><th>Field</th><th>Code</th><th>Before</th><th>After</th></tr>
+{% for entry in ctx.norm_examples %}
+<tr><td>{{ entry.source_row_id }}</td><td>{{ entry.field }}</td><td>{{ entry.code.value | label }}</td><td>{{ entry.before or "" }}</td><td>{{ entry.after or "" }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No normalisation entries.</p>
+{% endif %}
+</section>
+
+<section id="inputs">
+<h2>Inputs</h2>
+<table>
+<tr><th>Source</th><th>File</th><th>Size (bytes)</th><th data-trace="opaque">SHA-256</th></tr>
+{% for f in ctx.input_files %}
+<tr><td>{{ f.source.value }}</td><td>{{ f.filename }}</td><td>{{ f.size_bytes }}</td><td class="mono" data-trace="opaque">{{ f.sha256 }}</td></tr>
+{% endfor %}
+</table>
+</section>
+</body>
+</html>

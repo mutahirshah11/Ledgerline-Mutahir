@@ -66,6 +66,36 @@ def test_fake_notifier_records_and_fails() -> None:
     assert n.sent == [("ops", "hello"), ("ops", "again")]
 
 
+def test_fake_notifier_documents_per_chat_and_increasing_ids() -> None:
+    """005 T009: texts and documents per chat id; one id sequence across both."""
+    n = FakeNotifier()
+    assert n.send_message("ctl", "summary") == 1
+    assert n.send_document("ctl", "report.html", b"<html/>", caption="Sep") == 2
+    assert n.send_message("ops", "alert") == 3
+    assert n.texts("ctl") == ["summary"] and n.texts("ops") == ["alert"]
+    assert n.documents == [("ctl", "report.html", b"<html/>", "Sep")]
+    assert n.documents_to("ctl") == [("report.html", b"<html/>")]
+    assert n.documents_to("ops") == []
+
+
+def test_fake_notifier_down_and_fail_document_switches() -> None:
+    n = FakeNotifier(fail_document=True)
+    assert n.send_message("ctl", "summary") == 1
+    with pytest.raises(UpstreamFailed) as info:
+        n.send_document("ctl", "report.html", b"x")
+    assert info.value.service == "telegram" and n.documents == []
+    n.fail_document, n.down = False, True
+    assert n.fail  # `fail` (Phase 3 name) and `down` are one switch
+    with pytest.raises(UpstreamFailed):
+        n.send_message("ctl", "t")
+    with pytest.raises(UpstreamFailed):
+        n.send_document("ctl", "f", b"")
+    assert n.texts("ctl") == ["summary"] and n.documents == []
+    assert len(n.attempted) == 2 and len(n.attempted_documents) == 2
+    n.fail = False
+    assert not n.down and n.send_document("ctl", "report.html", b"x") == 2
+
+
 def test_fake_stage_callables_record_calls() -> None:
     ext = FakeExtractor(result="page")
     assert ext(repo="r", page_no=2) == "page"

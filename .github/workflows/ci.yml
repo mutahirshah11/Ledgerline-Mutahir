@@ -48,7 +48,7 @@ jobs:
       - run: pnpm build
 
   db:
-    # Applies supabase/migrations/0001 and 0002 to a real Postgres (on top of a minimal Supabase
+    # Applies supabase/migrations/0001, 0002 and 0003 to a real Postgres (on top of a minimal Supabase
     # stub) and runs the behavioural smoke test in supabase/tests/smoke.sql.
     runs-on: ubuntu-latest
     services:

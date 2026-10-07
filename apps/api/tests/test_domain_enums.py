@@ -190,6 +190,15 @@ def test_enum_error_code() -> None:
     ]
 
 
+def test_error_codes_phase4() -> None:
+    """Phase 4 additions (data-model.md E1): already present on `ErrorCode` (F-08 AC4/AC5, FM-09,
+    EP-17)."""
+    codes = values(e.ErrorCode)
+    assert "INVALID_REVIEW_ACTION" in codes
+    assert "ITEM_ALREADY_RESOLVED" in codes
+    assert "CONFIRM_REQUIRED" in codes
+
+
 def test_enum_upload_problem() -> None:
     assert values(e.UploadProblem) == ["FILE_MISSING", "UPLOAD_EXPIRED", "HASH_MISMATCH"]
 

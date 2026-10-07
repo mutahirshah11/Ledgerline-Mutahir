@@ -107,6 +107,7 @@ def test_EP20_audit_newest_first_and_actor_filter(
             "action",
             "entity",
             "entity_id",
+            "run_id",
             "before",
             "after",
             "channel",

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.pipeline.model_client import ReplayModelClient
     from tests.fakes.api import FakeJwksFetcher, FakeNotifier
     from tests.support.pack_pages import PackPages
+    from tests.support.pack_run import PackRun
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = API_DIR.parents[1]
@@ -130,10 +131,11 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     """Freeze app.core.clock at the scenario instant (2026-10-15 08:30 Asia/Karachi)."""
     from app.core import clock
     from app.core.config import Settings
+    from tests.support.pack_run import SCENARIO_NOW
 
     settings = Settings(
         _env_file=None,
-        LEDGERLINE_NOW=datetime(2026, 10, 15, 8, 30, tzinfo=clock.KARACHI),
+        LEDGERLINE_NOW=SCENARIO_NOW,
         LEDGERLINE_CLOCK_MODE="frozen",
         LEDGERLINE_NOW_ANCHOR=None,
     )
@@ -326,6 +328,20 @@ def notifier() -> "FakeNotifier":
     return FakeNotifier()
 
 
+@pytest.fixture(scope="session")
+def _client_app_template() -> "Any":
+    """One `create_app()` built once per session (NFR-11): building the FastAPI route table
+    (dependant graphs, pydantic models for every endpoint) costs tens of ms, paid 274+ times
+    over the old per-test `create_app()`. Nothing about the route table itself is test-specific
+    (`?fault=`, `ALLOW_FAULTS`, CORS origin and auth settings are all read fresh per request via
+    `get_settings()`, never baked in here); only `app.dependency_overrides` is test-specific, and
+    `client` resets it from scratch every test. A test that mutates the route table itself
+    (`test_F12_auth._stub_routes`) must build its own app instead of reusing this one."""
+    from app.main import create_app
+
+    return create_app()
+
+
 @pytest.fixture
 def client(
     api_settings: None,
@@ -334,28 +350,30 @@ def client(
     memory_blobs: "MemoryBlobStore",
     jwks_fetcher: "FakeJwksFetcher",
     notifier: "FakeNotifier",
+    _client_app_template: "Any",
 ) -> Iterator[TestClient]:
-    """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
-    JWKS, with the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for
-    the pack.
+    """`TestClient(app)` over `memory_repo`, `memory_blobs`, `notifier` and the fake JWKS, with
+    the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for the pack.
 
-    A fresh `create_app()` every time, not memoised: some tests (`test_F12_auth._stub_routes`)
-    call `client.app.include_router(...)`, which would otherwise leak routes onto later tests
-    sharing the same app object (test isolation)."""
+    Reuses the one `_client_app_template` app object (NFR-11) and clears its
+    `dependency_overrides` before setting these four, so no override set by a previous test
+    (e.g. `replay`'s `get_model_client`) can leak into this one. A test that mutates the route
+    table itself (`test_F12_auth._stub_routes`) must build its own fresh app, never
+    `client.app.include_router(...)` on this shared one."""
     from app.core.auth import JwksCache, get_jwks_cache
     from app.core.db import get_repo
     from app.core.deps import get_notifier
     from app.core.storage import get_blobstore
     from app.domain.enums import Role
     from app.domain.models import AllowedUser
-    from app.main import create_app
 
     for email, name, role in SEEDED_USERS.values():
         memory_repo.upsert_allowed_user(
             AllowedUser(email=email, display_name=name, role=Role(role))
         )
     jwks = JwksCache(jwks_fetcher)
-    app = create_app()
+    app = _client_app_template
+    app.dependency_overrides.clear()
     app.dependency_overrides[get_repo] = lambda: memory_repo
     app.dependency_overrides[get_blobstore] = lambda: memory_blobs
     app.dependency_overrides[get_notifier] = lambda: notifier
@@ -435,3 +453,78 @@ def pack_upload(
         return body
 
     return upload
+
+
+# --- Phase 4 (005 T012) ------------------------------------------------------------------
+
+
+@pytest.fixture
+def zero_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry backoffs (`TELEGRAM_BACKOFF_S`, `EXTRACT_BACKOFF_S`) of 0 s for this test, so a
+    real notifier under `TELEGRAM_DOWN` retries without sleeping (research R17)."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("TELEGRAM_BACKOFF_S", "[0]")
+    monkeypatch.setenv("EXTRACT_BACKOFF_S", "[0]")
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def fake_notifier(notifier: "FakeNotifier") -> "FakeNotifier":
+    """The app's notifier in `client` / `api_client_as` (the same object as `notifier`): set
+    `.down` / `.fail_document`, read `.texts(chat)` / `.documents_to(chat)`."""
+    return notifier
+
+
+@pytest.fixture(scope="session")
+def pack_run_template(cached_extraction_records: list["Extraction"], pack_dir: Path) -> "PackRun":
+    """The reconciled pack run built once per session (hermetic settings, frozen scenario
+    clock) in its own MemoryRepo / MemoryBlobStore. Read-only: tests use `pack_run`."""
+    from app.core.memory_repo import MemoryRepo
+    from app.core.storage import MemoryBlobStore
+    from tests.factories import T0
+    from tests.support.pack_pages import hermetic_settings_context
+    from tests.support.pack_run import build_reconciled_pack_run, frozen_scenario_clock
+
+    with hermetic_settings_context(), frozen_scenario_clock():
+        return build_reconciled_pack_run(
+            MemoryRepo(),
+            MemoryBlobStore(now=lambda: T0),
+            pack_dir=pack_dir,
+            reads=cached_extraction_records,
+        )
+
+
+@pytest.fixture
+def pack_run(
+    pack_run_template: "PackRun",
+    memory_repo: "MemoryRepo",
+    memory_blobs: "MemoryBlobStore",
+    frozen_clock: datetime,
+    zero_waits: None,
+) -> "PackRun":
+    """A fresh copy per test of the pack run reconciled to `AWAITING_REVIEW` (21/4/2/2, proof
+    PASS), in `memory_repo` / `memory_blobs` (the stores behind `client` and `api_client_as`),
+    with the clock frozen at the scenario instant. Nothing was sent to `fake_notifier`."""
+    from tests.support.pack_run import clone_pack_run
+
+    return clone_pack_run(pack_run_template, memory_repo, memory_blobs)
+
+
+@pytest.fixture
+def api_client_as(
+    client: TestClient, tokens: dict[str, dict[str, str]], zero_waits: None
+) -> Iterator[Callable[[str], TestClient]]:
+    """`api_client_as(role)`: a TestClient on the `client` app (same repo, blobs, notifier)
+    that sends the bearer token of `controller`, `reviewer`, `ops` or `stranger` (not on the
+    allowlist) on every request. One client per role per test, closed at teardown."""
+    made: dict[str, TestClient] = {}
+
+    def as_role(role: str) -> TestClient:
+        if role not in made:
+            made[role] = TestClient(client.app, headers=tokens[role])
+        return made[role]
+
+    yield as_role
+    for test_client in made.values():
+        test_client.close()

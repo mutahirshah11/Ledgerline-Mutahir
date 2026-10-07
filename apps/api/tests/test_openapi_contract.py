@@ -23,6 +23,7 @@ from app.domain.enums import ErrorCode
 from tests.support.routes import api_routes
 
 CONTRACT_PATH = Path(__file__).parent / "contracts" / "openapi_phase3.yaml"
+PHASE4_CONTRACT_PATH = Path(__file__).parent / "contracts" / "openapi_phase4.yaml"
 
 API_PREFIX = "/api/v1"
 
@@ -61,6 +62,17 @@ def app() -> FastAPI:
     return create_app()
 
 
+def _phase4_paths() -> frozenset[str]:
+    spec = cast(dict[str, Any], yaml.safe_load(PHASE4_CONTRACT_PATH.read_text(encoding="utf-8")))
+    return frozenset(_normalise(API_PREFIX + p) for p in spec["paths"])
+
+
+PHASE4_PATHS = _phase4_paths()
+"""EP-11 to EP-18 (specs/005-review-delivery/contracts/openapi.yaml, copied to
+`tests/contracts/openapi_phase4.yaml`): routed, but not in this Phase 3 copy (module docstring);
+`test_api_phase4_contract.py` covers them."""
+
+
 def test_paths_match_contract(app: FastAPI) -> None:
     """Every path+method in the YAML exists in the app's real routes and vice versa."""
     spec = _load_spec()
@@ -70,7 +82,10 @@ def test_paths_match_contract(app: FastAPI) -> None:
         for method in ops
     }
     actual = {
-        (method, _normalise(route.path)) for route in api_routes(app) for method in route.methods
+        (method, _normalise(route.path))
+        for route in api_routes(app)
+        for method in route.methods
+        if _normalise(route.path) not in PHASE4_PATHS
     }
     missing_in_app = expected - actual
     missing_in_contract = actual - expected

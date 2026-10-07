@@ -355,8 +355,13 @@ ROLE_MATRIX: list[tuple[str, str, str, tuple[Role, ...], bool]] = [
 ]
 
 
-def _stub_routes(client: TestClient) -> None:
-    """Mount each matrix row under `/test`, guarded by `require_role` as the row says."""
+def _stub_routes(client: TestClient) -> TestClient:
+    """A `TestClient` on its own fresh app (never `client.app`, which is shared and cached
+    across tests, NFR-11), mounting each matrix row under `/test`, guarded by `require_role`
+    as the row says; its `dependency_overrides` mirror `client.app`'s so `current_user` still
+    resolves against the same fakes."""
+    from app.main import create_app
+
     router = APIRouter(prefix="/test")
     for _ep, method, path, roles, ops_retry in ROLE_MATRIX:
         router.add_api_route(
@@ -365,7 +370,10 @@ def _stub_routes(client: TestClient) -> None:
             methods=[method],
             dependencies=[Depends(require_role(*roles, ops_retry=ops_retry))],
         )
-    client.app.include_router(router)  # type: ignore[attr-defined]
+    app = create_app()
+    app.dependency_overrides = dict(client.app.dependency_overrides)  # type: ignore[attr-defined]
+    app.include_router(router)
+    return TestClient(app)
 
 
 def _url(path: str, run_id: object) -> str:
@@ -374,8 +382,8 @@ def _url(path: str, run_id: object) -> str:
 
 def test_F12_R4_role_guard(client: TestClient, tokens: dict[str, dict[str, str]]) -> None:
     """REVIEWER may not create a run (EP-03); F-12 AC3 on EP-17 is Phase 4."""
-    _stub_routes(client)
-    resp = client.post("/test/runs", headers=tokens["reviewer"])
+    stub = _stub_routes(client)
+    resp = stub.post("/test/runs", headers=tokens["reviewer"])
     assert resp.status_code == 403
     assert _error(resp)["code"] == "NOT_ALLOWED"
 
@@ -390,9 +398,9 @@ def test_F12_R4_role_matrix(
     who: str,
 ) -> None:
     _ep, method, path, roles, _ops_retry = row
-    _stub_routes(client)
+    stub = _stub_routes(client)
     run = memory_repo.create_run(make_run())  # CREATED: not a retry
-    resp = client.request(method, _url(path, run.id), headers=tokens[who])
+    resp = stub.request(method, _url(path, run.id), headers=tokens[who])
     allowed = Role(SEEDED_USERS[who][2]) in roles
     assert resp.status_code == (200 if allowed else 403)
     if not allowed:
@@ -407,25 +415,25 @@ def test_F12_R4_matrix_me_all_roles(client: TestClient, tokens: dict[str, dict[s
 def test_F12_R4_ops_retry_only_when_failed(
     client: TestClient, tokens: dict[str, dict[str, str]], memory_repo: MemoryRepo
 ) -> None:
-    _stub_routes(client)
+    stub = _stub_routes(client)
     run = memory_repo.create_run(make_run())
     retry_paths = [r[2] for r in ROLE_MATRIX if r[4]]
     for path in retry_paths:
-        assert client.post(_url(path, run.id), headers=tokens["ops"]).status_code == 403
-        assert client.post(_url(path, run.id), headers=tokens["reviewer"]).status_code == 403
+        assert stub.post(_url(path, run.id), headers=tokens["ops"]).status_code == 403
+        assert stub.post(_url(path, run.id), headers=tokens["reviewer"]).status_code == 403
     memory_repo.transition_run(
         run.id, RunStatus.FAILED, expected={RunStatus.CREATED}, failed_stage=Stage.VALIDATE
     )
     for path in retry_paths:
-        assert client.post(_url(path, run.id), headers=tokens["ops"]).status_code == 200
-        assert client.post(_url(path, run.id), headers=tokens["reviewer"]).status_code == 403
+        assert stub.post(_url(path, run.id), headers=tokens["ops"]).status_code == 200
+        assert stub.post(_url(path, run.id), headers=tokens["reviewer"]).status_code == 403
 
 
 def test_F12_R4_ops_retry_unknown_run_404(
     client: TestClient, tokens: dict[str, dict[str, str]]
 ) -> None:
-    _stub_routes(client)
-    resp = client.post(_url("/runs/{id}/validate", uuid4()), headers=tokens["ops"])
+    stub = _stub_routes(client)
+    resp = stub.post(_url("/runs/{id}/validate", uuid4()), headers=tokens["ops"])
     assert resp.status_code == 404
 
 

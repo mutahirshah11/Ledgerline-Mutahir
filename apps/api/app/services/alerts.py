@@ -13,6 +13,7 @@ from app.core import clock
 from app.core.config import Settings, get_settings
 from app.core.db import Repo
 from app.core.errors import InvalidReadOutput, PageUnreadable, UpstreamFailed
+from app.domain import ids
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
@@ -24,6 +25,8 @@ from app.domain.enums import (
 )
 from app.domain.models import Notification, Run
 from app.services.audit import audit
+from app.services.telegram import GOT_MESSAGE_ONLY as GOT_MESSAGE_ONLY  # re-exported tails
+from app.services.telegram import MAY_HAVE_MESSAGED as MAY_HAVE_MESSAGED
 from app.services.telegram import Notifier
 
 log = logging.getLogger(__name__)
@@ -32,11 +35,13 @@ MAX_TEXT = 4096
 """Telegram's message length limit."""
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _SERVICES = {"openai": "OpenAI", "telegram": "Telegram", "supabase": "Supabase"}
+NOT_MESSAGED = "Controller was NOT messaged. Retry from {url}"
+"""The default last line: the stage failed before the controller was messaged."""
 
 
 def alert_key(run_id: UUID, stage: Stage, at: datetime) -> str:
     """`ALERT:{run_id}:{stage}:{YYYYMMDDHHMM}`: one alert per stage per scenario minute."""
-    return f"ALERT:{run_id}:{stage.value}:{at.strftime('%Y%m%d%H%M')}"
+    return ids.alert_key(run_id, stage, at.strftime("%Y%m%d%H%M"))
 
 
 def error_parts(error: BaseException) -> tuple[str, str]:
@@ -58,16 +63,25 @@ def error_parts(error: BaseException) -> tuple[str, str]:
 
 
 def alert_text(
-    run: Run, stage: Stage, error: BaseException, page_no: int | None, app_base_url: str
+    run: Run,
+    stage: Stage,
+    error: BaseException,
+    page_no: int | None,
+    app_base_url: str,
+    *,
+    tail: str | None = None,
 ) -> str:
-    """The plain-text alert of contracts/alerts.md, cut to 4,096 characters (link kept)."""
+    """The plain-text alert of contracts/alerts.md, cut to 4,096 characters (link kept).
+    `tail`: the last line's template with `{url}` (the run overview); `NOT_MESSAGED` when
+    None."""
     year, month = run.month.split("-")
     if page_no is None:
         page_no = getattr(error, "page_no", None)
     page = f" (page {page_no})" if stage is Stage.EXTRACT and page_no is not None else ""
     code, reason = error_parts(error)
     head = f"LEDGERLINE FAILED · {_MONTHS[int(month) - 1]} {year} · run {str(run.id)[:4]}…"
-    tail = f"Controller was NOT messaged. Retry from {app_base_url.rstrip('/')}/runs/{run.id}"
+    url = f"{app_base_url.rstrip('/')}/runs/{run.id}"
+    tail = (tail or NOT_MESSAGED).format(url=url)
     error_line = f"Error: {code}: {reason}"
     room = MAX_TEXT - len(head) - len(f"\nStage: {stage.value}{page}\n") - len(tail) - 1
     if len(error_line) > room:
@@ -85,15 +99,24 @@ def stage_failed_alert(
     *,
     settings: Settings | None = None,
     now: Callable[[], datetime] = clock.now,
+    attempt_group: str | None = None,
+    tail: str | None = None,
 ) -> Notification | None:
     """Send one ops alert for a stage that ended FAILED after its retries (contracts/alerts.md
     steps 1 to 5). A repeat in the same scenario minute returns the existing notification
-    without sending. Never raises: if anything else fails (e.g. the repo after the send) it
-    logs the error code, notes it on the run (best effort) and returns None."""
+    without sending; a fixed `attempt_group` (e.g. `stale`, F-10.R7) alerts once ever; `tail`
+    as in `alert_text`. Never
+    raises: if anything else fails (e.g. the repo after the send) it logs the error code, notes
+    it on the run (best effort) and returns None."""
     settings = settings or get_settings()
     at = now()
     try:
-        return _send_alert(repo, notifier, run, stage, error, page_no, settings, at, now)
+        key = (
+            alert_key(run.id, stage, at)
+            if attempt_group is None
+            else ids.alert_key(run.id, stage, attempt_group)
+        )
+        return _send_alert(repo, notifier, run, stage, error, page_no, settings, at, now, key, tail)
     except Exception as exc:  # F-11.R5: the alert must never mask the stage's own error
         code = _failure_code(exc)
         log.warning("ops alert failed", extra={"run_id": str(run.id), "error_code": code})
@@ -111,13 +134,15 @@ def _send_alert(
     settings: Settings,
     at: datetime,
     now: Callable[[], datetime],
+    key: str,
+    tail: str | None,
 ) -> Notification:
     """Steps 1 to 5 of contracts/alerts.md; a delivery failure is recorded, not raised."""
     pending = Notification(
         id=uuid4(),
         run_id=run.id,
         kind=NotificationKind.ALERT,
-        idempotency_key=alert_key(run.id, stage, at),
+        idempotency_key=key,
         status=NotificationStatus.PENDING,
         attempts=0,
         last_error=None,
@@ -139,7 +164,7 @@ def _send_alert(
         chat_id = settings.TELEGRAM_OPS_CHAT_ID
         if not chat_id:
             raise UpstreamFailed("telegram", "ops chat not set")
-        text = alert_text(run, stage, error, page_no, settings.APP_BASE_URL)
+        text = alert_text(run, stage, error, page_no, settings.APP_BASE_URL, tail=tail)
         message_id = notifier.send_message(chat_id, text)
     except Exception as exc:  # delivery failed: record it (F-11.R5)
         return _record_failure(repo, n, exc, now())

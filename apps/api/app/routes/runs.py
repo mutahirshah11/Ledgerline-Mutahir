@@ -2,21 +2,25 @@
 C25).
 
 EP-03, EP-06 and EP-07 are CONTROLLER only (Clarification 4); EP-04 and EP-05 are open to every
-allow-listed role. Upload logic lives in `app.services.stages`.
+allow-listed role. Upload logic lives in `app.services.stages`. Phase 4 (005): EP-05 returns
+`RunView` (`app.services.finalise.load_run_view`) and checks a finalised run for a stale summary;
+EP-11 to EP-13 read groups, flags and proof; EP-17 finalises (`app.services.finalise.finalise`);
+EP-18 links the frozen report files.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Request
 from pydantic import BaseModel
 
 from app.core.auth import require_role
 from app.core.config import get_settings
 from app.core.db import Repo, get_repo
 from app.core.deps import get_extract_sleep, get_model_client, get_notifier
+from app.core.errors import NotFound
 from app.core.faults import Fault, active_fault
 from app.core.storage import BlobStore, get_blobstore
 from app.domain.enums import (
@@ -25,20 +29,29 @@ from app.domain.enums import (
     NormCode,
     Outcome,
     ProofStatus,
-    ReadVariant,
     Role,
     RunEventStatus,
     RunStatus,
-    Source,
     Stage,
 )
-from app.domain.models import AllowedUser, Run, RunEvent
-from app.pipeline.engine import open_review_count
+from app.domain.models import (
+    AllowedUser,
+    ControlFlag,
+    FinaliseRequest,
+    FinaliseResponse,
+    GroupView,
+    Proof,
+    ReportLinks,
+    Run,
+    RunView,
+)
+from app.pipeline import report
 from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
-from app.services import stages
+from app.routes._common import READ_ERRORS, channel
+from app.services import finalise, stages
 from app.services.stages import ExtractPageResult, ReconcileResult, UploadFileIn, UploadSlot
-from app.services.telegram import Notifier
+from app.services.telegram import Notifier, TelegramNotifier, check_stale_summary
 
 router = APIRouter()
 
@@ -50,6 +63,19 @@ StageCaller = Annotated[AllowedUser, Depends(require_role(Role.CONTROLLER, ops_r
 ModelClientDep = Annotated[ModelClient, Depends(get_model_client)]
 SleepDep = Annotated[Callable[[float], None], Depends(get_extract_sleep)]
 FaultDep = Annotated[Fault | None, Depends(active_fault)]
+
+
+def get_summary_notifier(notifier: NotifierDep, fault: FaultDep) -> Iterator[Notifier]:
+    """EP-17's notifier: under fault `TELEGRAM_DOWN` (Section 25) a real notifier that fails
+    every attempt without a network call, so its retries and run events are the real ones."""
+    if fault is not Fault.TELEGRAM_DOWN:
+        yield notifier
+        return
+    with TelegramNotifier(get_settings(), fault=fault) as down:
+        yield down
+
+
+SummaryNotifierDep = Annotated[Notifier, Depends(get_summary_notifier)]
 
 
 # --- models (data-model.md §2) ---------------------------------------------------------
@@ -96,36 +122,6 @@ class ValidateResponse(BaseModel):
     problems: list[ValidationProblem]
 
 
-StageState = Literal["PENDING", "RUNNING", "OK", "FAILED"]
-
-
-class StageProgress(BaseModel):
-    stage: Stage
-    state: StageState
-    at: datetime | None
-    duration_ms: int | None
-
-
-class PageProgress(BaseModel):
-    page_no: int
-    extracted: bool
-    cached: bool
-
-
-class StageProgressView(BaseModel):
-    stages: list[StageProgress]
-    pages: list[PageProgress]
-
-
-class RunDetail(RunOut):
-    """EP-05, flat (C25); Phase 4 adds headline, exceptions, summary and row_counts."""
-
-    stage_progress: StageProgressView
-    counts: dict[Outcome, int]
-    proof_status: ProofStatus | None
-    open_review_items: int
-
-
 class RunSummary(BaseModel):
     id: UUID
     month: str
@@ -155,6 +151,7 @@ class AuditEntryOut(BaseModel):
     action: AuditAction
     entity: str
     entity_id: str
+    run_id: UUID | None
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     channel: AuditChannel
@@ -171,74 +168,6 @@ class NormLogEntryOut(BaseModel):
 
 
 # --- views -----------------------------------------------------------------------------
-
-PROGRESS_STAGES = (Stage.UPLOAD, Stage.VALIDATE, Stage.EXTRACT, Stage.RECONCILE, Stage.PROOF)
-_STATE: dict[RunEventStatus, StageState] = {
-    RunEventStatus.STARTED: "RUNNING",
-    RunEventStatus.RETRY: "RUNNING",
-    RunEventStatus.OK: "OK",
-    RunEventStatus.FAILED: "FAILED",
-}
-
-
-def _extract_cached(events: list[RunEvent]) -> dict[int, bool]:
-    """`detail.cached` of the newest extract OK event per page (EP-09 writes page_no, cached)."""
-    found: dict[int, bool] = {}
-    for e in events:  # newest first
-        page_no, cached = e.detail.get("page_no"), e.detail.get("cached")
-        if e.stage is Stage.EXTRACT and e.status is RunEventStatus.OK and page_no not in found:
-            if isinstance(page_no, int) and isinstance(cached, bool):
-                found[page_no] = cached
-    return found
-
-
-def _pages(repo: Repo, run: Run, events: list[RunEvent]) -> list[PageProgress]:
-    """data-model.md §2 `StageProgressView.pages`. `extracted`: both reads under the current model
-    and prompt (§3). `cached`: both reads existed before this run's extract stage first touched
-    the page, read from the run's extract OK event; without one, both reads are older than the
-    run itself."""
-    settings = get_settings()
-    from_events = _extract_cached(events)
-    out: list[PageProgress] = []
-    files = repo.list_source_files(run.id, Source.REGISTER)
-    for f in sorted(files, key=lambda f: f.page_no or 0):
-        page_no = f.page_no or 0
-        reads = [
-            repo.get_extraction(f.sha256, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
-            for v in ReadVariant
-        ]
-        extracted = all(r is not None for r in reads)
-        if page_no in from_events:
-            cached = extracted and from_events[page_no]
-        else:
-            cached = extracted and all(
-                r is not None and r.created_at < run.created_at for r in reads
-            )
-        out.append(PageProgress(page_no=page_no, extracted=extracted, cached=cached))
-    return out
-
-
-def _latest(events: list[RunEvent], stage: Stage) -> RunEvent | None:
-    """The newest event of `stage`; `list_run_events` is newest first, ties newest insertion."""
-    return next((e for e in events if e.stage is stage), None)
-
-
-def _stage_progress(repo: Repo, run: Run) -> StageProgressView:
-    events = repo.list_run_events(run.id)
-    pages = _pages(repo, run, events)
-    out: list[StageProgress] = []
-    for stage in PROGRESS_STAGES:
-        last = _latest(events, stage)
-        if last is None:
-            out.append(StageProgress(stage=stage, state="PENDING", at=None, duration_ms=None))
-            continue
-        state = _STATE[last.status]
-        if stage is Stage.EXTRACT and state == "OK" and not all(p.extracted for p in pages):
-            state = "RUNNING"  # one page read; more to go
-        out.append(
-            StageProgress(stage=stage, state=state, at=last.at, duration_ms=last.duration_ms)
-        )
-    return StageProgressView(stages=out, pages=pages)
 
 
 def _proof_status(repo: Repo, run_id: UUID) -> ProofStatus | None:
@@ -271,17 +200,14 @@ def list_runs(repo: RepoDep, limit: Annotated[int, Query(ge=1, le=100)] = 20) ->
     ]
 
 
-@router.get("/runs/{id}", response_model=RunDetail)
-def get_run(id: UUID, repo: RepoDep) -> RunDetail:
-    """EP-05: flat `RunDetail` (C25)."""
-    run = repo.get_run(id)
-    return RunDetail(
-        **RunOut.of(run).model_dump(),
-        stage_progress=_stage_progress(repo, run),
-        counts=stages.run_outcome_counts(repo, run.id),
-        proof_status=_proof_status(repo, run.id),
-        open_review_items=open_review_count(repo, run.id),
-    )
+@router.get("/runs/{id}", response_model=RunView)
+def get_run(id: UUID, repo: RepoDep, notifier: NotifierDep) -> RunView:
+    """EP-05: flat `RunView` (C25, FR-020): Phase 3 `RunDetail` plus row counts, headline,
+    exception list and summary notification (005 data-model.md §2, E3). A `FINALISED` run is
+    checked for a stale summary first (F-10.R7, C22: one ops alert, never a resend)."""
+    if repo.get_run(id).status is RunStatus.FINALISED:
+        check_stale_summary(repo, notifier, id)
+    return finalise.load_run_view(repo, id)
 
 
 @router.post("/runs/{id}/uploads", response_model=UploadResponse)
@@ -380,3 +306,76 @@ def list_norm_log(
         NormLogEntryOut.model_validate(n.model_dump())
         for n in repo.list_norm_log(id, source_row_id)
     ]
+
+
+# --- results (005 US2: EP-11 to EP-13, FR-021) -------------------------------------------
+# Open to every allow-listed role (contracts/auth.md); `repo.get_run` 404s an unknown run.
+
+
+@router.get("/runs/{id}/groups", response_model=list[GroupView], responses=READ_ERRORS)
+def list_groups(
+    id: UUID, repo: RepoDep, outcome: Annotated[Outcome | None, Query()] = None
+) -> list[GroupView]:
+    """EP-11: groups in `list_groups` order, optionally by outcome, each with every source
+    row's canonical and raw values and flags; diffs and outlier on the group (F-05, F-09)."""
+    repo.get_run(id)
+    groups = repo.list_groups(id, outcome)
+    return report.group_views(groups, repo.list_source_rows(id), repo.list_flags(id))
+
+
+@router.get("/runs/{id}/flags", response_model=list[ControlFlag], responses=READ_ERRORS)
+def list_flags(id: UUID, repo: RepoDep) -> list[ControlFlag]:
+    """EP-12: the control flags of the latest reconcile (F-06)."""
+    repo.get_run(id)
+    return repo.list_flags(id)
+
+
+@router.get("/runs/{id}/proof", response_model=Proof, responses=READ_ERRORS)
+def get_proof(id: UUID, repo: RepoDep) -> Proof:
+    """EP-13: the completeness proof, Section 19 shape (F-07); 404 before the first reconcile."""
+    repo.get_run(id)
+    proof = repo.get_proof(id)
+    if proof is None:
+        raise NotFound("proof", id)
+    return proof
+
+
+# --- delivery (005 US3: EP-18, FR-024) -----------------------------------------------------
+
+
+@router.get(
+    "/runs/{id}/report",
+    response_model=ReportLinks,
+    responses={**READ_ERRORS, 409: {"description": "RUN_STATE_CONFLICT"}},
+)
+def report_links(id: UUID, repo: RepoDep, blobs: BlobsDep) -> ReportLinks:
+    """EP-18: signed links to `report.html` and `outcomes.csv`, valid 5 minutes (F-09.R5);
+    409 `RUN_STATE_CONFLICT` unless the run is `FINALISED`; open to every allow-listed role."""
+    return finalise.report_links(repo, blobs, id)
+
+
+@router.post(
+    "/runs/{id}/finalise",
+    response_model=FinaliseResponse,
+    responses={
+        **READ_ERRORS,
+        400: {"description": "CONFIRM_REQUIRED"},
+        409: {"description": "PROOF_NOT_PASSED or RUN_STATE_CONFLICT"},
+        502: {"description": "UpstreamFailed"},
+    },
+)
+def finalise_run(
+    id: UUID,
+    request: Request,
+    user: Controller,
+    repo: RepoDep,
+    blobs: BlobsDep,
+    notifier: SummaryNotifierDep,
+    body: FinaliseRequest | None = None,
+) -> FinaliseResponse:
+    """EP-17 (F-10, F-07 AC6, F-12 AC3): CONTROLLER only; 400 `CONFIRM_REQUIRED` without
+    `{"confirm": true}`; 409 `PROOF_NOT_PASSED` or `RUN_STATE_CONFLICT`; 200 with the summary
+    notification (`SENT`, or `FAILED` when Telegram is down; call again to resend)."""
+    return finalise.finalise(
+        repo, blobs, notifier, id, body or FinaliseRequest(), user, channel(request)
+    )

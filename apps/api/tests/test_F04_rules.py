@@ -152,6 +152,24 @@ def test_F04_R2_date_override_uses_run_month(inputs: EngineInputs, sheet: list[R
     assert changed.review_items == []
 
 
+def test_F04_R2_unmatched_no_key_grn_decision(inputs: EngineInputs, sheet: list[RawRow]) -> None:
+    """005 data-model §1: a RESOLVED `UNMATCHED_NO_KEY` decision's GRN overrides the row's GRN
+    for matching; `CANNOT_DETERMINE` leaves the row unmatched."""
+    sheet = with_values(sheet, "XLS-r3", GRN=None, Lot=None)  # own fallback group
+    (item,) = reconcile(PACK_RUN_ID, normalise_pack(inputs, sheet=sheet).rows).review_items
+    assert (item.item_key, item.reason) == ("ROW:XLS-r3", ReviewReason.UNMATCHED_NO_KEY)
+    decided = item.model_copy(update={"status": ReviewStatus.RESOLVED, "resolved_value": "4402"})
+    after = reconcile(PACK_RUN_ID, normalise_pack(inputs, sheet=sheet, decisions=[decided]).rows)
+    (row,) = [r for r in after.rows if r.source_row_id == "XLS-r3"]
+    (group,) = [g for g in after.groups if g.group_key == "GRN:4402"]
+    assert row.grn_no == 4402 and row.group_id == group.id
+    assert "XLS-r3" in group.row_ids[Source.SHEET]
+    assert after.review_items == []  # the item does not come back
+    undecided = item.model_copy(update={"status": ReviewStatus.CANNOT_DETERMINE, "note": "?"})
+    kept = reconcile(PACK_RUN_ID, normalise_pack(inputs, sheet=sheet, decisions=[undecided]).rows)
+    assert [i.item_key for i in kept.review_items] == ["ROW:XLS-r3"]
+
+
 def test_F04_R3_grn_prefix_and_length(
     inputs: EngineInputs, erp: list[RawRow], result: NormaliseResult
 ) -> None:

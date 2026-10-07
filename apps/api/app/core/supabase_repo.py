@@ -5,8 +5,8 @@ Service-role client, created on first use (never logged). Quantities travel as s
 ways: models are dumped in JSON mode and `source_rows` reads cast `qty`/`qty_base` to text.
 Compare-and-set = filtered update on the status read + returned row count (0 rows → re-read →
 `StateConflict`). Postgres `23505` → `UniqueViolation(constraint)` or "existing returned";
-`23503` (missing parent run) → `NotFound`; `55000` (run state, from the RPCs and the 0002
-triggers) → `StateConflict(run)`. `replace_reconciliation` and `upsert_review_items` are one
+`23503` (missing parent run) → `NotFound`; `55000` (run state, from the RPCs and the 0002 and
+0003 triggers) → `StateConflict(run)`. `replace_reconciliation` and `upsert_review_items` are one
 `rpc` call each (one transaction). Transient failures (network, 429/5xx, PostgREST
 `PGRST000-003`, Postgres connection/resource/serialization errors) are retried by
 `retrying("supabase", 3, (1, 2))` and end in `UpstreamFailed`.
@@ -335,14 +335,25 @@ class SupabaseRepo:
         fields: dict[str, Any],
         guard: tuple[str, str],
         reread: Callable[[], M],
+        *,
+        guarded_run: UUID | None = None,
     ) -> M:
         """Update `fields` (values from `new`) only while `guard` (column, value) still holds.
-        0 rows → `StateConflict(reread())`, unless a retry already applied the update."""
+        0 rows → `StateConflict(reread())`, unless a retry already applied the update. With
+        `guarded_run`, a trigger's 55000 is `StateConflict(run)`."""
         values = _values(fields, new)
         row_id = str(_json(current)["id"])  # M is any model with an id
-        rows, made = self._send_mapped(
-            lambda: self._table(table).update(values).eq("id", row_id).eq(*guard)
-        )
+
+        def build() -> Any:
+            return self._table(table).update(values).eq("id", row_id).eq(*guard)
+
+        if guarded_run is None:
+            rows, made = self._send_mapped(build)
+        else:
+            try:
+                rows, made = self._send(build)
+            except APIError as error:
+                raise self._run_conflict(error, guarded_run) from None
         if rows:
             return _model(type(current), rows[0])
         stored = reread()
@@ -407,7 +418,8 @@ class SupabaseRepo:
         )
 
     def _cas_run(self, current: Run, new: Run, fields: dict[str, Any]) -> Run:
-        """Compare-and-set on the status read."""
+        """Compare-and-set on the status read. The 0003 trigger's 55000 (FINALISED with a
+        review decision not reconciled yet) is `StateConflict(run)`."""
         return self._cas(
             "runs",
             current,
@@ -415,6 +427,7 @@ class SupabaseRepo:
             fields,
             ("status", current.status.value),
             lambda: self.get_run(current.id),
+            guarded_run=current.id,
         )
 
     def transition_run(
@@ -709,6 +722,7 @@ class SupabaseRepo:
             decision,
             ("status", ReviewStatus.OPEN.value),
             lambda: self.get_review_item(item_id),
+            guarded_run=current.run_id,  # migration 0003: no decision on a FINALISED run
         )
 
     # --- notifications -------------------------------------------------------------------

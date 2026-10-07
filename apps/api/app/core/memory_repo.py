@@ -27,7 +27,7 @@ from app.domain.enums import (
     RunStatus,
     Source,
 )
-from app.domain.lifecycle import can_transition
+from app.domain.lifecycle import can_transition, unreconciled_decisions
 from app.domain.models import (
     AllowedUser,
     AuditEntry,
@@ -214,6 +214,8 @@ class MemoryRepo:
             raise ValueError(f"transition_run cannot set {sorted(bad)}")
         if current.status not in expected or not can_transition(current.status, to):
             raise StateConflict(_copy(current))
+        if to is RunStatus.FINALISED and self._unreconciled(run_id):  # migration 0003
+            raise StateConflict(_copy(current))
         updates = dict(fields)
         if current.status is RunStatus.FAILED:
             passed = {"failed_stage", "error_message"}.intersection(fields)
@@ -225,6 +227,12 @@ class MemoryRepo:
         self._check_finalised_key(new)
         self._runs[run_id] = new
         return _copy(new)
+
+    def _unreconciled(self, run_id: UUID) -> bool:
+        """A decided review item the newest `RECONCILED` audit has not applied (IMP-1)."""
+        items = [i for i in self._reviews.values() if i.run_id == run_id]
+        audit = [e for e in self._audit if e.run_id == run_id]
+        return bool(unreconciled_decisions(items, audit))
 
     def update_run_fields(self, run_id: UUID, **fields: Any) -> Run:
         current = self._run(run_id)
@@ -423,7 +431,7 @@ class MemoryRepo:
     # --- review --------------------------------------------------------------------------
 
     def upsert_review_items(self, run_id: UUID, items: list[ReviewItem]) -> list[ReviewItem]:
-        self._run(run_id)
+        run = self._run(run_id)
         if any(i.run_id != run_id for i in items):
             raise ValueError("every review item must belong to the run")
         # validate the whole batch before writing anything (atomic)
@@ -437,6 +445,8 @@ class MemoryRepo:
                 if item.id in self._reviews or item.id in new_ids:
                     raise UniqueViolation("review_items_pkey")
                 new_ids.add(item.id)
+            elif run.status is RunStatus.FINALISED:  # migration 0003: no refresh either
+                raise StateConflict(_copy(run))
 
         staged: list[ReviewItem] = []
         for item in items:
@@ -498,6 +508,9 @@ class MemoryRepo:
             raise ValueError("CANNOT_DETERMINE needs a non-empty note")
         if current.status is not ReviewStatus.OPEN:
             raise StateConflict(_copy(current))
+        run = self._run(current.run_id)
+        if run.status is RunStatus.FINALISED:  # migration 0003 review_items_refuse_finalised_run
+            raise StateConflict(_copy(run))
         new = _updated(
             current,
             {
