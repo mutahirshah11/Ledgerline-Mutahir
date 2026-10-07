@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from app.core import clock
@@ -53,7 +53,7 @@ from app.domain.models import (
     RunView,
     SourceFile,
 )
-from app.pipeline.engine import open_review_items
+from app.pipeline.engine import open_review_state
 from app.pipeline.normalise import _QTY_MAX_EXPONENT, load_mappings
 from app.services.audit import audit
 from app.services.finalise import load_run_view
@@ -361,16 +361,14 @@ def list_cards(
 ) -> list[tuple[ReviewItem, dict[str, Any]]]:
     """EP-14: the run's items in card order (F-08.R2) with their card context; OPEN items only
     when current (engine `open_review_items`), so the queue matches `open_review_items`."""
-    current = open_review_items(repo, run_id)
-    if status is ReviewStatus.OPEN:
-        items = current
-    else:
-        ids = {i.id for i in current}
-        items = [
-            i
-            for i in repo.list_review_items(run_id, status)
-            if i.status is not ReviewStatus.OPEN or i.id in ids
-        ]
+    listed = repo.list_review_items(run_id)
+    ids = {i.id for i in open_review_state(repo, run_id, listed)[0]}
+    items = [
+        i
+        for i in listed
+        if (status is None or i.status is status)
+        and (i.status is not ReviewStatus.OPEN or i.id in ids)
+    ]
     data = load_card_data(repo, run_id)
     return [(item, review_card_context(data, item)) for item in items]
 
@@ -381,13 +379,62 @@ RunViewBuilder = Callable[[Repo, UUID], RunView]
 _DECIDABLE = frozenset({RunStatus.AWAITING_REVIEW, RunStatus.READY})
 
 
-def _fingerprint(repo: Repo, run_id: UUID) -> list[tuple[str, str, str | None]]:
+def _fingerprint(items: Sequence[ReviewItem]) -> list[tuple[str, str, str | None]]:
     """research R3: every decision of the run (OPEN items are not decisions)."""
     return sorted(
         (i.item_key, i.status.value, i.resolved_value)
-        for i in repo.list_review_items(run_id)
+        for i in items
         if i.status is not ReviewStatus.OPEN
     )
+
+
+_STABLE = frozenset({"get_extraction", "list_source_files"})
+
+
+class _RequestReads:
+    """The repo as one EP-15 request reads it (005 review I-7c, NFR-05). A stored page read
+    never changes (`put_extraction` never overwrites), nor do the files of a run past `CREATED`
+    (F-01, the 0002 triggers; EP-15 only decides on a later run), so each is fetched once per
+    request. After `freeze` (every write done), the run view reuses the rows, groups, register
+    files and review items read after re-reconcile, and makes any other read once."""
+
+    def __init__(self, repo: Repo) -> None:
+        self._repo = repo
+        self._reads: dict[tuple[Any, ...], Any] = {}
+        self._view: dict[tuple[Any, ...], Any] | None = None
+        self.repo = cast(Repo, self)
+
+    def freeze(self, data: CardData, items: Sequence[ReviewItem]) -> Repo:
+        run_id = data.run_id
+        self._view = {
+            ("list_source_rows", (run_id,), ()): list(data.rows.values()),
+            ("list_groups", (run_id,), ()): list(data.groups),
+            ("list_source_files", (run_id, Source.REGISTER), ()): list(data.pages),
+            ("list_review_items", (run_id,), ()): list(items),
+        }
+        return self.repo
+
+    def __getattr__(self, name: str) -> Any:
+        real = getattr(self._repo, name)
+        view = self._view
+        if name not in _STABLE and (view is None or not name.startswith(("get_", "list_"))):
+            return real
+
+        def read(*args: Any, **kwargs: Any) -> Any:
+            key = (name, args, tuple(sorted(kwargs.items())))
+            if key in self._reads:
+                return self._reads[key]
+            if view is not None and key in view:
+                return view[key]
+            found = real(*args, **kwargs)
+            if name in _STABLE:
+                if found is not None:  # a page read not stored yet may be stored later
+                    self._reads[key] = found
+            elif view is not None:
+                view[key] = found
+            return found
+
+        return read
 
 
 def _decision(
@@ -442,7 +489,8 @@ def resolve(
         raise StateConflict(run)
     if item.status is not ReviewStatus.OPEN:
         raise ItemAlreadyResolved(item)
-    if item.id not in {i.id for i in open_review_items(repo, run.id)}:
+    listed = repo.list_review_items(run.id)
+    if item.id not in {i.id for i in open_review_state(repo, run.id, listed)[0]}:
         raise InvalidReviewAction(field_of(item), "item is no longer current")
     status, value = _decision(item, request, run)
     try:
@@ -464,14 +512,19 @@ def resolve(
     failed = False
     try:
         detail = {"item_key": item.item_key, "action": request.action.value}
+        # decisions known before re-reconcile: ours plus those listed by the guard (one that
+        # landed in between only costs the extra pass below)
+        seen = _fingerprint([decided if i.id == item.id else i for i in listed])
+        reads = _RequestReads(repo)
         with stage_step(repo, run.id, Stage.REVIEW, detail, now=now):
-            seen = _fingerprint(repo, run.id)
-            result = reconcile_stage(repo, blobs, notifier, run, actor, fault, now=now)
-            if result.status in _DECIDABLE and _fingerprint(repo, run.id) != seen:
+            result = reconcile_stage(reads.repo, blobs, notifier, run, actor, fault, now=now)
+            reviewed = repo.list_review_items(run.id)
+            if result.status in _DECIDABLE and _fingerprint(reviewed) != seen:
                 current = repo.get_run(run.id)
-                reconcile_stage(repo, blobs, notifier, current, actor, fault, now=now)
-        decided = repo.get_review_item(item.id)
-        data = load_card_data(repo, run.id)
+                reconcile_stage(reads.repo, blobs, notifier, current, actor, fault, now=now)
+                reviewed = repo.list_review_items(run.id)
+        decided = next(i for i in reviewed if i.id == item.id)
+        data = load_card_data(reads.repo, run.id)
         group = data.group_of(decided, data.row(decided))
         if group is not None:
             group_key, group_outcome = group.group_key, group.outcome
@@ -507,4 +560,4 @@ def resolve(
             if not failed:
                 raise
             log.exception("review audit failed after a failed re-reconcile")  # keep the cause
-    return ResolveResponse(item=decided, run=run_view(repo, run.id))
+    return ResolveResponse(item=decided, run=run_view(reads.freeze(data, reviewed), run.id))

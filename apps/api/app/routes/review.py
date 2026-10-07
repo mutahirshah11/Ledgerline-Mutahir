@@ -15,7 +15,6 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.core.auth import require_role
-from app.core.config import get_settings
 from app.core.db import Repo, get_repo
 from app.core.deps import get_notifier
 from app.core.errors import InvalidReviewAction, NotFound
@@ -23,7 +22,6 @@ from app.core.faults import Fault, active_fault
 from app.core.storage import INPUTS_BUCKET, BlobStore, get_blobstore
 from app.domain.enums import (
     PRINTED_ROW_SLOTS,
-    AuditChannel,
     ReviewAction,
     ReviewKind,
     ReviewReason,
@@ -32,6 +30,7 @@ from app.domain.enums import (
     Source,
 )
 from app.domain.models import AllowedUser, Cell, PageImageLink, ResolveRequest, ResolveResponse
+from app.routes._common import READ_ERRORS, channel
 from app.services import review
 from app.services.telegram import Notifier
 
@@ -69,13 +68,6 @@ FaultDep = Annotated[Fault | None, Depends(active_fault)]
 
 PAGE_IMAGE_URL_S = 300
 """EP-16: the page image link is valid 5 minutes (FR-003)."""
-
-_READ_ERRORS: dict[int | str, dict[str, Any]] = {
-    401: {"description": "UNAUTHENTICATED"},
-    403: {"description": "NOT_ALLOWED"},
-    404: {"description": "NOT_FOUND"},
-}
-"""Documented non-2xx status codes shared by EP-14, EP-16 (contracts/openapi.yaml)."""
 
 
 class ReviewCard(BaseModel):
@@ -118,13 +110,7 @@ def _request(body: ResolveBody) -> ResolveRequest:
     return request
 
 
-def _channel(request: Request) -> AuditChannel:
-    """WEB for a call from the app's browser origin, else API (data-model.md §8)."""
-    origin = request.headers.get("origin")
-    return AuditChannel.WEB if origin in get_settings().cors_origin_list else AuditChannel.API
-
-
-@router.get("/runs/{id}/review-items", response_model=list[ReviewCard], responses=_READ_ERRORS)
+@router.get("/runs/{id}/review-items", response_model=list[ReviewCard], responses=READ_ERRORS)
 def list_review_items(
     id: UUID, repo: RepoDep, status: Annotated[ReviewStatus | None, Query()] = None
 ) -> list[ReviewCard]:
@@ -141,7 +127,7 @@ def list_review_items(
     "/review-items/{item_id}/resolve",
     response_model=ResolveResponse,
     responses={
-        **_READ_ERRORS,
+        **READ_ERRORS,
         409: {"description": "ITEM_ALREADY_RESOLVED or RUN_STATE_CONFLICT"},
         422: {"description": "INVALID_REVIEW_ACTION"},
         502: {"description": "UpstreamFailed"},
@@ -159,16 +145,14 @@ def resolve_review_item(
 ) -> ResolveResponse:
     """EP-15 (F-08.R4 to R8, FM-09): decide, re-reconcile, return the item and the run."""
     return review.resolve(
-        repo, blobs, notifier, item_id, _request(body), user, _channel(request), fault=fault
+        repo, blobs, notifier, item_id, _request(body), user, channel(request), fault=fault
     )
 
 
 router.include_router(_resolve_router)
 
 
-@router.get(
-    "/runs/{id}/pages/{page_no}/image", response_model=PageImageLink, responses=_READ_ERRORS
-)
+@router.get("/runs/{id}/pages/{page_no}/image", response_model=PageImageLink, responses=READ_ERRORS)
 def page_image(
     id: UUID, page_no: Annotated[int, Path(ge=1, le=10)], repo: RepoDep, blobs: BlobsDep
 ) -> PageImageLink:

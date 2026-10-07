@@ -48,6 +48,7 @@ from app.domain.models import (
 from app.pipeline import report
 from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
+from app.routes._common import READ_ERRORS, channel
 from app.services import finalise, stages
 from app.services.stages import ExtractPageResult, ReconcileResult, UploadFileIn, UploadSlot
 from app.services.telegram import Notifier, TelegramNotifier, check_stale_summary
@@ -310,15 +311,8 @@ def list_norm_log(
 # --- results (005 US2: EP-11 to EP-13, FR-021) -------------------------------------------
 # Open to every allow-listed role (contracts/auth.md); `repo.get_run` 404s an unknown run.
 
-_READ_ERRORS: dict[int | str, dict[str, Any]] = {
-    401: {"description": "UNAUTHENTICATED"},
-    403: {"description": "NOT_ALLOWED"},
-    404: {"description": "NOT_FOUND"},
-}
-"""Documented non-2xx status codes shared by EP-11 to EP-14, EP-16 (contracts/openapi.yaml)."""
 
-
-@router.get("/runs/{id}/groups", response_model=list[GroupView], responses=_READ_ERRORS)
+@router.get("/runs/{id}/groups", response_model=list[GroupView], responses=READ_ERRORS)
 def list_groups(
     id: UUID, repo: RepoDep, outcome: Annotated[Outcome | None, Query()] = None
 ) -> list[GroupView]:
@@ -329,14 +323,14 @@ def list_groups(
     return report.group_views(groups, repo.list_source_rows(id), repo.list_flags(id))
 
 
-@router.get("/runs/{id}/flags", response_model=list[ControlFlag], responses=_READ_ERRORS)
+@router.get("/runs/{id}/flags", response_model=list[ControlFlag], responses=READ_ERRORS)
 def list_flags(id: UUID, repo: RepoDep) -> list[ControlFlag]:
     """EP-12: the control flags of the latest reconcile (F-06)."""
     repo.get_run(id)
     return repo.list_flags(id)
 
 
-@router.get("/runs/{id}/proof", response_model=Proof, responses=_READ_ERRORS)
+@router.get("/runs/{id}/proof", response_model=Proof, responses=READ_ERRORS)
 def get_proof(id: UUID, repo: RepoDep) -> Proof:
     """EP-13: the completeness proof, Section 19 shape (F-07); 404 before the first reconcile."""
     repo.get_run(id)
@@ -352,7 +346,7 @@ def get_proof(id: UUID, repo: RepoDep) -> Proof:
 @router.get(
     "/runs/{id}/report",
     response_model=ReportLinks,
-    responses={**_READ_ERRORS, 409: {"description": "RUN_STATE_CONFLICT"}},
+    responses={**READ_ERRORS, 409: {"description": "RUN_STATE_CONFLICT"}},
 )
 def report_links(id: UUID, repo: RepoDep, blobs: BlobsDep) -> ReportLinks:
     """EP-18: signed links to `report.html` and `outcomes.csv`, valid 5 minutes (F-09.R5);
@@ -364,7 +358,7 @@ def report_links(id: UUID, repo: RepoDep, blobs: BlobsDep) -> ReportLinks:
     "/runs/{id}/finalise",
     response_model=FinaliseResponse,
     responses={
-        **_READ_ERRORS,
+        **READ_ERRORS,
         400: {"description": "CONFIRM_REQUIRED"},
         409: {"description": "PROOF_NOT_PASSED or RUN_STATE_CONFLICT"},
         502: {"description": "UpstreamFailed"},
@@ -383,11 +377,5 @@ def finalise_run(
     `{"confirm": true}`; 409 `PROOF_NOT_PASSED` or `RUN_STATE_CONFLICT`; 200 with the summary
     notification (`SENT`, or `FAILED` when Telegram is down; call again to resend)."""
     return finalise.finalise(
-        repo, blobs, notifier, id, body or FinaliseRequest(), user, _channel(request)
+        repo, blobs, notifier, id, body or FinaliseRequest(), user, channel(request)
     )
-
-
-def _channel(request: Request) -> AuditChannel:
-    """WEB for a call from the app's browser origin, else API (data-model.md §8)."""
-    origin = request.headers.get("origin")
-    return AuditChannel.WEB if origin in get_settings().cors_origin_list else AuditChannel.API

@@ -368,35 +368,43 @@ def current_open_items(
 
 
 def count_open_items(open_items: Iterable[ReviewItem], current_keys: Collection[str]) -> int:
-    """`len(current_open_items(...))`: status moves, the `RECONCILED` audit, EP-05 and EP-10
-    all use it; the F-09 finalise guard must too."""
+    """`len(current_open_items(...))` (kept for callers that hold a pipeline result)."""
     return len(current_open_items(open_items, current_keys))
 
 
-def open_review_count(repo: Repo, run_id: UUID) -> int:
-    """`open_review_items` for read views (EP-05, EP-10) without a pipeline result: the newest
-    `RECONCILED` audit's figure, which the same reconcile's status move used, so status and
-    count never contradict; before any reconcile, the run's OPEN CELL items. Review decisions
-    re-reconcile at once (F-08.R4), which refreshes the figure."""
-    for entry in repo.list_audit(run_id=run_id):  # newest first
-        if entry.action is AuditAction.RECONCILED and entry.after is not None:
-            count = entry.after.get("open_review_items")
-            if isinstance(count, int):
-                return count
-    return count_open_items(repo.list_review_items(run_id, ReviewStatus.OPEN), ())
-
-
-def open_review_items(repo: Repo, run_id: UUID) -> list[ReviewItem]:
-    """The current OPEN items (EP-14 queue, EP-15 guard; 005 review fixes): OPEN items whose
-    `item_key` the newest `RECONCILED` audit lists in `open_item_keys` (items decided since drop
-    out as not OPEN); before any reconcile, the run's OPEN CELL items. Card order is kept."""
-    open_items = repo.list_review_items(run_id, ReviewStatus.OPEN)
+def open_review_state(
+    repo: Repo, run_id: UUID, items: Sequence[ReviewItem] | None = None
+) -> tuple[list[ReviewItem], int]:
+    """The one open-item rule for read views (EP-05, EP-10, EP-14, EP-15, the run view), from
+    one review-item list and one audit read: the run's current OPEN items in card order, and
+    their count. The newest `RECONCILED` audit decides: its `open_item_keys` pick the OPEN
+    items it produced (items decided since drop out as not OPEN); one written before
+    `open_item_keys` existed rules nothing out (every stored OPEN item, 005 review M-3); before
+    any reconcile, the OPEN CELL items. `items`: the run's review items (any status) when the
+    caller has already listed them (no second list)."""
+    listed = repo.list_review_items(run_id) if items is None else items
+    open_items = [i for i in listed if i.status is ReviewStatus.OPEN]
+    current = current_open_items(open_items, ())
     for entry in repo.list_audit(run_id=run_id):  # newest first
         if entry.action is AuditAction.RECONCILED and entry.after is not None:
             keys = entry.after.get("open_item_keys")
             if isinstance(keys, list):
-                return [i for i in open_items if i.item_key in set(keys)]
-    return current_open_items(open_items, ())
+                wanted = set(keys)
+                current = [i for i in open_items if i.item_key in wanted]
+            else:
+                current = open_items
+            break
+    return current, len(current)
+
+
+def open_review_count(repo: Repo, run_id: UUID) -> int:
+    """The count of `open_review_state` (EP-05, EP-10, the run view, the F-09 guard)."""
+    return open_review_state(repo, run_id)[1]
+
+
+def open_review_items(repo: Repo, run_id: UUID) -> list[ReviewItem]:
+    """The items of `open_review_state` (EP-14 queue, EP-15 guard)."""
+    return open_review_state(repo, run_id)[0]
 
 
 def _audit_reconciled(
