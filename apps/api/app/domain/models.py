@@ -758,10 +758,30 @@ class StageProgressView(DomainModel):
     pages: list[PageProgress]
 
 
+class ReadCost(DomainModel):
+    """EP-05 `read_cost` (006 spec.md Clarifications 2026-10-07; `app.pipeline.cost`).
+
+    `new_pages`: register pages this run reads new, i.e. not `cached` in `stage_progress.pages`
+    (before reading: every page without both reads stored before the run). `estimate_usd`:
+    `new_pages` x the per-page token averages x the prices. `input_tokens` / `output_tokens`:
+    the stored reads (current model and prompt) of those pages created since the run was
+    created, i.e. what this run actually read (a read stored earlier, by another run, is a
+    cache hit and costs nothing). `actual_usd`: those tokens x the prices; "0.000" before any
+    page is read and when every page is cached. Both USD fields are None while either price
+    setting is unset."""
+
+    new_pages: int
+    estimate_usd: DecimalStr | None
+    actual_usd: DecimalStr | None
+    input_tokens: int
+    output_tokens: int
+
+
 class RunView(DomainModel):
     """EP-05 response and the `run` of EP-15/EP-17 (data-model.md §2); flat (C25): the Phase 3
     `RunDetail` fields (Run fields, `stage_progress`, `counts`, `proof_status`,
-    `open_review_items`) plus `row_counts`, `headline`, `exceptions` and `summary` (E3)."""
+    `open_review_items`) plus `row_counts`, `headline`, `exceptions` and `summary` (E3), and
+    the 006 `read_cost`."""
 
     id: UUID
     month: Month
@@ -782,6 +802,7 @@ class RunView(DomainModel):
     headline: str
     exceptions: list[ExceptionItem]
     summary: Notification | None
+    read_cost: ReadCost
 
 
 class ResolveResponse(DomainModel):

@@ -47,6 +47,7 @@ from app.domain.models import (
     CanonicalRow,
     ControlFlag,
     ExceptionItem,
+    Extraction,
     FinaliseRequest,
     FinaliseResponse,
     Group,
@@ -54,6 +55,7 @@ from app.domain.models import (
     Notification,
     PageProgress,
     Proof,
+    ReadCost,
     ReportLinks,
     ReviewItem,
     Run,
@@ -64,7 +66,7 @@ from app.domain.models import (
     StageProgressView,
     StageState,
 )
-from app.pipeline import report
+from app.pipeline import cost, report
 from app.pipeline.engine import open_review_state, outcome_counts_of
 from app.services import telegram
 from app.services.alerts import stage_failed_alert
@@ -94,14 +96,18 @@ def _extract_cached(events: list[RunEvent]) -> dict[int, bool]:
     return found
 
 
-def _pages(repo: Repo, run: Run, events: list[RunEvent]) -> list[PageProgress]:
-    """`StageProgressView.pages`. `extracted`: both reads under the current model and prompt.
-    `cached`: both reads existed before this run's extract stage first touched the page, read
-    from the run's extract OK event; without one, both reads are older than the run itself.
-    Every page's reads come from one `list_extractions` call (006, NFR-02)."""
-    settings = get_settings()
+def _pages(
+    repo: Repo, run: Run, events: list[RunEvent], settings: Settings
+) -> tuple[list[PageProgress], list[Extraction]]:
+    """`StageProgressView.pages` and the reads this run made new (006 `ReadCost`: the stored
+    reads of each page not `cached`, created since the run was). `extracted`: both reads under
+    the current model and prompt. `cached`: both reads existed before this run's extract stage
+    first touched the page, read from the run's extract OK event; without one, both reads are
+    older than the run itself. Every page's reads come from one `list_extractions` call (006,
+    NFR-02)."""
     from_events = _extract_cached(events)
     out: list[PageProgress] = []
+    new_reads: list[Extraction] = []
     files = sorted(repo.list_source_files(run.id, Source.REGISTER), key=lambda f: f.page_no or 0)
     stored = {
         (e.page_sha256, e.read_variant): e
@@ -120,14 +126,36 @@ def _pages(repo: Repo, run: Run, events: list[RunEvent]) -> list[PageProgress]:
                 r is not None and r.created_at < run.created_at for r in reads
             )
         out.append(PageProgress(page_no=page_no, extracted=extracted, cached=cached))
-    return out
+        if not cached:
+            new_reads += [r for r in reads if r is not None and r.created_at >= run.created_at]
+    return out, new_reads
+
+
+def _read_cost(
+    pages: list[PageProgress], new_reads: list[Extraction], settings: Settings
+) -> ReadCost:
+    """EP-05 `read_cost` (`ReadCost` has the rules)."""
+    new_pages = sum(not p.cached for p in pages)
+    return ReadCost(
+        new_pages=new_pages,
+        estimate_usd=cost.estimate_read_cost(new_pages, settings),
+        actual_usd=cost.read_cost_of(new_reads, settings),
+        input_tokens=sum(r.input_tokens for r in new_reads),
+        output_tokens=sum(r.output_tokens for r in new_reads),
+    )
 
 
 def stage_progress(repo: Repo, run: Run) -> StageProgressView:
     """Per stage: the state of its newest event (`list_run_events` is newest first); extract
     stays `RUNNING` until every page is read."""
+    return progress_and_cost(repo, run)[0]
+
+
+def progress_and_cost(repo: Repo, run: Run) -> tuple[StageProgressView, ReadCost]:
+    """`stage_progress` and the run's `read_cost`, from one read of events and page reads."""
+    settings = get_settings()
     events = repo.list_run_events(run.id)
-    pages = _pages(repo, run, events)
+    pages, new_reads = _pages(repo, run, events, settings)
     out: list[StageProgress] = []
     for stage in PROGRESS_STAGES:
         last = next((e for e in events if e.stage is stage), None)
@@ -140,7 +168,7 @@ def stage_progress(repo: Repo, run: Run) -> StageProgressView:
         out.append(
             StageProgress(stage=stage, state=state, at=last.at, duration_ms=last.duration_ms)
         )
-    return StageProgressView(stages=out, pages=pages)
+    return StageProgressView(stages=out, pages=pages), _read_cost(pages, new_reads, settings)
 
 
 # --- run view (FR-020) ---------------------------------------------------------------------
@@ -234,9 +262,10 @@ def run_view(repo: Repo, data: RunData) -> RunView:
     """The `RunView` of `data` (reads only the stage progress and the summary row)."""
     run = data.run
     counts = outcome_counts_of(data.rows, data.groups)
+    progress, read_cost = progress_and_cost(repo, run)
     return RunView(
         **run.model_dump(),
-        stage_progress=stage_progress(repo, run),
+        stage_progress=progress,
         counts=counts.flat(),
         row_counts={s: {o: counts.rows_by_outcome[o][s] for o in Outcome} for s in Source},
         proof_status=None if data.proof is None else data.proof.status,
@@ -244,6 +273,7 @@ def run_view(repo: Repo, data: RunData) -> RunView:
         headline=report.headline(data.groups),
         exceptions=data.exceptions(),
         summary=telegram.summary_of(repo, run),
+        read_cost=read_cost,
     )
 
 

@@ -37,6 +37,7 @@ from app.domain.enums import (
 from app.domain.models import (
     AllowedUser,
     ControlFlag,
+    DecimalStr,
     FinaliseRequest,
     FinaliseResponse,
     GroupView,
@@ -46,6 +47,7 @@ from app.domain.models import (
     RunView,
 )
 from app.pipeline import report
+from app.pipeline.cost import estimate_read_cost
 from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.routes._common import READ_ERRORS, channel
@@ -112,9 +114,14 @@ class UploadResponse(BaseModel):
 
 
 class ConfirmResponse(BaseModel):
+    """EP-07. `read_cost_estimate_usd` (006 read cost, `app.pipeline.cost`): `new_pages` x the
+    per-page token averages x the price settings, US$ to 0.001; None while a price is unset.
+    Known pages come from the extraction cache at US$0."""
+
     run: RunOut
     new_pages: list[int]
     known_pages: list[int]
+    read_cost_estimate_usd: DecimalStr | None
 
 
 class ValidateResponse(BaseModel):
@@ -226,7 +233,10 @@ def confirm_uploads(
     """EP-07 (F-01.R4 to R7); idempotent."""
     result = stages.confirm_uploads(repo, blobs, repo.get_run(id), user, notifier=notifier)
     return ConfirmResponse(
-        run=RunOut.of(result.run), new_pages=result.new_pages, known_pages=result.known_pages
+        run=RunOut.of(result.run),
+        new_pages=result.new_pages,
+        known_pages=result.known_pages,
+        read_cost_estimate_usd=estimate_read_cost(len(result.new_pages), get_settings()),
     )
 
 

@@ -218,6 +218,9 @@ def _run_view(**overrides: object) -> m.RunView:
         "headline": "29 receipts: 21 match, 8 need attention",
         "exceptions": [],
         "summary": None,
+        "read_cost": m.ReadCost(
+            new_pages=0, estimate_usd=None, actual_usd=None, input_tokens=0, output_tokens=0
+        ),
     }
     fields.update(overrides)
     return m.RunView(**fields)
