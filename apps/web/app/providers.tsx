@@ -5,15 +5,15 @@
 // - MeProvider: calls EP-02 once per page session on signed-in pages; 403 → /forbidden; exposes
 //   `useMe()` with the person and their role permissions (lib/me.ts). The API stays the authority.
 
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { ApiError, api } from "@/lib/api";
 import { isSignedOutPath, permissionsFor, toSessionPerson, type Permissions, type SessionPerson } from "@/lib/me";
 
-/** TanStack Query key of the EP-02 answer. The login page should `removeQueries` it after a
- * sign-in so a different person never sees the previous one's role. */
+/** TanStack Query key of the EP-02 answer. MeProvider drops it on every signed-out page
+ * (/login, /auth/*, test pages), so a different person never sees the previous one's role. */
 export const ME_QUERY_KEY = ["me"] as const;
 
 export type MeState = {
@@ -23,14 +23,18 @@ export type MeState = {
   error: ApiError | null;
   /** Role permissions; all false until EP-02 answers. */
   can: Permissions;
+  /** Ask EP-02 again (e.g. a "Try again" button on the error state). */
+  refetch: () => void;
 };
 
 const NO_PERMISSIONS = permissionsFor(null);
+const noop = () => undefined;
 const MeContext = createContext<MeState>({
   status: "idle",
   person: null,
   error: null,
   can: NO_PERMISSIONS,
+  refetch: noop,
 });
 
 export function useMe(): MeState {
@@ -44,7 +48,13 @@ function asksWhoAmI(pathname: string): boolean {
 function MeProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
+  const queryClient = useQueryClient();
   const enabled = asksWhoAmI(pathname);
+  const signedOutPage = isSignedOutPath(pathname);
+
+  useEffect(() => {
+    if (signedOutPage) queryClient.removeQueries({ queryKey: ME_QUERY_KEY });
+  }, [signedOutPage, queryClient]);
 
   const query = useQuery({
     queryKey: ME_QUERY_KEY,
@@ -52,7 +62,7 @@ function MeProvider({ children }: { children: ReactNode }) {
     enabled,
     staleTime: Infinity,
     gcTime: Infinity,
-    retry: false,
+    // default retry policy (makeQueryClient): 4xx final, a network/5xx blip retried
   });
 
   const error = query.error instanceof ApiError ? query.error : null;
@@ -61,11 +71,16 @@ function MeProvider({ children }: { children: ReactNode }) {
     if (enabled && error?.status === 403) router.replace("/forbidden");
   }, [enabled, error, router]);
 
+  const { refetch: refetchQuery } = query;
+  const refetch = useCallback(() => {
+    void refetchQuery();
+  }, [refetchQuery]);
+
   const value = useMemo<MeState>(() => {
-    if (!enabled) return { status: "idle", person: null, error: null, can: NO_PERMISSIONS };
+    if (!enabled) return { status: "idle", person: null, error: null, can: NO_PERMISSIONS, refetch };
     if (query.data) {
       const person = toSessionPerson(query.data);
-      return { status: "ready", person, error: null, can: person.can };
+      return { status: "ready", person, error: null, can: person.can, refetch };
     }
     if (query.isError) {
       return {
@@ -73,10 +88,11 @@ function MeProvider({ children }: { children: ReactNode }) {
         person: null,
         error: error ?? new ApiError({ status: 0, code: "BAD_RESPONSE", message: String(query.error) }),
         can: NO_PERMISSIONS,
+        refetch,
       };
     }
-    return { status: "loading", person: null, error: null, can: NO_PERMISSIONS };
-  }, [enabled, query.data, query.isError, query.error, error]);
+    return { status: "loading", person: null, error: null, can: NO_PERMISSIONS, refetch };
+  }, [enabled, query.data, query.isError, query.error, error, refetch]);
 
   return <MeContext.Provider value={value}>{children}</MeContext.Provider>;
 }

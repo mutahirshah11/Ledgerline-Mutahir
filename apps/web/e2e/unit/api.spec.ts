@@ -199,6 +199,75 @@ test("FR-004 only the 401 hook fires on 401; other errors do not call it", async
   expect(hooked).toBe(0);
 });
 
+test("FR-003 a 403 calls onForbidden with the method, then rejects", async () => {
+  const body = { error: { code: "NOT_ALLOWED", message: "Not allowed", stage: null, details: {} } };
+  const { fetchImpl } = fakeFetch(() => json(403, body));
+  const seen: [number, string][] = [];
+  let unauthorized = 0;
+  const client = createApiClient({
+    baseUrl: "/api/v1",
+    getToken: async () => "t",
+    fetch: fetchImpl,
+    onForbidden: (e, method) => {
+      seen.push([e.status, method]);
+    },
+    onUnauthorized: () => {
+      unauthorized += 1;
+    },
+  });
+
+  const getErr = (await client.get("/me").catch((e: unknown) => e)) as ApiError;
+  const postErr = (await client.post("/runs", { body: { month: "2026-09" } }).catch((e: unknown) => e)) as ApiError;
+
+  expect(getErr).toBeInstanceOf(ApiError);
+  expect(getErr.code).toBe("NOT_ALLOWED");
+  expect(postErr.status).toBe(403);
+  expect(seen).toEqual([
+    [403, "get"],
+    [403, "post"],
+  ]);
+  expect(unauthorized).toBe(0);
+});
+
+test("FR-004 a 204 or empty 2xx body resolves to undefined", async () => {
+  let reply: () => Response = () => new Response(null, { status: 204 });
+  const { fetchImpl } = fakeFetch(() => reply());
+  const client = createApiClient({ baseUrl: "/api/v1", getToken: async () => "t", fetch: fetchImpl });
+
+  expect(await client.get("/health")).toBeUndefined();
+  reply = () => new Response("", { status: 200 });
+  expect(await client.get("/health")).toBeUndefined();
+});
+
+test("FR-004 a 2xx body that is not JSON is ApiError BAD_RESPONSE", async () => {
+  const { fetchImpl } = fakeFetch(() => new Response("<html>login page</html>", { status: 200 }));
+  const client = createApiClient({ baseUrl: "/api/v1", getToken: async () => "t", fetch: fetchImpl });
+
+  const err = (await client.get("/me").catch((e: unknown) => e)) as ApiError;
+
+  expect(err).toBeInstanceOf(ApiError);
+  expect(err.status).toBe(200);
+  expect(err.code).toBe("BAD_RESPONSE");
+});
+
+test("FR-004 an aborted request rejects with the AbortError itself, not ApiError", async () => {
+  const controller = new AbortController();
+  const client = createApiClient({
+    baseUrl: "/api/v1",
+    getToken: async () => "t",
+    fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.signal).toBe(controller.signal);
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }) as typeof fetch,
+  });
+  controller.abort();
+
+  const err = await client.get("/me", { signal: controller.signal }).catch((e: unknown) => e);
+
+  expect(err).not.toBeInstanceOf(ApiError);
+  expect((err as DOMException).name).toBe("AbortError");
+});
+
 // Compile-time contract (checked by `pnpm typecheck`, never executed): paths, params and bodies
 // come from lib/api-types.ts.
 export function typeContract(client: ReturnType<typeof createApiClient>) {

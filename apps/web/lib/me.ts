@@ -72,10 +72,30 @@ export function isSignedOutPath(pathname: string): boolean {
   return SIGNED_OUT_PREFIXES.some((p) => underPrefix(pathname, p));
 }
 
-/** `/login?next=<requested path + search>`; plain `/login` when there is nowhere useful to return
- * (the home page, or a sign-in page itself). `next` is the in-app path only (no origin). */
-export function loginUrl(next: string): string {
-  const pathname = next.split(/[?#]/, 1)[0];
-  if (pathname === "/" || pathname === "" || isSignedOutPath(pathname)) return "/login";
-  return `/login?next=${encodeURIComponent(next)}`;
+const FALLBACK_NEXT = "/runs";
+
+function isSignInPath(pathname: string): boolean {
+  return underPrefix(pathname, "/login") || underPrefix(pathname, "/auth");
+}
+
+/** A `next` target that is safe to navigate to after sign-in: a single-slash in-app path, never
+ * another origin (`//x`, `/\x`, `https://…`, `javascript:`), never control characters, and never
+ * a sign-in page (`/login`, `/auth/*`, which would loop). Anything else → "/runs". */
+export function safeNext(raw: string | null | undefined): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return FALLBACK_NEXT;
+  if (raw.includes("\\") || /[\u0000-\u001f\u007f]/.test(raw)) return FALLBACK_NEXT;
+  const pathname = raw.split(/[?#]/, 1)[0];
+  if (pathname === "/" || isSignInPath(pathname)) return FALLBACK_NEXT;
+  return raw;
+}
+
+/** `/login?next=<requested path + search>`; plain `/login` when there is nowhere useful (or safe)
+ * to return to. `expired: true` adds `expired=1` (the API answered 401): /login then signs out
+ * locally first. /login must never auto-forward a signed-in visitor (that is what would loop). */
+export function loginUrl(next: string, opts: { expired?: boolean } = {}): string {
+  const params = new URLSearchParams();
+  if (safeNext(next) === next) params.set("next", next);
+  if (opts.expired) params.set("expired", "1");
+  const q = params.toString();
+  return q ? `/login?${q}` : "/login";
 }

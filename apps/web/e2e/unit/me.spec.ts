@@ -8,6 +8,7 @@ import {
   isSignedOutPath,
   loginUrl,
   permissionsFor,
+  safeNext,
   toSessionPerson,
 } from "../../lib/me";
 
@@ -73,6 +74,42 @@ test("FR-001 loginUrl carries the requested address in next", () => {
   // never bounce back to the sign-in pages themselves
   expect(loginUrl("/login?next=%2Fruns")).toBe("/login");
   expect(loginUrl("/")).toBe("/login");
+  // never an off-site or protocol-relative target
+  expect(loginUrl("//evil.example/x")).toBe("/login");
+  expect(loginUrl("/\\evil.example")).toBe("/login");
+});
+
+test("FR-001 loginUrl marks an expired session so /login can sign out locally first", () => {
+  expect(loginUrl("/runs/r-1", { expired: true })).toBe("/login?next=%2Fruns%2Fr-1&expired=1");
+  expect(loginUrl("/", { expired: true })).toBe("/login?expired=1");
+});
+
+test("FR-001 safeNext keeps in-app paths and falls back to /runs for anything else", () => {
+  expect(safeNext("/runs/r-1/review?item=3")).toBe("/runs/r-1/review?item=3");
+  expect(safeNext("/runs")).toBe("/runs");
+  expect(safeNext("/forbidden")).toBe("/forbidden");
+  for (const bad of [
+    null,
+    undefined,
+    "",
+    "/",
+    "runs",
+    "//evil.example",
+    "//evil.example/runs",
+    "/\\evil.example",
+    "/runs\\x",
+    "https://evil.example/runs",
+    "javascript:alert(1)",
+    "/runs\nSet-Cookie:x",
+    "/runs\u0000",
+    "/runs\u007f",
+    "/login",
+    "/login?next=%2Fruns",
+    "/auth",
+    "/auth/callback?code=1",
+  ]) {
+    expect(safeNext(bad), String(bad)).toBe("/runs");
+  }
 });
 
 test("FR-001 only the sign-in pages and test pages are reachable signed out", () => {

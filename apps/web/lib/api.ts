@@ -163,8 +163,9 @@ export type ApiClientOptions = {
   fetch?: typeof fetch;
   /** Called with the error before a 401 rejects (WEB-AC1). */
   onUnauthorized?: (err: ApiError) => void;
-  /** Called with the error before a 403 rejects (server reads use it for /forbidden). */
-  onForbidden?: (err: ApiError) => void;
+  /** Called with the error and the method before a 403 rejects (serverApi redirects GETs to
+   * /forbidden; a 403 on a POST is a role refusal the screen shows). */
+  onForbidden?: (err: ApiError, method: Method) => void;
 };
 
 /** The API has only GET and POST operations today; add a method here when one appears. */
@@ -219,12 +220,21 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     if (!res.ok) {
       const err = await toApiError(res);
       if (res.status === 401) options.onUnauthorized?.(err);
-      if (res.status === 403) options.onForbidden?.(err);
+      if (res.status === 403) options.onForbidden?.(err, method);
       throw err;
     }
     if (res.status === 204) return undefined;
     const text = await res.text();
-    return text ? JSON.parse(text) : undefined;
+    if (!text) return undefined;
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new ApiError({
+        status: res.status,
+        code: "BAD_RESPONSE",
+        message: `Unexpected response (HTTP ${res.status}, not JSON)`,
+      });
+    }
   }
 
   const bind =
@@ -249,11 +259,16 @@ export function resolveBaseUrl(env: { server: boolean; apiBaseUrl: string | unde
 
 let redirecting = false;
 
-/** Browser 401 handler: go to sign-in and come back here afterwards (WEB-AC1). */
+/** Browser 401 handler (WEB-AC1): drop the dead session locally (so proxy.ts and /login see a
+ * signed-out visitor and nothing loops), then go to sign-in and come back here afterwards. */
 export function redirectToLogin(): void {
   if (typeof window === "undefined" || redirecting) return;
   redirecting = true;
-  window.location.assign(loginUrl(window.location.pathname + window.location.search));
+  const target = loginUrl(window.location.pathname + window.location.search, { expired: true });
+  void getBrowserSupabase()
+    .auth.signOut({ scope: "local" })
+    .catch(() => undefined)
+    .finally(() => window.location.assign(target));
 }
 
 async function browserToken(): Promise<string | null> {

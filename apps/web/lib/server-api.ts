@@ -5,9 +5,14 @@
 //   const client = await serverApi({ next: `/runs/${id}` });
 //   const run = await client.get("/runs/{id}", { path: { id } });
 //
-// 401 → redirect(`/login?next=<next>`); 403 → redirect("/forbidden") (every role may read, so a
-// 403 on a read means "not on the allowlist"). Any other error rejects with ApiError for the
-// screen's error state. Server-only: imports next/headers.
+// 401 → redirect(`/login?next=<next>&expired=1`): server components cannot clear cookies, so
+// /login signs out locally when it sees `expired=1`, and /login never auto-forwards a signed-in
+// visitor — that is what keeps a dead session from looping.
+// 403: reads redirect, posts reject. A GET 403 → redirect("/forbidden") (every role may read, so it
+// means "not on the allowlist"); a POST 403 rejects with ApiError ("Your role cannot do this").
+// Any other error rejects with ApiError for the screen's error state.
+
+import "server-only";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -32,7 +37,9 @@ export async function serverApi(opts: ServerApiOptions = {}): Promise<ApiClient>
       return data.session?.access_token ?? null;
     },
     fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }),
-    onUnauthorized: () => redirect(loginUrl(opts.next ?? "/runs")),
-    onForbidden: () => redirect("/forbidden"),
+    onUnauthorized: () => redirect(loginUrl(opts.next ?? "/runs", { expired: true })),
+    onForbidden: (_err, method) => {
+      if (method === "get") redirect("/forbidden");
+    },
   });
 }
