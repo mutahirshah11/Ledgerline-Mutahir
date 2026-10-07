@@ -20,6 +20,7 @@ from app.domain.enums import (
     AuditAction,
     Outcome,
     ProofStatus,
+    ReviewStatus,
     RunEventStatus,
     RunStatus,
     Stage,
@@ -213,8 +214,10 @@ def test_extract_twice_idempotent(
     validated: Callable[[], str],
     replay: ReplayModelClient,
     cached: int,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Section 11 idempotency: a repeat call returns the same result and writes nothing."""
+    """Section 11 idempotency: a repeat call returns the same result, writes nothing (no
+    review-item upsert, no stored read) and calls no model."""
     run_id = validated()
     headers = tokens["controller"]
     first = extract(client, headers, run_id, 1).json()
@@ -227,16 +230,29 @@ def test_extract_twice_idempotent(
             len(memory_repo.list_review_items(rid)),
         )
 
+    writes: list[str] = []
+    for name in ("upsert_review_items", "put_extraction"):
+        real = getattr(memory_repo, name)
+
+        def spy(*args: Any, _name: str = name, _real: Any = real, **kwargs: Any) -> Any:
+            writes.append(_name)
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(memory_repo, name, spy)
+
     before = records()
     again = extract(client, headers, run_id, 1)  # still EXTRACTING
     assert again.status_code == 200 and again.json() == first
     assert records() == before
+    assert writes == []
     assert _status(memory_repo, run_id) is RunStatus.EXTRACTING
     extract(client, headers, run_id, 2)
+    writes.clear()
     before = records()
     past = extract(client, headers, run_id, 1)  # EXTRACTED
     assert past.status_code == 200 and past.json() == first
     assert records() == before
+    assert writes == []
     assert _status(memory_repo, run_id) is RunStatus.EXTRACTED
     assert replay.calls == 0
 
@@ -479,8 +495,15 @@ def test_reconcile_write_failure_fails_at_reconcile_with_alert(
         raise ConnectionError("db went away")
 
     monkeypatch.setattr(memory_repo, "replace_reconciliation", broken)
-    with pytest.raises(ConnectionError):  # TestClient re-raises; the app answers 500
-        reconcile(client, tokens["controller"], extracted)
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    resp = reconcile(lenient, tokens["controller"], extracted)
+    assert resp.status_code == 500
+    assert _error(resp) == {
+        "code": "INTERNAL_ERROR",
+        "message": "Unexpected error",
+        "stage": "reconcile",
+        "details": {},
+    }
     run = memory_repo.get_run(UUID(extracted))
     assert run.status is RunStatus.FAILED and run.failed_stage is Stage.RECONCILE
     assert [chat for chat, _ in notifier.attempted] == [ops_chat]
@@ -510,3 +533,215 @@ def test_extract_missing_page_blob_500_state_unchanged_one_alert(
     assert resp.status_code == 500 and _error(resp)["stage"] == "extract"
     assert _status(memory_repo, run_id) is RunStatus.VALIDATED
     assert [chat for chat, _ in notifier.attempted] == [ops_chat]
+
+
+# --- US4 review fixes ----------------------------------------------------------------------
+
+
+def _corrupt_read(repo: MemoryRepo, cache_dir: Path, image: bytes, variant: str) -> None:
+    """Store one committed read of `image` whose result breaks `parse_read` (rows plus blank
+    slots no longer 16), so the cache record no longer validates."""
+    from tests.support.pack_pages import offline_settings
+
+    s = offline_settings()
+    sha = hashlib.sha256(image).hexdigest()
+    path = cache_dir / f"{sha}.{variant}.{s.EXTRACT_MODEL}.{s.PROMPT_VERSION}.json"
+    record = Extraction.model_validate_json(path.read_text(encoding="utf-8"))
+    slots = record.result.blank_row_slots + 1
+    broken = record.result.model_copy(update={"blank_row_slots": slots})
+    repo.put_extraction(record.model_copy(update={"result": broken}))
+
+
+def test_extract_corrupt_cached_read_500_failed_one_alert(
+    ops_chat: str,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    notifier: FakeNotifier,
+    validated: Callable[[], str],
+    cached_reads_dir: Path,
+    pack_files: dict[str, bytes],
+) -> None:
+    """Constitution VIII (fail loudly): an unexpected reader error sets FAILED(extract) with a
+    generic message, sends one alert and answers a generic 500; OPS may retry."""
+    _corrupt_read(memory_repo, cached_reads_dir, pack_files["t4_register_page1.jpg"], "A")
+    run_id = validated()
+    resp = extract(client, tokens["controller"], run_id, 1)
+    assert resp.status_code == 500
+    assert _error(resp) == {
+        "code": "INTERNAL_ERROR",
+        "message": "Unexpected error",
+        "stage": "extract",
+        "details": {},
+    }
+    run = memory_repo.get_run(UUID(run_id))
+    assert run.status is RunStatus.FAILED and run.failed_stage is Stage.EXTRACT
+    assert run.error_message == "Page 1: internal error (RuntimeError)"
+    assert [chat for chat, _ in notifier.attempted] == [ops_chat]
+    again = extract(client, tokens["ops"], run_id, 1)  # OPS retry is admitted (fails again)
+    assert again.status_code == 500
+    assert _status(memory_repo, run_id) is RunStatus.FAILED
+    assert len(notifier.attempted) == 1  # same scenario minute: no second alert
+
+
+def test_extract_repeat_on_past_run_missing_read_409(
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    extracted: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeat past extract never reads: a read missing under the current model is 409."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("PROMPT_VERSION", "v-other")
+    get_settings.cache_clear()
+    resp = extract(client, tokens["controller"], extracted, 1)
+    assert resp.status_code == 409 and _error(resp)["code"] == "RUN_STATE_CONFLICT"
+    assert _status(memory_repo, extracted) is RunStatus.EXTRACTED
+
+
+def test_extract_uploaded_run_missing_blob_409_no_alert(
+    ops_chat: str,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    memory_blobs: Any,
+    notifier: FakeNotifier,
+    pack_upload: Callable[..., dict[str, Any]],
+    replay: ReplayModelClient,
+) -> None:
+    """State, role and accept-set are checked before the page blob is fetched."""
+    from app.core.storage import INPUTS_BUCKET
+
+    run_id = pack_upload()["run"]["id"]
+    (page1,) = [f for f in memory_repo.list_source_files(UUID(run_id)) if f.page_no == 1]
+    memory_blobs.delete(INPUTS_BUCKET, page1.storage_path)
+    resp = extract(client, tokens["controller"], run_id, 1)
+    assert resp.status_code == 409 and _error(resp)["details"]["status"] == "UPLOADED"
+    assert notifier.attempted == []
+
+
+def test_extract_unreadable_page_422_failed_one_alert(
+    ops_chat: str,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    notifier: FakeNotifier,
+    validated: Callable[[], str],
+    ground_truth_dir: Path,
+) -> None:
+    """FM-06 over HTTP: more than half the merged cells ILLEGIBLE → 422, FAILED(extract), one
+    alert built from counts only."""
+    from app.core.deps import get_model_client
+    from app.domain.enums import CellStatus, ReadVariant, RegisterField
+    from app.domain.models import Cell
+    from tests.fakes.model_clients import ScriptedModelClient
+    from tests.support.extracted import ground_truth_read
+
+    gt = ground_truth_read(ground_truth_dir, 1)
+    blot = Cell(value=None, status=CellStatus.ILLEGIBLE)
+    rows = [r.model_copy(update={"cells": dict.fromkeys(RegisterField, blot)}) for r in gt.rows]
+    payload = gt.model_copy(update={"rows": rows}).model_dump(mode="json")
+    scripted = ScriptedModelClient({ReadVariant.A: [payload], ReadVariant.B: [payload]})
+    overrides: dict[Any, Any] = client.app.dependency_overrides  # type: ignore[attr-defined]
+    overrides[get_model_client] = lambda: scripted
+    run_id = validated()
+    resp = extract(client, tokens["controller"], run_id, 1)
+    assert resp.status_code == 422
+    error = _error(resp)
+    assert (error["code"], error["stage"]) == ("CONTRACT_VIOLATION", "extract")
+    assert error["details"] == {"problem": "PAGE_UNREADABLE", "page_no": 1}
+    run = memory_repo.get_run(UUID(run_id))
+    assert run.status is RunStatus.FAILED and run.failed_stage is Stage.EXTRACT
+    assert run.error_message == "Page 1 could not be read, retake the photo"
+    assert [chat for chat, _ in notifier.attempted] == [ops_chat]
+    assert "cells illegible" in notifier.sent[0][1]
+
+
+def test_extract_fault_ignored_when_faults_off(
+    client: TestClient,
+    tokens: dict[str, Headers],
+    validated: Callable[[], str],
+    cached: int,
+) -> None:
+    """Section 25: with ALLOW_FAULTS=false, `?fault=` is ignored and the page reads normally."""
+    run_id = validated()
+    resp = extract(client, tokens["controller"], run_id, 1, fault="EXTRACT_TIMEOUT")
+    assert resp.status_code == 200 and resp.json()["cached"] is True
+
+
+def test_finish_extracting_quiet_when_run_failed_meanwhile(
+    memory_repo: MemoryRepo, extracted_run: Any
+) -> None:
+    """A concurrent page call failed the run after this page succeeded: the move to EXTRACTED
+    loses quietly (no register files here, so every page counts as done)."""
+    from app.services.stages import _finish_extracting
+    from tests.support.pack_pages import offline_settings
+
+    run = memory_repo.transition_run(
+        extracted_run.id,
+        RunStatus.FAILED,
+        expected={RunStatus.EXTRACTED},
+        failed_stage=Stage.EXTRACT,
+    )
+    _finish_extracting(memory_repo, run.id, offline_settings())
+    assert memory_repo.get_run(run.id).status is RunStatus.FAILED
+
+
+def test_reconcile_corrupt_cached_read_500_failed_reconcile_one_alert(
+    ops_chat: str,
+    client: TestClient,
+    tokens: dict[str, Headers],
+    memory_repo: MemoryRepo,
+    notifier: FakeNotifier,
+    extracted: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cached read that no longer validates at reconcile is not "inputs missing": the run is
+    FAILED(reconcile), one alert, generic 500."""
+    from app.core.errors import InvalidReadOutput
+    from app.services import stages
+
+    def corrupt(_: Any) -> Any:
+        raise InvalidReadOutput("bad record")
+
+    monkeypatch.setattr(stages, "parse_read", corrupt)
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    resp = reconcile(lenient, tokens["controller"], extracted)
+    assert resp.status_code == 500
+    assert _error(resp)["message"] == "Unexpected error"
+    assert _error(resp)["stage"] == "reconcile"
+    run = memory_repo.get_run(UUID(extracted))
+    assert run.status is RunStatus.FAILED and run.failed_stage is Stage.RECONCILE
+    assert run.error_message == "internal error (InvalidReadOutput)"
+    assert [chat for chat, _ in notifier.attempted] == [ops_chat]
+
+
+def test_get_run_open_review_items_follow_engine_rule(
+    client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo, extracted: str
+) -> None:
+    """Decision (a): EP-05 counts open items by the engine's rule (the last reconcile's items
+    plus OPEN CELL items), so status and count never contradict; a stored OPEN item the last
+    reconcile did not produce does not count."""
+    from app.domain.enums import ReviewKind, ReviewReason
+    from app.domain.ids import stable_id
+    from app.domain.models import ReviewItem
+
+    headers = tokens["controller"]
+    rid = UUID(extracted)
+    cells = memory_repo.list_review_items(rid, ReviewStatus.OPEN)
+    assert cells and all(i.kind is ReviewKind.CELL for i in cells)
+    before = client.get(f"{API}/runs/{extracted}", headers=headers).json()
+    assert before["open_review_items"] == len(cells)  # before any reconcile: CELL items
+    body = reconcile(client, headers, extracted).json()
+    (flag_item,) = [
+        i for i in memory_repo.list_review_items(rid) if i.reason is ReviewReason.BACKDATED_ENTRY
+    ]
+    key = "FLAG:BACKDATED_ENTRY:STALE-ROW"
+    stale = flag_item.model_copy(update={"id": stable_id(rid, key), "item_key": key})
+    assert isinstance(stale, ReviewItem)
+    memory_repo.upsert_review_items(rid, [stale])  # an item the last reconcile did not produce
+    detail = client.get(f"{API}/runs/{extracted}", headers=headers).json()
+    assert detail["open_review_items"] == body["open_review_items"]
+    assert detail["status"] == "AWAITING_REVIEW"

@@ -23,7 +23,6 @@ from app.domain.enums import (
     Outcome,
     ProofStatus,
     ReadVariant,
-    ReviewStatus,
     Role,
     RunEventStatus,
     RunStatus,
@@ -31,6 +30,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.models import AllowedUser, Run, RunEvent
+from app.pipeline.engine import open_review_count
 from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.services import stages
@@ -242,7 +242,7 @@ def get_run(id: UUID, repo: RepoDep) -> RunDetail:
         stage_progress=_stage_progress(repo, run),
         counts=stages.run_outcome_counts(repo, run.id),
         proof_status=_proof_status(repo, run.id),
-        open_review_items=len(repo.list_review_items(run.id, ReviewStatus.OPEN)),
+        open_review_items=open_review_count(repo, run.id),
     )
 
 

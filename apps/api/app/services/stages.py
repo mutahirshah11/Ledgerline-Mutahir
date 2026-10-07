@@ -7,6 +7,7 @@ Validate (EP-08), extract (EP-09, Phase 2 `extract_page`) and reconcile (EP-10, 
 """
 
 import hashlib
+import logging
 import time
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -30,7 +31,6 @@ from app.domain.enums import (
     Outcome,
     ProofStatus,
     ReadVariant,
-    ReviewStatus,
     Role,
     RunEventStatus,
     RunStatus,
@@ -42,16 +42,24 @@ from app.domain.models import (
     AllowedUser,
     PageExtractionResult,
     PageManifestEntry,
+    PageRead,
     RegisterPageInput,
     Run,
     Sha256Hex,
     SourceFile,
 )
-from app.pipeline.engine import RECONCILABLE, EngineInputs, outcome_counts_of, reconcile_run
+from app.pipeline.engine import (
+    RECONCILABLE,
+    EngineInputs,
+    open_review_count,
+    outcome_counts_of,
+    reconcile_run,
+)
 from app.pipeline.extract import (
     RetryInfo,
     extract_page,
     merge_reads,
+    page_result,
     parse_read,
     register_input,
 )
@@ -64,6 +72,8 @@ from app.services.runlog import StepLog, stage_step
 from app.services.telegram import Notifier
 
 Now = Callable[[], datetime]
+
+log = logging.getLogger(__name__)
 
 KB = 1024
 MB = 1024 * KB
@@ -657,11 +667,21 @@ def validate_stage(
 def _inputs_missing(
     repo: Repo, notifier: Notifier, run: Run, stage: Stage, exc: Exception, now: Now
 ) -> ApiError:
-    """Infrastructure failure (a stored input is missing or inconsistent): 500, run state
-    unchanged, one ops alert (as EP-08, item 4)."""
+    """Infrastructure failure (a stored input is missing): 500, run state unchanged, one ops
+    alert (as EP-08, item 4)."""
     broken = ApiError(ErrorCode.INTERNAL_ERROR, 500, "Run inputs are missing from storage", stage)
     stage_failed_alert(repo, notifier, run, stage, broken, now=now)
     return broken
+
+
+def _unexpected(stage: Stage) -> ApiError:
+    """The generic 500 of an unexpected error (constitution VIII: fail loudly, say nothing)."""
+    return ApiError(ErrorCode.INTERNAL_ERROR, 500, "Unexpected error", stage)
+
+
+def _internal_message(exc: BaseException) -> str:
+    """The stored text of an unexpected error: its type name only, never its message."""
+    return f"internal error ({type(exc).__name__})"
 
 
 # --- EP-09 -----------------------------------------------------------------------------
@@ -703,6 +723,19 @@ def _extract_ok_cached(repo: Repo, run_id: UUID) -> dict[int, bool]:
     return found
 
 
+def _stored_reads(repo: Repo, sha: str, settings: Settings) -> tuple[PageRead, PageRead] | None:
+    """Reads A and B of a page under the current model and prompt, validated; None if either
+    is missing. A record that no longer validates raises `InvalidReadOutput`."""
+    records = [
+        repo.get_extraction(sha, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
+        for v in ReadVariant
+    ]
+    if records[0] is None or records[1] is None:
+        return None
+    a, b = (parse_read(r.result.model_dump(mode="json")) for r in (records[0], records[1]))
+    return a, b
+
+
 def _has_both_reads(repo: Repo, sha: str, settings: Settings) -> bool:
     return all(
         repo.get_extraction(sha, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION) is not None
@@ -710,20 +743,38 @@ def _has_both_reads(repo: Repo, sha: str, settings: Settings) -> bool:
     )
 
 
+def _repeat(
+    reads: tuple[PageRead, PageRead], run: Run, file: SourceFile, cached: bool
+) -> ExtractPageResult:
+    """A repeat call's answer from the stored reads (Phase 2 `page_result`): no write, no
+    model call (Section 11)."""
+    result = page_result(
+        *reads,
+        run_id=run.id,
+        run_month=run.month,
+        page_no=file.page_no or 0,
+        page_sha256=file.sha256,
+    )
+    return _page_result(result, cached)
+
+
+def _check_extract_accepted(run: Run, user: AllowedUser) -> None:
+    """data-model.md §3: `VALIDATED`, `EXTRACTING` or `FAILED(extract)`; OPS only the last
+    (contracts/auth.md). Checked before any blob is fetched."""
+    if run.status is RunStatus.FAILED and run.failed_stage is Stage.EXTRACT:
+        return
+    if user.role is Role.OPS or run.status not in (RunStatus.VALIDATED, RunStatus.EXTRACTING):
+        raise StateConflict(run)
+
+
 def _enter_extracting(repo: Repo, run: Run, user: AllowedUser) -> Run:
     """`VALIDATED` → `EXTRACTING`, or `FAILED(extract)` → `EXTRACTING` (retry); `EXTRACTING`
     stays. OPS may only retry: its only `expected` status is `FAILED`, so a run that left
     `FAILED` meanwhile is a 409, not a retry (contracts/auth.md)."""
-    if run.status is RunStatus.FAILED and run.failed_stage is Stage.EXTRACT:
-        expected = {RunStatus.FAILED}
-    elif user.role is Role.OPS:
-        raise StateConflict(run)
-    elif run.status is RunStatus.EXTRACTING:
+    _check_extract_accepted(run, user)
+    if run.status is RunStatus.EXTRACTING:
         return run
-    elif run.status is RunStatus.VALIDATED:
-        expected = {RunStatus.VALIDATED}
-    else:
-        raise StateConflict(run)
+    expected = {RunStatus.FAILED} if run.status is RunStatus.FAILED else {RunStatus.VALIDATED}
     try:
         return repo.transition_run(run.id, RunStatus.EXTRACTING, expected=expected)
     except StateConflict as conflict:  # a concurrent page call moved it first
@@ -735,15 +786,17 @@ def _enter_extracting(repo: Repo, run: Run, user: AllowedUser) -> Run:
 
 def _finish_extracting(repo: Repo, run_id: UUID, settings: Settings) -> None:
     """`EXTRACTING` → `EXTRACTED` once every register page has an extract OK event in this run
-    and both reads under the current model and prompt (data-model.md §3)."""
+    and both reads under the current model and prompt (data-model.md §3). Losing the race to
+    a concurrent call is quiet: it either finished the run or failed it after this page
+    succeeded."""
     done = _extract_ok_cached(repo, run_id)
     files = repo.list_source_files(run_id, Source.REGISTER)
     if not all(f.page_no in done and _has_both_reads(repo, f.sha256, settings) for f in files):
         return
     try:
         repo.transition_run(run_id, RunStatus.EXTRACTED, expected={RunStatus.EXTRACTING})
-    except StateConflict as conflict:  # a concurrent last page finished it
-        if conflict.current.status is not RunStatus.EXTRACTED:
+    except StateConflict as conflict:
+        if conflict.current.status not in (RunStatus.EXTRACTED, RunStatus.FAILED):
             raise
 
 
@@ -773,27 +826,38 @@ def extract_stage(
 ) -> ExtractPageResult:
     """EP-09 (F-03, FR-019, FR-020, FR-024; data-model.md §3, §4).
 
-    Reads one page with the Phase 2 `extract_page` (attempts and backoff from settings; the
-    per-call timeout is the client's, NFR-03) inside `stage_step("extract", page_no)`. A page
-    this run already extracted is answered from cache with no writes (Section 11). Each retry
-    the reader reports is one `RETRY` event; the OK event detail is `{page_no, cached}`;
-    `PAGE_EXTRACTED` is audited. `UpstreamFailed` (FM-04, FM-05) or `PageUnreadable` (FM-06)
-    set `FAILED` at `extract` with one ops alert, then 502 or 422. `EXTRACT_TIMEOUT` and
-    `EXTRACT_BAD_JSON` wrap the client (`FaultModelClient`); other faults are ignored here.
+    Status, role and the accept set are checked first (409), then the page (404). A page this
+    run already extracted is answered from its stored reads with no write and no model call
+    (Section 11); past extract, a missing read is 409. Otherwise the Phase 2 `extract_page`
+    reads it (attempts and backoff from settings, the per-call timeout is the client's,
+    NFR-03) inside `stage_step("extract", page_no)`: one `RETRY` event per retry the reader
+    reports, the OK event detail `{page_no, cached}`, audit `PAGE_EXTRACTED`.
+    `UpstreamFailed` (FM-04, FM-05) → 502, `PageUnreadable` (FM-06) → 422, any other error →
+    generic 500 (constitution VIII); each sets `FAILED` at `extract` with one ops alert.
+    `EXTRACT_TIMEOUT` and `EXTRACT_BAD_JSON` wrap the client; other faults are ignored here.
     """
     settings = settings or get_settings()
     if run.status is RunStatus.FINALISED or (
         user.role is Role.OPS and run.status is not RunStatus.FAILED
     ):
         raise StateConflict(run)
+    if run.status not in _EXTRACT_PAST:
+        _check_extract_accepted(run, user)
     file = _register_file(repo, run.id, page_no)
-    try:
-        image = blobs.get(INPUTS_BUCKET, file.storage_path)
-    except NotFound as exc:
-        raise _inputs_missing(repo, notifier, run, Stage.EXTRACT, exc, now) from exc
+    done = _extract_ok_cached(repo, run.id)
+    if run.status in _EXTRACT_PAST:
+        return _repeat_past(repo, notifier, run, file, done, settings, now)
+    repeat = page_no in done and _has_both_reads(repo, file.sha256, settings)
+    image = b""
+    if not repeat:
+        try:
+            image = blobs.get(INPUTS_BUCKET, file.storage_path)
+        except NotFound as exc:
+            raise _inputs_missing(repo, notifier, run, Stage.EXTRACT, exc, now) from exc
+    run = _enter_extracting(repo, run, user)
     reader_client = FaultModelClient(client, fault) if fault in EXTRACT_FAULTS else client
 
-    def read(on_retry: Callable[[RetryInfo], None] | None = None) -> PageExtractionResult:
+    def read(on_retry: Callable[[RetryInfo], None] | None) -> PageExtractionResult:
         return extract_page(
             repo=repo,
             client=reader_client,
@@ -806,60 +870,17 @@ def extract_stage(
             sleep=sleep,
         )
 
-    done = _extract_ok_cached(repo, run.id)
-    if run.status in _EXTRACT_PAST:
-        result = read()
-        return _page_result(result, done.get(page_no, result.cached))
-    run = _enter_extracting(repo, run, user)
-    if page_no in done and _has_both_reads(repo, file.sha256, settings):
-        out = _page_result(read(), done[page_no])  # cached reads: no model call, no records
-    else:
-        out = _read_page(repo, notifier, run, page_no, user, read, now)
-    _finish_extracting(repo, run.id, settings)
-    return out
-
-
-def _read_page(
-    repo: Repo,
-    notifier: Notifier,
-    run: Run,
-    page_no: int,
-    user: AllowedUser,
-    read: Reader,
-    now: Now,
-) -> ExtractPageResult:
-    """One page read as a run step. Retries heard on the reader's worker threads are written
-    as `RETRY` events here, on the request thread, before the step's `OK` or `FAILED`."""
-    retries: list[RetryInfo] = []
     try:
-        with stage_step(repo, run.id, Stage.EXTRACT, page_no=page_no, now=now) as step:
-            try:
-                result = read(retries.append)
-            finally:
-                for info in sorted(retries, key=lambda i: (i.variant.value, i.attempt)):
-                    step.retry(
-                        {
-                            "variant": info.variant.value,
-                            "attempt": info.attempt,
-                            "cause": info.cause,
-                        }
-                    )
-            out = _page_result(result, result.cached)
-            step.base["cached"] = out.cached  # the OK event detail is {page_no, cached}
-            audit(
-                repo,
-                user.email,
-                AuditAction.PAGE_EXTRACTED,
-                "page",
-                result.page.page_sha256,
-                run.id,
-                after=out.model_dump(),
-                channel=AuditChannel.WEB,
-                now=now,
-            )
-            return out
+        if repeat:
+            reads = _stored_reads(repo, file.sha256, settings)
+            assert reads is not None  # checked above; reads are never deleted
+            out = _repeat(reads, run, file, done[page_no])
+        else:
+            out = _read_page(repo, run, page_no, user, read, now)
+    except StateConflict:
+        raise
     except (UpstreamFailed, PageUnreadable) as exc:
-        _fail_extract(repo, notifier, run, page_no, exc, now)
+        _fail_extract(repo, notifier, run, page_no, exc, now, logged=not repeat)
         if isinstance(exc, PageUnreadable):
             raise ApiError(
                 ErrorCode.CONTRACT_VIOLATION,
@@ -869,14 +890,96 @@ def _read_page(
                 {"problem": "PAGE_UNREADABLE", "page_no": page_no},
             ) from None
         raise
+    except Exception as exc:
+        _fail_extract(repo, notifier, run, page_no, exc, now, logged=not repeat)
+        raise _unexpected(Stage.EXTRACT) from exc
+    _finish_extracting(repo, run.id, settings)
+    return out
+
+
+def _repeat_past(
+    repo: Repo,
+    notifier: Notifier,
+    run: Run,
+    file: SourceFile,
+    done: dict[int, bool],
+    settings: Settings,
+    now: Now,
+) -> ExtractPageResult:
+    """A repeat EP-09 on a run past extract: answered from the stored reads, status kept.
+    A read missing under the current model and prompt is 409; an unexpected error sends one
+    ops alert and is a generic 500, the run's status unchanged."""
+    try:
+        reads = _stored_reads(repo, file.sha256, settings)
+        if reads is None:
+            raise StateConflict(run)
+        page_no = file.page_no or 0
+        cached = done.get(page_no, True)  # both reads stored before this call: cached
+        return _repeat(reads, run, file, cached)
+    except StateConflict:
+        raise
+    except Exception as exc:
+        stage_failed_alert(repo, notifier, run, Stage.EXTRACT, exc, file.page_no, now=now)
+        raise _unexpected(Stage.EXTRACT) from exc
+
+
+def _read_page(
+    repo: Repo, run: Run, page_no: int, user: AllowedUser, read: Reader, now: Now
+) -> ExtractPageResult:
+    """One page read as a run step. Retries heard on the reader's worker threads are written
+    as `RETRY` events here, on the request thread, after the read ends and before the step's
+    `OK` or `FAILED`; so each RETRY event's `at` is the read's end time, not the retry's. A
+    RETRY write that fails is logged by type name and never hides the read's outcome."""
+    retries: list[RetryInfo] = []
+    with stage_step(repo, run.id, Stage.EXTRACT, page_no=page_no, now=now) as step:
+        try:
+            result = read(retries.append)
+        finally:
+            for info in sorted(retries, key=lambda i: (i.variant.value, i.attempt)):
+                detail = {"variant": info.variant.value, "attempt": info.attempt}
+                try:
+                    step.retry({**detail, "cause": info.cause})
+                except Exception as exc:
+                    log.error("RETRY event not written: %s", type(exc).__name__)
+        out = _page_result(result, result.cached)
+        step.base["cached"] = out.cached  # the OK event detail is {page_no, cached}
+        audit(
+            repo,
+            user.email,
+            AuditAction.PAGE_EXTRACTED,
+            "page",
+            result.page.page_sha256,
+            run.id,
+            after=out.model_dump(),
+            channel=AuditChannel.WEB,
+            now=now,
+        )
+        return out
 
 
 def _fail_extract(
-    repo: Repo, notifier: Notifier, run: Run, page_no: int, exc: Exception, now: Now
+    repo: Repo,
+    notifier: Notifier,
+    run: Run,
+    page_no: int,
+    exc: Exception,
+    now: Now,
+    *,
+    logged: bool,
 ) -> None:
-    """FR-020 / FM-06: `FAILED` at `extract` with the error, then one ops alert naming the
-    page (its reason is built from the service, cause and counts only)."""
-    message = str(exc) if isinstance(exc, PageUnreadable) else f"Page {page_no}: {exc}"
+    """FR-020, FM-06, constitution VIII: `FAILED` at `extract`, then one ops alert naming the
+    page (its reason is built from the service, cause and counts, or the type name only).
+    `logged=False` (the repeat path has no step) writes the extract `FAILED` event here."""
+    if isinstance(exc, PageUnreadable):
+        message = str(exc)
+    elif isinstance(exc, UpstreamFailed):
+        message = f"Page {page_no}: {exc}"
+    else:
+        message = f"Page {page_no}: {_internal_message(exc)}"
+    if not logged:
+        StepLog(repo, run.id, Stage.EXTRACT, now).write(
+            RunEventStatus.FAILED, {"page_no": page_no, "error": message}
+        )
     try:
         failed = repo.transition_run(
             run.id,
@@ -907,33 +1010,56 @@ _RECONCILE_RETRY = frozenset({Stage.RECONCILE, Stage.PROOF})
 
 
 def _register_input(repo: Repo, f: SourceFile, settings: Settings) -> RegisterPageInput:
-    """One page's engine input: its cached reads merged by the Phase 2 merge (C23)."""
-    reads = {}
-    for v in ReadVariant:
-        record = repo.get_extraction(f.sha256, v, settings.EXTRACT_MODEL, settings.PROMPT_VERSION)
-        if record is None:
-            raise NotFound("extraction", f"page {f.page_no} read {v.value}")
-        reads[v] = parse_read(record.result.model_dump(mode="json"))
-    page = merge_reads(
-        reads[ReadVariant.A], reads[ReadVariant.B], page_no=f.page_no or 0, page_sha256=f.sha256
-    )
+    """One page's engine input: its stored reads merged by the Phase 2 merge (C23). A missing
+    read is `NotFound`; a record that no longer validates raises `InvalidReadOutput`."""
+    reads = _stored_reads(repo, f.sha256, settings)
+    if reads is None:
+        raise NotFound("extraction", f"page {f.page_no}")
+    page = merge_reads(*reads, page_no=f.page_no or 0, page_sha256=f.sha256)
     return register_input(page)
 
 
 def engine_inputs(repo: Repo, blobs: BlobStore, run: Run, settings: Settings) -> EngineInputs:
-    """data-model.md §3 reconcile inputs: merged register pages from the cached reads, ERP and
+    """data-model.md §3 reconcile inputs: merged register pages from the stored reads, ERP and
     sheet bytes, the shipped mappings, and every review item of the run (engine contract:
-    decisions of any status, so open extraction items reach C3)."""
+    decisions of any status, so open extraction items reach C3). Missing inputs (a read, a
+    blob, or not exactly one ERP or sheet file) are `NotFound`."""
     files = sorted(repo.list_source_files(run.id, Source.REGISTER), key=lambda f: f.page_no or 0)
+    pages = [_register_input(repo, f, settings) for f in files]
+    try:
+        erp = _source_bytes(repo, blobs, run.id, Source.ERP)
+        sheet = _source_bytes(repo, blobs, run.id, Source.SHEET)
+    except ValueError as exc:  # `_source_bytes`: not exactly one confirmed file of the source
+        raise NotFound("source_file", "ERP or SHEET") from exc
     return EngineInputs(
         run_id=run.id,
         month=run.month,
-        register_pages=[_register_input(repo, f, settings) for f in files],
-        erp_bytes=_source_bytes(repo, blobs, run.id, Source.ERP),
-        sheet_bytes=_source_bytes(repo, blobs, run.id, Source.SHEET),
+        register_pages=pages,
+        erp_bytes=erp,
+        sheet_bytes=sheet,
         mappings=load_mappings(),
         decisions=repo.list_review_items(run.id),
     )
+
+
+def _fail_reconcile(repo: Repo, notifier: Notifier, run: Run, exc: Exception, now: Now) -> None:
+    """An unexpected error before the engine ran: event `reconcile/FAILED`, `FAILED` at
+    `reconcile` (a run already `FAILED` keeps its stage), one ops alert."""
+    message = _internal_message(exc)
+    StepLog(repo, run.id, Stage.RECONCILE, now).write(RunEventStatus.FAILED, {"error": message})
+    current = run
+    if run.status is not RunStatus.FAILED:
+        try:
+            current = repo.transition_run(
+                run.id,
+                RunStatus.FAILED,
+                expected={run.status},
+                failed_stage=Stage.RECONCILE,
+                error_message=message,
+            )
+        except StateConflict:
+            return
+    stage_failed_alert(repo, notifier, current, Stage.RECONCILE, exc, now=now)
 
 
 def reconcile_stage(
@@ -950,11 +1076,13 @@ def reconcile_stage(
     """EP-10 (F-04 to F-07, FR-021, FR-022, FR-024; blueprint C25).
 
     Accepts `EXTRACTED`, `AWAITING_REVIEW`, `READY`, and `FAILED` at `reconcile` or `proof`
-    (retry: `FAILED` → `EXTRACTED` first; OPS only this). The Phase 1 `reconcile_run` does the
-    rest (events, atomic writes, proof, review items, status moves, `RECONCILED` audit,
-    `FAILED(proof)` on a failing proof); this stage sends the ops alert on `FAILED(proof)`
-    (FM-07) and on any engine error, which leaves the run `FAILED(reconcile)` and propagates
-    (FM-08). `PROOF_DROP_ROW` reaches the engine; other faults are ignored here.
+    (retry: `FAILED` → `EXTRACTED` first; OPS only this). Missing inputs → 500, state
+    unchanged, one alert; any other input error → `FAILED(reconcile)`, one alert, generic 500.
+    The Phase 1 `reconcile_run` does the rest (events, atomic writes, proof, review items,
+    status moves, `RECONCILED` audit, `FAILED(proof)` on a failing proof, `FAILED(reconcile)`
+    on its own errors, FM-08); this stage sends the ops alert on either and answers a failing
+    proof with 200 (`status: FAILED`, `proof_status: FAIL`), an engine error with a generic
+    500. `PROOF_DROP_ROW` reaches the engine; other faults are ignored here.
     """
     settings = settings or get_settings()
     retry = run.status is RunStatus.FAILED and run.failed_stage in _RECONCILE_RETRY
@@ -962,8 +1090,11 @@ def reconcile_stage(
         raise StateConflict(run)
     try:
         inputs = engine_inputs(repo, blobs, run, settings)
-    except (NotFound, ValueError) as exc:
+    except NotFound as exc:
         raise _inputs_missing(repo, notifier, run, Stage.RECONCILE, exc, now) from exc
+    except Exception as exc:
+        _fail_reconcile(repo, notifier, run, exc, now)
+        raise _unexpected(Stage.RECONCILE) from exc
     if retry:
         run = repo.transition_run(run.id, RunStatus.EXTRACTED, expected={RunStatus.FAILED})
     faults = frozenset({fault}) if fault is Fault.PROOF_DROP_ROW else frozenset[Fault]()
@@ -975,7 +1106,7 @@ def reconcile_stage(
         failed = repo.get_run(run.id)
         if failed.status is RunStatus.FAILED and failed.failed_stage is Stage.RECONCILE:
             stage_failed_alert(repo, notifier, failed, Stage.RECONCILE, exc, now=now)
-        raise
+        raise _unexpected(Stage.RECONCILE) from exc
     current = repo.get_run(run.id)
     if result.proof.status is ProofStatus.FAIL:
         reason = (current.error_message or "proof failed")[:ERROR_MESSAGE_LIMIT]
@@ -985,5 +1116,5 @@ def reconcile_stage(
         status=current.status,
         counts=run_outcome_counts(repo, run.id),
         proof_status=result.proof.status,
-        open_review_items=len(repo.list_review_items(run.id, ReviewStatus.OPEN)),
+        open_review_items=open_review_count(repo, run.id),
     )

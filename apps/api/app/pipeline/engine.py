@@ -6,7 +6,7 @@ and the `RECONCILED` audit entry. Times come only from the `now` callable (E2).
 """
 
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -350,14 +350,31 @@ def _advance_status(repo: Repo, run: Run, current: Sequence[ReviewItem]) -> tupl
     if status is RunStatus.EXTRACTED:
         status = repo.transition_run(run.id, RunStatus.RECONCILED, expected={status}).status
     keys = {item.item_key for item in current}
-    open_count = sum(
-        1
-        for item in repo.list_review_items(run.id, ReviewStatus.OPEN)
-        if item.item_key in keys or item.kind is ReviewKind.CELL
-    )
+    open_count = count_open_items(repo.list_review_items(run.id, ReviewStatus.OPEN), keys)
     to = RunStatus.AWAITING_REVIEW if open_count else RunStatus.READY
     repo.transition_run(run.id, to, expected={status})
     return to, open_count
+
+
+def count_open_items(open_items: Iterable[ReviewItem], current_keys: Collection[str]) -> int:
+    """The one open-review-item rule (step 7; 004 decision (a)): an OPEN item counts when the
+    reconcile produced its `item_key` (`current_keys`), or when it is a CELL item (those come
+    only from extraction and the engine never re-produces them). Status moves, the
+    `RECONCILED` audit, EP-05 and EP-10 all use it; the F-09 finalise guard must too."""
+    return sum(1 for i in open_items if i.item_key in current_keys or i.kind is ReviewKind.CELL)
+
+
+def open_review_count(repo: Repo, run_id: UUID) -> int:
+    """`open_review_items` for read views (EP-05, EP-10) without a pipeline result: the newest
+    `RECONCILED` audit's figure, which the same reconcile's status move used, so status and
+    count never contradict; before any reconcile, the run's OPEN CELL items. Review decisions
+    re-reconcile at once (F-08.R4), which refreshes the figure."""
+    for entry in repo.list_audit(run_id=run_id):  # newest first
+        if entry.action is AuditAction.RECONCILED and entry.after is not None:
+            count = entry.after.get("open_review_items")
+            if isinstance(count, int):
+                return count
+    return count_open_items(repo.list_review_items(run_id, ReviewStatus.OPEN), ())
 
 
 def _audit_reconciled(

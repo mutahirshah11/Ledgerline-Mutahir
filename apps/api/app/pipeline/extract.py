@@ -751,6 +751,36 @@ def _obtain_reads(
     return reads, calls_made
 
 
+def page_result(
+    read_a: PageRead,
+    read_b: PageRead,
+    *,
+    run_id: UUID,
+    run_month: str,
+    page_no: int,
+    page_sha256: str,
+    calls_made: int = 0,
+) -> PageExtractionResult:
+    """Contract §3 steps 6 to 9 without I/O: merge, FM-06 check, review items, counts. Pure,
+    so a repeat EP-09 call can answer from the stored reads with no write and no model call.
+
+    Raises:
+        PageUnreadable: more than half the merged cells are illegible (FM-06).
+    """
+    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=page_sha256)
+    check_readable(page)
+    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)
+    return PageExtractionResult(
+        page_no=page_no,
+        cached=calls_made == 0,
+        page=page,
+        review_items=items,
+        review_cells=len(items),
+        disagreements=_disagreements(page),
+        calls_made=calls_made,
+    )
+
+
 def extract_page(
     *,
     repo: Repo,
@@ -787,20 +817,16 @@ def extract_page(
         on_retry=on_retry,
         sleep=sleep,
     )
-    read_a, read_b = reads[ReadVariant.A], reads[ReadVariant.B]
-    page = merge_reads(read_a, read_b, page_no=page_no, page_sha256=sha)  # 6
-    check_readable(page)  # 7
-    items = build_review_items(page, read_a, read_b, run_id=run_id, run_month=run_month)  # 8
-    repo.upsert_review_items(run_id, items)
-    result = PageExtractionResult(  # 9
+    result = page_result(  # 6 to 8, then 9
+        reads[ReadVariant.A],
+        reads[ReadVariant.B],
+        run_id=run_id,
+        run_month=run_month,
         page_no=page_no,
-        cached=calls_made == 0,
-        page=page,
-        review_items=items,
-        review_cells=len(items),
-        disagreements=_disagreements(page),
+        page_sha256=sha,
         calls_made=calls_made,
     )
+    repo.upsert_review_items(run_id, result.review_items)  # 8
     logger.info(
         "extract page=%d sha=%s cached=%s calls=%d review_cells=%d disagreements=%d",
         page_no,
