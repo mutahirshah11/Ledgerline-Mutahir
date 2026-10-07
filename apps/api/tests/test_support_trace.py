@@ -1,7 +1,15 @@
 """Self-tests of the number-traceability helper (005 T010, research R7)."""
 
+import pytest
+
 from tests.support.pack_run import PackRun
-from tests.support.trace import allowed_numbers, numbers_in
+from tests.support.trace import (
+    allowed_counts,
+    allowed_numbers,
+    assert_traced,
+    counts_in,
+    numbers_in,
+)
 
 GOLDEN_BEFORE_REVIEW = """Sep 2026 receiving: 29 GRNs, 21 match, 8 need attention
 
@@ -58,3 +66,54 @@ def test_allowed_numbers_reject_invented_numbers(pack_run: PackRun) -> None:
     allowed = allowed_numbers(pack_run.repo, pack_run.run_id)
     for invented in ("123456", "4499", "1097.3", "-48"):
         assert invented not in allowed
+
+
+def test_numbers_in_html_opaque_element_with_implied_end_tags() -> None:
+    """An unclosed <li>/<p>/<td> inside an opaque element must not hide the rest."""
+    html = '<ul data-trace="opaque"><li>abc</ul><p>4499 invented</p>'
+    assert numbers_in(html) == ["4499"]
+    assert numbers_in('<div data-trace="opaque"><p>7<td>8</div>12') == ["12"]
+
+
+def test_counts_in_finds_tokens_next_to_count_words() -> None:
+    assert counts_in(GOLDEN_BEFORE_REVIEW) == ["29", "21", "8", "86", "86"]
+    html = "<p>3 receipts: 2&nbsp;match</p><td>4417</td><td>rows</td> and +4 more"
+    assert counts_in(html) == ["3", "2", "4"]  # one text node: table cells are not phrases
+
+
+def test_allowed_counts_are_the_run_counts(pack_run: PackRun) -> None:
+    counts = allowed_counts(pack_run.repo, pack_run.run_id)
+    assert "21" in counts["match"] and "23" not in counts["match"]
+    assert "8" in counts["need attention"] and "9" not in counts["need attention"]
+    assert "29" in counts["grn"] and "29" in counts["receipt"]
+    assert "86" in counts["row"] and "86" in counts["placed"]
+    assert counts["more"] == set()  # 8 numbered items: no "+N more"
+    assert {"4421", "1097.28"}.isdisjoint(set().union(*counts.values()))
+
+
+def test_assert_traced_passes_the_golden_message(pack_run: PackRun) -> None:
+    assert_traced(GOLDEN_BEFORE_REVIEW, pack_run.repo, pack_run.run_id)
+
+
+@pytest.mark.parametrize(
+    ("original", "mutated"),
+    [
+        ("21 match", "23 match"),  # a count error
+        ("1. 4421 stretch", "1. 4499 stretch"),  # an invented GRN
+        ("8 need attention", "9 need attention"),
+        ("86 of 86 rows", "86 of 87 rows"),
+    ],
+)
+def test_assert_traced_catches_mutations(pack_run: PackRun, original: str, mutated: str) -> None:
+    assert original in GOLDEN_BEFORE_REVIEW
+    with pytest.raises(AssertionError):
+        assert_traced(
+            GOLDEN_BEFORE_REVIEW.replace(original, mutated), pack_run.repo, pack_run.run_id
+        )
+
+
+def test_allowed_numbers_are_not_every_small_integer(pack_run: PackRun) -> None:
+    """Seconds, row indexes, row ids and raw JSON dumps made every 0 to 31 allowed (R7)."""
+    allowed = allowed_numbers(pack_run.repo, pack_run.run_id)
+    assert not {str(n) for n in range(32)} <= allowed
+    assert {"31", "59"}.isdisjoint(allowed)  # XLS-r31, no minutes or seconds of rows
