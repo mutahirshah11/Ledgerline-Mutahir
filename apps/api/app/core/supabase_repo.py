@@ -418,7 +418,8 @@ class SupabaseRepo:
         )
 
     def _cas_run(self, current: Run, new: Run, fields: dict[str, Any]) -> Run:
-        """Compare-and-set on the status read."""
+        """Compare-and-set on the status read. The 0003 trigger's 55000 (FINALISED with a
+        review decision not reconciled yet) is `StateConflict(run)`."""
         return self._cas(
             "runs",
             current,
@@ -426,6 +427,7 @@ class SupabaseRepo:
             fields,
             ("status", current.status.value),
             lambda: self.get_run(current.id),
+            guarded_run=current.id,
         )
 
     def transition_run(

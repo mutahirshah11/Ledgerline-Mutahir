@@ -47,3 +47,44 @@ def test_smoke_and_ci_apply_0003() -> None:
     assert "0003_review_guard.sql" in runner
     smoke = (REPO_ROOT / "supabase" / "tests" / "smoke.sql").read_text(encoding="utf-8")
     assert "decision on a FINALISED run" in smoke
+
+
+FINALISE_FN = "runs_refuse_unreconciled_finalise"
+
+
+def test_F10_R2_runs_refuse_unreconciled_finalise_trigger() -> None:
+    """IMP-1: no `FINALISED` while a decided item is missing from the newest `RECONCILED`
+    audit's `decided_item_keys` (`lifecycle.unreconciled_decisions`)."""
+    text = _sql()
+    m = re.search(
+        rf"create or replace function {FINALISE_FN} ?\(\) returns trigger (.*?)\$\$;", text
+    )
+    assert m, FINALISE_FN
+    fn = m.group(1)
+    assert "set search_path = public, pg_temp" in fn
+    assert "a.after -> 'decided_item_keys'" in fn
+    assert "a.run_id = new.id and a.action = 'reconciled'" in fn
+    assert "order by a.id desc limit 1" in fn  # newest by id, not by `at`
+    assert "ri.status <> 'open'" in fn and "not (v_applied ? ri.item_key)" in fn
+    assert "for update" not in fn and "for share" not in fn  # reads only: no lock cycle
+    assert "'run_state_conflict: a review decision is still being applied" in fn
+    assert "errcode = 'object_not_in_prerequisite_state'" in fn
+    assert re.search(
+        rf"create trigger {FINALISE_FN} before update on runs for each row "
+        rf"when \(new\.status = 'finalised' and old\.status is distinct from 'finalised'\) "
+        rf"execute function {FINALISE_FN}\(\)",
+        text,
+    )
+    assert f"revoke all on function {FINALISE_FN}() from public, anon, authenticated;" in text
+
+
+def test_F10_R2_engine_writes_the_key_the_trigger_reads() -> None:
+    from app.domain.lifecycle import DECIDED_KEYS
+
+    assert f"'{DECIDED_KEYS}'" in _sql()
+
+
+def test_F10_R2_smoke_covers_finalise_guard_and_refresh() -> None:
+    smoke = (REPO_ROOT / "supabase" / "tests" / "smoke.sql").read_text(encoding="utf-8")
+    assert "FINALISED with an unreconciled decision" in smoke
+    assert "upsert refresh on a FINALISED run" in smoke

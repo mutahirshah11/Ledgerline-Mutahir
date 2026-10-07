@@ -21,7 +21,7 @@ from uuid import UUID
 from app.core import clock
 from app.core.config import get_settings
 from app.core.db import Repo
-from app.core.errors import InvalidReviewAction, ItemAlreadyResolved, StateConflict
+from app.core.errors import InvalidReviewAction, ItemAlreadyResolved, NotFound, StateConflict
 from app.core.faults import Fault
 from app.core.storage import BlobStore
 from app.domain.enums import (
@@ -464,6 +464,14 @@ def _before(item: ReviewItem) -> dict[str, Any]:
     }
 
 
+def decided_item(reviewed: list[ReviewItem], item_id: UUID) -> ReviewItem:
+    """The decided item in the re-read list; NotFound if it is missing (never StopIteration)."""
+    found = next((i for i in reviewed if i.id == item_id), None)
+    if found is None:
+        raise NotFound("review_item", item_id)
+    return found
+
+
 def resolve(
     repo: Repo,
     blobs: BlobStore,
@@ -523,7 +531,7 @@ def resolve(
                 current = repo.get_run(run.id)
                 reconcile_stage(reads.repo, blobs, notifier, current, actor, fault, now=now)
                 reviewed = repo.list_review_items(run.id)
-        decided = next(i for i in reviewed if i.id == item.id)
+        decided = decided_item(reviewed, item.id)
         data = load_card_data(reads.repo, run.id)
         group = data.group_of(decided, data.row(decided))
         if group is not None:

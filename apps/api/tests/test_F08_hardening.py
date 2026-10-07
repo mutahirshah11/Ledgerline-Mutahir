@@ -10,10 +10,14 @@ from fastapi.testclient import TestClient
 
 from app.core.db import Repo
 from app.core.errors import StateConflict
+from app.domain import lifecycle
 from app.domain.enums import AuditAction, AuditChannel, ReviewStatus, RunStatus
 from app.domain.models import Run
 from app.pipeline import engine
+from app.services.review import accept_read_value
+from app.services.stages import reconcile_stage
 from tests.factories import at, make_audit, make_review, make_run
+from tests.fakes.api import FakeNotifier
 from tests.support.pack_run import CONTROLLER, PackRun
 from tests.test_repo_contract import _finalise, _new_run
 from tests.test_supabase_repo_unit import _conflict, _repo, _run_row
@@ -22,6 +26,19 @@ API = "/api/v1"
 Client = Callable[[str], TestClient]
 QTY_4419 = "CELL:REG-p2-r05:qty"
 ACCEPT = {"action": "ACCEPT_READ"}
+
+
+def _reconciled(repo: Repo, run: Run, *decided: str, minute: int = 0) -> None:
+    """A `RECONCILED` audit entry that applied the decisions on `decided` (IMP-1)."""
+    repo.append_audit(
+        make_audit(
+            at=at(minute),
+            run_id=run.id,
+            action=AuditAction.RECONCILED,
+            entity_id=str(run.id),
+            after={"status": "READY", "open_item_keys": [], "decided_item_keys": list(decided)},
+        )
+    )
 
 
 def _decide(repo: Repo, item_id: Any) -> Any:
@@ -45,6 +62,7 @@ def test_F08_R8_repo_refuses_decision_on_finalised_run(repo: Repo) -> None:
         [make_review(run.id, "CELL:REG-p1-r01:qty"), make_review(run.id, "CELL:REG-p1-r02:qty")],
     )
     decided = _decide(repo, done.id)
+    _reconciled(repo, run, done.item_key)
     final = _finalise(repo, run, "k-final")
     with pytest.raises(StateConflict) as exc:
         _decide(repo, item.id)
@@ -201,3 +219,108 @@ def test_F08_R4_routes_share_channel_and_read_errors() -> None:
         assert vars(module)["channel"] is _common.channel
         assert vars(module)["READ_ERRORS"] is _common.READ_ERRORS
     assert not hasattr(review, "_channel") and not hasattr(runs, "_channel")
+
+
+# --- IMP-1: no FINALISED while a review decision is not reconciled yet ---------------------
+
+KEY = "CELL:REG-p1-r01:qty"
+
+
+def test_F10_R2_repo_refuses_finalise_with_unreconciled_decision(repo: Repo) -> None:
+    """Mirrors migration 0003 `runs_refuse_unreconciled_finalise`: the newest `RECONCILED`
+    audit (by id, not `at`) must list every decided item in `decided_item_keys`."""
+    run = _new_run(repo)
+    [item] = repo.upsert_review_items(run.id, [make_review(run.id, KEY)])
+    _reconciled(repo, run)
+    _decide(repo, item.id)
+    with pytest.raises(StateConflict) as exc:
+        _finalise(repo, run, "k-final")
+    assert isinstance(exc.value.current, Run)
+    assert exc.value.current.status is RunStatus.READY
+    _reconciled(repo, run, KEY, minute=5)
+    _reconciled(repo, run, minute=5)  # same instant, newer id: a stale reconcile wins
+    with pytest.raises(StateConflict):
+        repo.transition_run(
+            run.id,
+            RunStatus.FINALISED,
+            expected={RunStatus.READY},
+            finalised_at=at(60),
+            finalised_by="controller@example.com",
+        )
+    _reconciled(repo, run, KEY, minute=1)  # older instant, newest id
+    final = repo.transition_run(
+        run.id,
+        RunStatus.FINALISED,
+        expected={RunStatus.READY},
+        finalised_at=at(60),
+        finalised_by="controller@example.com",
+    )
+    assert final.status is RunStatus.FINALISED
+
+
+def test_F10_R2_unreconciled_decisions_rule() -> None:
+    run = make_run()
+    open_item = make_review(run.id, "CELL:REG-p1-r02:qty")
+    done = make_review(run.id, KEY).model_copy(update={"status": ReviewStatus.RESOLVED})
+    assert lifecycle.unreconciled_decisions([open_item, done], []) == [done]
+    legacy = make_audit(id=1, action=AuditAction.RECONCILED, after={"status": "READY"})
+    assert lifecycle.unreconciled_decisions([done], [legacy]) == [done]
+    listed = make_audit(id=2, action=AuditAction.RECONCILED, after={"decided_item_keys": [KEY]})
+    assert lifecycle.unreconciled_decisions([open_item, done], [listed, legacy]) == []
+    other = make_audit(id=3, action=AuditAction.REVIEW_RESOLVED, after={})
+    assert lifecycle.unreconciled_decisions([done], [other, legacy, listed]) == []
+
+
+def test_F10_R2_supabase_maps_finalise_guard_to_run_conflict() -> None:
+    """0003 `runs_refuse_unreconciled_finalise` (55000) → StateConflict(run)."""
+    run = make_run()
+    ready = _run_row(id=run.id, status=RunStatus.READY, run_key="k")
+    message = "RUN_STATE_CONFLICT: a review decision is still being applied"
+    repo, _ = _repo([ready], _conflict(message), [ready])
+    with pytest.raises(StateConflict) as exc:
+        repo.transition_run(
+            run.id,
+            RunStatus.FINALISED,
+            expected={RunStatus.READY},
+            finalised_at=at(60),
+            finalised_by="controller@example.com",
+        )
+    assert isinstance(exc.value.current, Run)
+    assert exc.value.current.status is RunStatus.READY
+
+
+def test_F10_R2_reconciled_audit_lists_decided_item_keys(pack_run: PackRun) -> None:
+    repo, run_id = pack_run.repo, pack_run.run_id
+    (item,) = [i for i in repo.list_review_items(run_id) if i.item_key == QTY_4419]
+    repo.resolve_review_item(
+        item.id,
+        status=ReviewStatus.RESOLVED,
+        resolved_value=accept_read_value(item),
+        resolved_by="reviewer@example.com",
+        resolved_at=pack_run.run.scenario_now,
+        note=None,
+    )
+    items = repo.list_review_items(run_id)
+    assert [
+        i.item_key for i in lifecycle.unreconciled_decisions(items, repo.list_audit(run_id=run_id))
+    ] == [QTY_4419]
+    reconcile_stage(repo, pack_run.blobs, FakeNotifier(), repo.get_run(run_id), CONTROLLER, None)
+    audits = [a for a in repo.list_audit(run_id=run_id) if a.action is AuditAction.RECONCILED]
+    newest = max(audits, key=lambda a: a.id)
+    assert newest.after is not None and QTY_4419 in newest.after["decided_item_keys"]
+    items = repo.list_review_items(run_id)
+    assert lifecycle.unreconciled_decisions(items, repo.list_audit(run_id=run_id)) == []
+
+
+# --- M-c: the decided item is looked up with an explicit error ---------------------------
+
+
+def test_F08_R4_decided_item_missing_is_explicit_error() -> None:
+    from app.core.errors import NotFound
+    from app.services.review import decided_item
+
+    run = make_run()
+    item = make_review(run.id, KEY)
+    assert decided_item([item], item.id) == item
+    with pytest.raises(NotFound):
+        decided_item([], item.id)

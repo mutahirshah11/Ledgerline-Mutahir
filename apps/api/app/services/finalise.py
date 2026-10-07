@@ -40,6 +40,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.ids import summary_key
+from app.domain.lifecycle import unreconciled_decisions
 from app.domain.models import (
     AllowedUser,
     AuditEntry,
@@ -192,16 +193,18 @@ class RunData:
 
 
 def load_run_data(repo: Repo, run: Run, *, with_report: bool = False) -> RunData:
-    """`RunData` of `run`: one read per table (the review items once, the audit once for the
-    open-item rule, again only `with_report`)."""
+    """`RunData` of `run`: one read per table (the review items once, the audit once). The
+    review items and the audit are read before the rows, groups and proof, so a reconcile
+    their `unreconciled_decisions` check finds complete had written those first (IMP-1)."""
     items = repo.list_review_items(run.id)
-    open_items, _ = open_review_state(repo, run.id, items)
+    audit_log = repo.list_audit(run_id=run.id) if with_report else None
+    open_items, _ = open_review_state(repo, run.id, items, audit_log)
     extra: dict[str, Any] = {}
     if with_report:
         extra = {
             "norm_log": repo.list_norm_log(run.id),
             "files": repo.list_source_files(run.id),
-            "audit": repo.list_audit(run_id=run.id),
+            "audit": audit_log,
         }
     return RunData(
         run=run,
@@ -423,6 +426,30 @@ def _decision_stamp(items: list[ReviewItem], audit: list[AuditEntry]) -> tuple[o
     return tuple(i.model_dump_json() for i in items), tuple(stamped)
 
 
+STILL_APPLYING = "A review decision is still being applied; try again"
+CHANGED_MIDWAY = (
+    "The run changed: a review decision landed while the report was being written. Finalise "
+    "again once it is applied; if the written report is out of date, ops is alerted to remove it"
+)
+
+
+def _still_applying() -> ApiError:
+    return ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, STILL_APPLYING, Stage.FINALISE)
+
+
+def _changed_midway() -> ApiError:
+    return ApiError(ErrorCode.RUN_STATE_CONFLICT, 409, CHANGED_MIDWAY, Stage.FINALISE)
+
+
+def _recheck(repo: Repo, run: Run, data: RunData) -> bool:
+    """Re-read the decisions (IMP-1): `_still_applying` if one is not reconciled yet; True if
+    the run is still as `data` read it (the decision stamp)."""
+    items, audit_log = repo.list_review_items(run.id), repo.list_audit(run_id=run.id)
+    if unreconciled_decisions(items, audit_log):
+        raise _still_applying()
+    return _decision_stamp(items, audit_log) == _decision_stamp(data.items, data.audit)
+
+
 def _freeze(
     repo: Repo,
     store: BlobStore,
@@ -443,13 +470,21 @@ def _freeze(
     is the run's; otherwise 409 and one ops alert, as for a stored outcomes.csv of other data
     (I-1). The run is read once (`load_run_data`, I-7); the text, fingerprint, CSV and HTML
     come from that read, and a cheap decision stamp re-checks it before `FINALISED`. Returns
-    the frozen run, the text and the read; an adopted report is audited `adopted: true`."""
+    the frozen run, the text and the read; an adopted report is audited `adopted: true`.
+    IMP-1, IMP-2 (research R9): a decided review item that no reconcile has applied yet
+    (`unreconciled_decisions`) is 409 "still being applied", checked on the read, again just
+    before the first file write and again before `FINALISED` (and by migration 0003 in the
+    database at `FINALISED`). A decision landing after that last pre-write check is the 409
+    `CHANGED_MIDWAY`; the write-once files it leaves are adopted if they still match, else
+    the orphan route."""
     at, by = now(), actor.email
     adopted = False
     try:
         with stage_step(repo, run.id, Stage.FINALISE, now=now):
             try:
                 data = load_run_data(repo, run, with_report=True)
+                if unreconciled_decisions(data.items, data.audit):
+                    raise _still_applying()
                 ctx = data.report_context()
                 fingerprint = report.report_fingerprint(ctx)  # M-1: before the text
                 text = summary_text(data, proof, settings, ctx.exceptions)
@@ -463,6 +498,8 @@ def _freeze(
                     _orphan_mismatch(repo, notifier, run, settings, now)
                 if orphan is not None and orphan.meta is not None:
                     at, by, adopted = orphan.meta.finalised_at, orphan.meta.finalised_by, True
+                if not _recheck(repo, run, data):  # last check before the write-once files
+                    raise StateConflict(repo.get_run(run.id))
                 paths = write_report_files(repo, store, run.id, at, by, adopt=adopted, data=data)
             except (StateConflict, ApiError):
                 raise
@@ -471,9 +508,12 @@ def _freeze(
                     repo, notifier, run, Stage.FINALISE, exc, settings=settings, now=now
                 )
                 raise
-            stamp = _decision_stamp(repo.list_review_items(run.id), repo.list_audit(run_id=run.id))
-            if stamp != _decision_stamp(data.items, data.audit):  # a decision meanwhile (I2)
-                raise StateConflict(repo.get_run(run.id))
+            try:
+                unchanged = _recheck(repo, run, data)
+            except ApiError as exc:
+                raise _changed_midway() from exc
+            if not unchanged:  # a decision meanwhile (I2)
+                raise _changed_midway()
             try:
                 frozen = repo.transition_run(
                     run.id,
@@ -482,7 +522,11 @@ def _freeze(
                     finalised_by=by,
                     finalised_at=at,
                 )
-            except (StateConflict, UniqueViolation):
+            except StateConflict as exc:  # a decision or reconcile since (migration 0003)
+                if isinstance(exc.current, Run) and exc.current.status is RunStatus.FINALISED:
+                    raise
+                raise _changed_midway() from exc
+            except UniqueViolation:
                 raise
             except Exception as exc:  # report.html is written: the next call adopts it
                 stage_failed_alert(
@@ -551,8 +595,9 @@ def _orphan_mismatch(
     error = ApiError(
         ErrorCode.RUN_STATE_CONFLICT,
         409,
-        "An earlier finalise left a report for different data; ops must remove it before "
-        "this run can be finalised: remove report.html and outcomes.csv",
+        "An earlier finalise attempt wrote a report for data that has changed since (e.g. a "
+        "review decision made during it); the report files are write-once, so ops must remove "
+        "it before this run can be finalised: remove report.html and outcomes.csv",
         Stage.FINALISE,
     )
     stage_failed_alert(

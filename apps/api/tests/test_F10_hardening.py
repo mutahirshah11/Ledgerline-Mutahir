@@ -26,6 +26,7 @@ from app.domain.enums import (
     Outcome,
     ReviewKind,
     ReviewReason,
+    ReviewStatus,
     RunStatus,
     Source,
     Stage,
@@ -452,3 +453,115 @@ def test_F10_NFR_run_view_repo_round_trips(pack_run: PackRun) -> None:
     assert view.open_review_items == 4
     assert len(counting.calls) <= EP05_MAX, (len(counting.calls), counting.calls)
     assert counting.calls.count("list_audit") == 1
+
+
+# --- IMP-1, IMP-2: a decision not yet reconciled is never frozen ---------------------------
+
+STILL_APPLYING = "a review decision is still being applied; try again"
+CHANGED_MIDWAY = "a review decision landed while the report was being written"
+REMOVE = "remove report.html and outcomes.csv"
+QTY_4419 = "CELL:REG-p2-r05:qty"
+
+
+def _decide_unreconciled(pack: PackRun) -> None:
+    """EP-15's decision write without its re-reconcile (the gap IMP-1 is about)."""
+    from app.services.review import accept_read_value
+
+    repo = pack.repo
+    (item,) = [i for i in repo.list_review_items(pack.run_id) if i.item_key == QTY_4419]
+    repo.resolve_review_item(
+        item.id,
+        status=ReviewStatus.RESOLVED,
+        resolved_value=accept_read_value(item),
+        resolved_by="reviewer@example.com",
+        resolved_at=pack.run.scenario_now,
+        note=None,
+    )
+
+
+def _reconcile(pack: PackRun) -> None:
+    from app.services.stages import reconcile_stage
+
+    run = pack.repo.get_run(pack.run_id)
+    reconcile_stage(pack.repo, pack.blobs, FakeNotifier(), run, CONTROLLER, None)
+
+
+def _error(resp: Any) -> str:
+    assert resp.status_code == 409, resp.text
+    error = resp.json()["error"]
+    assert error["code"] == "RUN_STATE_CONFLICT"
+    return str(error["message"]).lower()
+
+
+def test_F10_R2_unreconciled_decision_is_409_until_reconciled(
+    pack_run: PackRun, api_client_as: Client
+) -> None:
+    _decide_unreconciled(pack_run)
+    client = api_client_as("controller")
+    assert STILL_APPLYING in _error(_finalise(client, pack_run))
+    html_path, csv_path = report_paths(pack_run.run_id)
+    for path in (html_path, csv_path):
+        assert not pack_run.blobs.exists(REPORTS_BUCKET, path)
+    assert pack_run.repo.get_run(pack_run.run_id).status is RunStatus.AWAITING_REVIEW
+    assert _alerts(pack_run) == []
+    _reconcile(pack_run)
+    assert _finalise(client, pack_run).status_code == 200
+
+
+def test_F10_R2_decision_after_read_is_409_before_any_file(
+    pack_run: PackRun, api_client_as: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The last check runs right before the first file write: a decision landing after the
+    read (here while the CSV is rendered) leaves no report file behind."""
+    render = report.render_outcomes_csv
+    landed: list[bool] = []
+
+    def decide_then_render(*args: Any, **kwargs: Any) -> bytes:
+        if not landed:
+            landed.append(True)
+            _decide_unreconciled(pack_run)
+        return render(*args, **kwargs)
+
+    monkeypatch.setattr(report, "render_outcomes_csv", decide_then_render)
+    assert STILL_APPLYING in _error(_finalise(api_client_as("controller"), pack_run))
+    for path in report_paths(pack_run.run_id):
+        assert not pack_run.blobs.exists(REPORTS_BUCKET, path)
+    assert _alerts(pack_run) == []
+
+
+def test_F10_R2_finalise_again_after_the_mid_finalise_409(
+    pack_run: PackRun,
+    api_client_as: Client,
+    fake_notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """research R9: a decision committing between the last check and `FINALISED` (after the
+    write-once report files) is refused (409, the run is not frozen); the files it left print
+    the data before it, so once it is reconciled the next finalise is the orphan route: 409
+    and one ops alert to remove both files (paths are fixed and write-once)."""
+    blobs = pack_run.blobs
+    html_path, _ = report_paths(pack_run.run_id)
+    put = blobs.put
+
+    def decide_after_html(bucket: str, path: str, data: bytes, content_type: str) -> None:
+        put(bucket, path, data, content_type)
+        if path == html_path:
+            _decide_unreconciled(pack_run)
+
+    monkeypatch.setattr(blobs, "put", decide_after_html)
+    client = api_client_as("controller")
+    assert CHANGED_MIDWAY in _error(_finalise(client, pack_run))
+    monkeypatch.setattr(blobs, "put", put)
+    assert blobs.exists(REPORTS_BUCKET, html_path)
+    assert pack_run.repo.get_run(pack_run.run_id).status is RunStatus.AWAITING_REVIEW
+    assert STILL_APPLYING in _error(_finalise(client, pack_run))  # not reconciled yet
+    assert _alerts(pack_run) == []
+    _reconcile(pack_run)
+    for _ in range(2):
+        message = _error(_finalise(client, pack_run))
+        assert REMOVE in message and "changed since" in message
+    assert pack_run.repo.get_run(pack_run.run_id).status is RunStatus.AWAITING_REVIEW
+    keys = [a.idempotency_key for a in _alerts(pack_run)]
+    assert keys == [f"ALERT:{pack_run.run_id}:finalise:orphan-report"]
+    assert REMOVE in fake_notifier.texts(OPS_CHAT)[-1]
+    assert fake_notifier.texts(CONTROLLER_CHAT) == []

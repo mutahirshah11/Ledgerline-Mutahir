@@ -462,6 +462,7 @@ def test_engine_events_and_audit(
         "proof_status": ProofStatus.PASS.value,
         "open_review_items": len(open_items),
         "open_item_keys": [i.item_key for i in open_items],
+        "decided_item_keys": [],
         **counts,
     }
     assert result.proof.computed_at == frozen_clock

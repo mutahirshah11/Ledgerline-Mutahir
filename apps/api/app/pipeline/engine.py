@@ -30,7 +30,7 @@ from app.domain.enums import (
     Stage,
 )
 from app.domain.ids import stable_id
-from app.domain.lifecycle import can_transition
+from app.domain.lifecycle import DECIDED_KEYS, can_transition
 from app.domain.models import (
     AuditEntry,
     CanonicalRow,
@@ -297,7 +297,8 @@ def reconcile_run(
     except Exception as exc:
         _fail_on_reconcile(repo, log, run_id, exc)
         raise
-    _audit_reconciled(repo, log, run, to, open_items, result, now())
+    decided = [i.item_key for i in inputs.decisions if i.status is not ReviewStatus.OPEN]
+    _audit_reconciled(repo, log, run, to, open_items, result, now(), decided)
     return result
 
 
@@ -373,7 +374,10 @@ def count_open_items(open_items: Iterable[ReviewItem], current_keys: Collection[
 
 
 def open_review_state(
-    repo: Repo, run_id: UUID, items: Sequence[ReviewItem] | None = None
+    repo: Repo,
+    run_id: UUID,
+    items: Sequence[ReviewItem] | None = None,
+    audit: Sequence[AuditEntry] | None = None,
 ) -> tuple[list[ReviewItem], int]:
     """The one open-item rule for read views (EP-05, EP-10, EP-14, EP-15, the run view), from
     one review-item list and one audit read: the run's current OPEN items in card order, and
@@ -381,11 +385,12 @@ def open_review_state(
     items it produced (items decided since drop out as not OPEN); one written before
     `open_item_keys` existed rules nothing out (every stored OPEN item, 005 review M-3); before
     any reconcile, the OPEN CELL items. `items`: the run's review items (any status) when the
-    caller has already listed them (no second list)."""
+    caller has already listed them (no second list); `audit`: the run's audit, newest first,
+    likewise."""
     listed = repo.list_review_items(run_id) if items is None else items
     open_items = [i for i in listed if i.status is ReviewStatus.OPEN]
     current = current_open_items(open_items, ())
-    for entry in repo.list_audit(run_id=run_id):  # newest first
+    for entry in repo.list_audit(run_id=run_id) if audit is None else audit:  # newest first
         if entry.action is AuditAction.RECONCILED and entry.after is not None:
             keys = entry.after.get("open_item_keys")
             if isinstance(keys, list):
@@ -415,9 +420,11 @@ def _audit_reconciled(
     open_items: Sequence[ReviewItem],
     result: PipelineResult,
     at: datetime,
+    decided: Sequence[str],
 ) -> None:
     """Step 8: event `reconcile/OK` with counts and the `RECONCILED` audit entry, which also
-    lists the current open items' keys (`open_review_items` read views and the EP-14 queue)."""
+    lists the current open items' keys (`open_review_items` read views and the EP-14 queue)
+    and the decided items' keys this reconcile read (`lifecycle.unreconciled_decisions`)."""
     counts = result.counts.as_json()
     log.event(Stage.RECONCILE, RunEventStatus.OK, counts)
     repo.append_audit(
@@ -435,6 +442,7 @@ def _audit_reconciled(
                 "proof_status": result.proof.status.value,
                 "open_review_items": len(open_items),
                 "open_item_keys": [i.item_key for i in open_items],
+                DECIDED_KEYS: sorted(decided),
                 **counts,
             },
             channel=AuditChannel.SYSTEM,

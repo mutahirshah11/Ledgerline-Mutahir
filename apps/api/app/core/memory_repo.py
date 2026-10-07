@@ -27,7 +27,7 @@ from app.domain.enums import (
     RunStatus,
     Source,
 )
-from app.domain.lifecycle import can_transition
+from app.domain.lifecycle import can_transition, unreconciled_decisions
 from app.domain.models import (
     AllowedUser,
     AuditEntry,
@@ -214,6 +214,8 @@ class MemoryRepo:
             raise ValueError(f"transition_run cannot set {sorted(bad)}")
         if current.status not in expected or not can_transition(current.status, to):
             raise StateConflict(_copy(current))
+        if to is RunStatus.FINALISED and self._unreconciled(run_id):  # migration 0003
+            raise StateConflict(_copy(current))
         updates = dict(fields)
         if current.status is RunStatus.FAILED:
             passed = {"failed_stage", "error_message"}.intersection(fields)
@@ -225,6 +227,12 @@ class MemoryRepo:
         self._check_finalised_key(new)
         self._runs[run_id] = new
         return _copy(new)
+
+    def _unreconciled(self, run_id: UUID) -> bool:
+        """A decided review item the newest `RECONCILED` audit has not applied (IMP-1)."""
+        items = [i for i in self._reviews.values() if i.run_id == run_id]
+        audit = [e for e in self._audit if e.run_id == run_id]
+        return bool(unreconciled_decisions(items, audit))
 
     def update_run_fields(self, run_id: UUID, **fields: Any) -> Run:
         current = self._run(run_id)
