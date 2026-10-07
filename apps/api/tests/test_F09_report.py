@@ -1,15 +1,26 @@
 """F-09 exception list, line templates and headline (005 US2: T032 to T034; FR-017 to FR-020,
-C5; contracts/telegram-message.md "Line templates")."""
+C5; contracts/telegram-message.md "Line templates"); frozen report files and EP-18 (US3: T040
+to T043; FR-022 to FR-024, contracts/frozen-files.md)."""
 
 import random
+import re
 from collections.abc import Callable
+from datetime import timedelta
+from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.domain.enums import ComparedField, Outcome, Source
-from app.domain.models import ExceptionItem
+from app.core import clock
+from app.core.errors import UniqueViolation
+from app.core.storage import REPORTS_BUCKET, BlobStore, MemoryBlobStore
+from app.domain.enums import ComparedField, Outcome, RunStatus, Source
+from app.domain.models import ExceptionItem, ReportLinks
 from app.pipeline import report
-from tests.support.pack_run import PackRun
+from app.services import finalise
+from tests.factories import T0
+from tests.support.pack_run import CONTROLLER, PackRun
+from tests.support.trace import assert_traced, numbers_in
 
 API = "/api/v1"
 
@@ -178,3 +189,126 @@ def test_F09_R2_line_diff_after_review_and_without_outlier(pack_run: PackRun) ->
     )
     one_null = mismatched.model_copy(update={"diffs": [qty]})  # register qty unread: no part
     assert report.line_diff(one_null, []) == "4419 qty: ERP 66 DRUM, sheet 60 DRUM"
+
+
+# --- US3: frozen report files (T040 to T043; F-09.R3 to R5, contracts/frozen-files.md) -------
+
+
+def _finalise(pack_run: PackRun, store: BlobStore | None = None) -> tuple[str, str]:
+    """US4's finalise order (research R8): one instant, report files first, then FINALISED."""
+    repo, run_id = pack_run.repo, pack_run.run_id
+    at = clock.now()
+    paths = finalise.write_report_files(repo, store or pack_run.blobs, run_id, at, CONTROLLER.email)
+    if repo.get_run(run_id).status is not RunStatus.FINALISED:
+        repo.transition_run(
+            run_id,
+            RunStatus.FINALISED,
+            expected={RunStatus.AWAITING_REVIEW, RunStatus.READY},
+            finalised_at=at,
+            finalised_by=CONTROLLER.email,
+        )
+    return paths
+
+
+def _report(pack_run: PackRun) -> tuple[str, str]:
+    html_path, csv_path = _finalise(pack_run)
+    get = pack_run.blobs.get
+    return get(REPORTS_BUCKET, html_path).decode(), get(REPORTS_BUCKET, csv_path).decode()
+
+
+_OPAQUE = re.compile(r'<(\w+)[^>]*data-trace="opaque"[^>]*>.*?</\1>', re.DOTALL)
+SECTIONS = [
+    "header", "proof", "exceptions", "receipts", "flags", "decisions", "normalisation", "inputs"
+]  # fmt: skip
+
+
+def test_F09_AC3_outcomes_csv_86_lines(pack_run: PackRun) -> None:
+    _, csv_text = _report(pack_run)
+    assert csv_text.endswith("\r\n")
+    lines = csv_text.split("\r\n")[:-1]
+    assert len(lines) == 1 + 86
+    assert lines[0] == "source,source_row_id,grn_no,outcome,group_key,diff_fields,outlier,row_kind"
+    for example in (
+        "REGISTER,REG-p2-r11,4425,MISMATCHED,GRN:4425,qty,SHEET,RECEIPT",
+        "SHEET,XLS-r11,4409,DUPLICATE,,,,DUPLICATE",
+        "SHEET,XLS-r31,,NON_RECEIPT,,,,NON_RECEIPT",
+    ):
+        assert example in lines
+    rows = pack_run.repo.list_source_rows(pack_run.run_id)
+    assert [line.split(",")[1] for line in lines[1:]] == [r.source_row_id for r in rows]
+
+
+def test_F09_AC4_report_offline_with_hashes(pack_run: PackRun) -> None:
+    html, _ = _report(pack_run)
+    lowered = html.lower()
+    assert "<script" not in lowered and "<link" not in lowered and "@import" not in lowered
+    assert " src=" not in lowered and "<style>" in lowered
+    outside = _OPAQUE.sub("", html)
+    assert "http://" not in outside and "https://" not in outside
+    files = pack_run.repo.list_source_files(pack_run.run_id)
+    assert len(files) == 4
+    for f in files:
+        assert f'data-trace="opaque">{f.sha256}<' in html
+        assert f.filename in html
+    found = [html.find(f'<section id="{s}"') for s in SECTIONS]
+    assert -1 not in found and found == sorted(found)
+    assert html.count("<section ") == 8
+    assert f'data-trace="opaque">{pack_run.run_id}<' in html
+    assert "Ledgerline receiving check: Sep 2026" in html
+    assert "29 receipts: 21 match, 8 need attention" in html
+
+
+def test_F09_AC2_report_and_overview_numbers_traced(
+    pack_run: PackRun, api_client_as: Callable[[str], TestClient]
+) -> None:
+    repo, run_id = pack_run.repo, pack_run.run_id
+    (item,) = [i for i in repo.list_review_items(run_id) if i.item_key == "CELL:REG-p2-r05:qty"]
+    resolve = f"{API}/review-items/{item.id}/resolve"
+    decided = api_client_as("reviewer").post(resolve, json={"action": "ACCEPT_READ"})
+    assert decided.status_code == 200, decided.text  # a decision row is printed too
+    html, _ = _report(pack_run)
+    assert "<td>ACCEPT READ</td>" in html
+    assert numbers_in(html)  # the check sees the report's numbers
+    assert_traced(html, repo, run_id)
+    body = api_client_as("reviewer").get(f"{API}/runs/{run_id}").json()
+    overview = "\n".join([body["headline"], *(e["text"] for e in body["exceptions"])])
+    assert_traced(overview, repo, run_id)
+
+
+def test_F09_R5_report_files_write_once(pack_run: PackRun) -> None:
+    repo, run_id, blobs = pack_run.repo, pack_run.run_id, pack_run.blobs
+    html_path, csv_path = _finalise(pack_run)
+    assert (html_path, csv_path) == (f"{run_id}/report.html", f"{run_id}/outcomes.csv")
+    first = blobs.get(REPORTS_BUCKET, html_path), blobs.get(REPORTS_BUCKET, csv_path)
+    assert _finalise(pack_run) == (html_path, csv_path)  # resend: reuse, write nothing
+    assert (blobs.get(REPORTS_BUCKET, html_path), blobs.get(REPORTS_BUCKET, csv_path)) == first
+    with pytest.raises(UniqueViolation):
+        blobs.put(REPORTS_BUCKET, html_path, b"changed", "text/html")
+    # deterministic bytes from the same frozen run
+    other = MemoryBlobStore()
+    at = repo.get_run(run_id).finalised_at
+    assert at is not None
+    finalise.write_report_files(repo, other, run_id, at, CONTROLLER.email)
+    assert (other.get(REPORTS_BUCKET, html_path), other.get(REPORTS_BUCKET, csv_path)) == first
+    # crash between writes: only the missing file is written, the existing one is kept
+    partial = MemoryBlobStore()
+    partial.put(REPORTS_BUCKET, csv_path, b"kept", "text/csv")
+    finalise.write_report_files(repo, partial, run_id, at, CONTROLLER.email)
+    assert partial.get(REPORTS_BUCKET, html_path) == first[0]
+    assert partial.get(REPORTS_BUCKET, csv_path) == b"kept"
+
+
+def test_F09_EP18_links_409_before_finalise_signed_after(
+    pack_run: PackRun, api_client_as: Callable[[str], TestClient]
+) -> None:
+    client, run_id = api_client_as("reviewer"), pack_run.run_id
+    before = client.get(f"{API}/runs/{run_id}/report")
+    assert before.status_code == 409
+    assert before.json()["error"]["code"] == "RUN_STATE_CONFLICT"
+    html_path, csv_path = _finalise(pack_run)
+    resp = client.get(f"{API}/runs/{run_id}/report")
+    assert resp.status_code == 200
+    links = ReportLinks.model_validate(resp.json())
+    assert html_path in links.html_url and csv_path in links.csv_url
+    assert links.expires_at == T0 + timedelta(seconds=300)
+    assert client.get(f"{API}/runs/{uuid4()}/report").status_code == 404

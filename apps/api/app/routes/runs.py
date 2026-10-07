@@ -3,7 +3,8 @@ C25).
 
 EP-03, EP-06 and EP-07 are CONTROLLER only (Clarification 4); EP-04 and EP-05 are open to every
 allow-listed role. Upload logic lives in `app.services.stages`. Phase 4 (005): EP-05 returns
-`RunView` (`app.services.finalise.load_run_view`); EP-11 to EP-13 read groups, flags and proof.
+`RunView` (`app.services.finalise.load_run_view`); EP-11 to EP-13 read groups, flags and proof;
+EP-18 links the frozen report files.
 """
 
 from collections.abc import Callable
@@ -23,7 +24,6 @@ from app.core.storage import BlobStore, get_blobstore
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
-    FlagType,
     NormCode,
     Outcome,
     ProofStatus,
@@ -35,12 +35,13 @@ from app.domain.enums import (
 from app.domain.models import (
     AllowedUser,
     ControlFlag,
-    GroupRowView,
     GroupView,
     Proof,
+    ReportLinks,
     Run,
     RunView,
 )
+from app.pipeline import report
 from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.services import finalise, stages
@@ -296,26 +297,8 @@ def list_groups(
     """EP-11: groups in `list_groups` order, optionally by outcome, each with every source
     row's canonical and raw values and flags; diffs and outlier on the group (F-05, F-09)."""
     repo.get_run(id)
-    rows = {r.source_row_id: r for r in repo.list_source_rows(id)}
-    flags: dict[str, list[FlagType]] = {}
-    for f in repo.list_flags(id):
-        if f.source_row_id is not None:
-            flags.setdefault(f.source_row_id, []).append(f.flag)
-    out: list[GroupView] = []
-    for group in repo.list_groups(id, outcome):
-        views = {
-            source: [
-                GroupRowView(
-                    **rows[row_id].model_dump(exclude={"id", "run_id", "group_id"}),
-                    flags=flags.get(row_id, []),
-                )
-                for row_id in sorted(ids)
-                if row_id in rows
-            ]
-            for source, ids in group.row_ids.items()
-        }
-        out.append(GroupView(group=group, rows=views))
-    return out
+    groups = repo.list_groups(id, outcome)
+    return report.group_views(groups, repo.list_source_rows(id), repo.list_flags(id))
 
 
 @router.get("/runs/{id}/flags", response_model=list[ControlFlag])
@@ -333,3 +316,13 @@ def get_proof(id: UUID, repo: RepoDep) -> Proof:
     if proof is None:
         raise NotFound("proof", id)
     return proof
+
+
+# --- delivery (005 US3: EP-18, FR-024) -----------------------------------------------------
+
+
+@router.get("/runs/{id}/report", response_model=ReportLinks)
+def report_links(id: UUID, repo: RepoDep, blobs: BlobsDep) -> ReportLinks:
+    """EP-18: signed links to `report.html` and `outcomes.csv`, valid 5 minutes (F-09.R5);
+    409 `RUN_STATE_CONFLICT` unless the run is `FINALISED`; open to every allow-listed role."""
+    return finalise.report_links(repo, blobs, id)

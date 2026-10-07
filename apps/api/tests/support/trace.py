@@ -17,6 +17,7 @@ both checks; F-09 AC2 and F-10 AC5 tests call it.
 """
 
 import re
+from collections import Counter
 from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal
@@ -202,7 +203,8 @@ def allowed_numbers(repo: Repo, run_id: UUID) -> set[str]:
     above and outcome counts; the run month; finalised time and scenario clock; GRNs; recorded
     qty and qty_base; day and year of every row date and `entered_at`; digit groups of lots,
     items, suppliers and users; diff values; flag details; review reads, values and notes;
-    proof figures; normalisation log before/after; input file names and sizes; attempts."""
+    proof figures; normalisation log before/after and entries per code; input file names and
+    sizes; attempts."""
     run = repo.get_run(run_id)
     out = set().union(*allowed_counts(repo, run_id).values())
     out |= _tokens([*run_outcome_counts(repo, run_id).values(), run.month])
@@ -219,8 +221,10 @@ def allowed_numbers(repo: Repo, run_id: UUID) -> set[str]:
         out |= _tokens([f.grn_no, *f.detail.values()])
     for i in repo.list_review_items(run_id):
         out |= _item(i)
-    for n in repo.list_norm_log(run_id):
+    norm_log = repo.list_norm_log(run_id)
+    for n in norm_log:
         out |= _tokens([n.before, n.after])
+    out |= _tokens(Counter(n.code for n in norm_log).values())  # report: entries per code
     for sf in repo.list_source_files(run_id):
         out |= _tokens([sf.page_no, sf.filename, sf.size_bytes])
     for note in repo.list_notifications(run_id):

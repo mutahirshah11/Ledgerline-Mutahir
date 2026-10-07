@@ -6,14 +6,18 @@ research R15; F-09, F-10, SCR-04).
 headline, the exception list and the summary notification (C25, FR-020).
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from app.core.config import get_settings
 from app.core.db import Repo
-from app.domain.enums import Outcome, ReadVariant, RunEventStatus, Source, Stage
+from app.core.errors import StateConflict, UniqueViolation
+from app.core.storage import REPORTS_BUCKET, BlobStore
+from app.domain.enums import Outcome, ReadVariant, RunEventStatus, RunStatus, Source, Stage
 from app.domain.ids import summary_key
 from app.domain.models import (
     PageProgress,
+    ReportLinks,
     Run,
     RunEvent,
     RunView,
@@ -118,3 +122,65 @@ def load_run_view(repo: Repo, run_id: UUID) -> RunView:
         exceptions=exceptions,
         summary=summary,
     )
+
+
+# --- frozen report files (F-09.R3 to R5; contracts/frozen-files.md, research R8, R9) ------
+
+
+def report_paths(run_id: UUID) -> tuple[str, str]:
+    """`reports/{run_id}/report.html` and `reports/{run_id}/outcomes.csv` (Section 10)."""
+    return f"{run_id}/report.html", f"{run_id}/outcomes.csv"
+
+
+def write_report_files(
+    repo: Repo, store: BlobStore, run_id: UUID, finalise_at: datetime, actor: str
+) -> tuple[str, str]:
+    """Write `report.html` then `outcomes.csv` once (F-09.R5, research R9): both present →
+    reuse, write nothing; one present → write only the missing one. The report prints
+    `finalise_at` and `actor` (the email the run is finalised by), so the caller passes the
+    same instant to `transition_run` (R8). Bytes are deterministic for the same run; a write
+    that loses a race to an identical path keeps the existing file."""
+    html_path, csv_path = report_paths(run_id)
+    if store.exists(REPORTS_BUCKET, html_path) and store.exists(REPORTS_BUCKET, csv_path):
+        return html_path, csv_path
+    run = repo.get_run(run_id).model_copy(
+        update={"finalised_at": finalise_at, "finalised_by": actor}
+    )
+    rows = repo.list_source_rows(run_id)
+    groups = repo.list_groups(run_id)
+    if not store.exists(REPORTS_BUCKET, html_path):
+        ctx = report.build_report_context(
+            run,
+            groups,
+            rows,
+            repo.list_flags(run_id),
+            repo.list_review_items(run_id),
+            repo.get_proof(run_id),
+            repo.list_norm_log(run_id),
+            repo.list_source_files(run_id),
+            repo.list_audit(run_id=run_id),
+        )
+        _put_once(store, html_path, report.render_report_html(ctx), "text/html; charset=utf-8")
+    if not store.exists(REPORTS_BUCKET, csv_path):
+        csv_bytes = report.render_outcomes_csv(rows, groups)
+        _put_once(store, csv_path, csv_bytes, "text/csv; charset=utf-8")
+    return html_path, csv_path
+
+
+def _put_once(store: BlobStore, path: str, data: bytes, content_type: str) -> None:
+    try:
+        store.put(REPORTS_BUCKET, path, data, content_type)
+    except UniqueViolation:
+        pass  # written meanwhile by another finalise of the same frozen run: keep it
+
+
+def report_links(repo: Repo, store: BlobStore, run_id: UUID) -> ReportLinks:
+    """EP-18 (FR-024): signed links to both files, `DOWNLOAD_URL_S` (300 s); `StateConflict`
+    (409 `RUN_STATE_CONFLICT`) unless the run is `FINALISED`."""
+    run = repo.get_run(run_id)
+    if run.status is not RunStatus.FINALISED:
+        raise StateConflict(run)
+    html_path, csv_path = report_paths(run_id)
+    html_url, expires_at = store.signed_download_url(REPORTS_BUCKET, html_path)
+    csv_url, _ = store.signed_download_url(REPORTS_BUCKET, csv_path)
+    return ReportLinks(html_url=html_url, csv_url=csv_url, expires_at=expires_at)

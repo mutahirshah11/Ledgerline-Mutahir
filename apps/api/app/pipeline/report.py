@@ -3,19 +3,30 @@ contracts/telegram-message.md "Line templates"; blueprint F-09.R1, R2, C4, C5).
 
 Pure: no I/O, no clock, no model. One function (`exception_list`) orders what needs attention for
 the run overview (EP-05), the report and the summary message; every line is a fixed template
-filled only with run data (F-09.R2).
+filled only with run data (F-09.R2). The frozen `report.html` (template
+`app/templates/report.html.j2`) and `outcomes.csv` are rendered here from a `ReportContext`
+(F-09.R3, R4); `services/finalise.py` stores them once.
 """
 
+import csv
 import datetime as dt
+import io
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as default
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
+from pathlib import Path
 
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+from app.core.clock import KARACHI
 from app.domain.enums import (
+    AuditAction,
     ComparedField,
     FlagType,
+    NormCode,
     Outcome,
     ReviewKind,
     ReviewReason,
@@ -25,17 +36,22 @@ from app.domain.enums import (
 )
 from app.domain.ids import parse_month
 from app.domain.models import (
+    AuditEntry,
     CanonicalRow,
     CellContext,
     ControlFlag,
     ExceptionItem,
     ExceptionKind,
     Group,
+    GroupRowView,
+    GroupView,
+    NormLogEntry,
     PageLabelMismatchContext,
     Proof,
     ReviewItem,
     RowInOneReadContext,
     Run,
+    SourceFile,
     UnknownMappingContext,
 )
 from app.pipeline.order import SOURCE_ORDER
@@ -558,3 +574,252 @@ def _flag_draft(flag: ControlFlag, rows: Rows) -> _Draft:
         render=lambda attached: line_flag(flag, rows, attached),
         flags=[flag],
     )
+
+
+# --- frozen report files (F-09.R3, R4; data-model.md §5, research R8, R10) ------------------
+
+TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+CSV_HEADER = (
+    "source",
+    "source_row_id",
+    "grn_no",
+    "outcome",
+    "group_key",
+    "diff_fields",
+    "outlier",
+    "row_kind",
+)
+NORM_EXAMPLES = 20
+CATEGORY_TITLE = {
+    1: "Missing from a source",
+    2: "Sources disagree",
+    3: "Waiting on review",
+    4: "Control flags to acknowledge",
+    5: "For information",
+}
+_FIELD_ROWS: tuple[tuple[str, tuple[ComparedField, ...]], ...] = (
+    ("date", (ComparedField.DATE,)),
+    ("supplier", (ComparedField.SUPPLIER_CODE,)),
+    ("lot", (ComparedField.LOT_NO,)),
+    ("qty", (ComparedField.QTY, ComparedField.UOM)),
+)
+"""Receipt table rows: label and the compared fields whose diffs mark its cells."""
+
+
+def group_views(
+    groups: Sequence[Group], rows: Sequence[CanonicalRow], flags: Sequence[ControlFlag]
+) -> list[GroupView]:
+    """EP-11's `GroupView`s (FR-021) in `groups` order: each source's rows sorted by id, with
+    the flag types on each row."""
+    by_id = {r.source_row_id: r for r in rows}
+    on_row: dict[str, list[FlagType]] = {}
+    for f in flags:
+        if f.source_row_id is not None:
+            on_row.setdefault(f.source_row_id, []).append(f.flag)
+    out: list[GroupView] = []
+    for group in groups:
+        views = {
+            source: [
+                GroupRowView(
+                    **by_id[row_id].model_dump(exclude={"id", "run_id", "group_id"}),
+                    flags=on_row.get(row_id, []),
+                )
+                for row_id in sorted(ids)
+                if row_id in by_id
+            ]
+            for source, ids in group.row_ids.items()
+        }
+        out.append(GroupView(group=group, rows=views))
+    return out
+
+
+@dataclass(frozen=True)
+class ReportDecision:
+    """A review item with the action and `equals_sources` of its `REVIEW_RESOLVED` audit
+    entry (None / [] for an item still `OPEN`)."""
+
+    item: ReviewItem
+    action: str | None
+    equals_sources: list[Source]
+
+
+@dataclass(frozen=True)
+class ReportContext:
+    """Everything `report.html` prints (data-model.md §5); `run` carries the finalise instant
+    and actor (research R8)."""
+
+    run: Run
+    month_label: str
+    scenario_now: dt.datetime
+    headline: str
+    proof: Proof | None
+    exceptions: list[ExceptionItem]
+    groups: list[GroupView]
+    flags: list[ControlFlag]
+    decisions: list[ReportDecision]
+    norm_summary: list[tuple[NormCode, int]]
+    norm_examples: list[NormLogEntry]
+    input_files: list[SourceFile]
+
+
+def _decisions(items: Sequence[ReviewItem], audit: Sequence[AuditEntry]) -> list[ReportDecision]:
+    """Decided items (status ≠ OPEN) in `items` order, then the open ones ("still open")."""
+    newest: dict[str, AuditEntry] = {}
+    for entry in audit:  # newest first
+        if entry.action is AuditAction.REVIEW_RESOLVED:
+            newest.setdefault(entry.entity_id, entry)
+    decided = [i for i in items if i.status is not ReviewStatus.OPEN]
+    still_open = [i for i in items if i.status is ReviewStatus.OPEN]
+    out: list[ReportDecision] = []
+    for item in decided + still_open:
+        found = newest.get(str(item.id))
+        after = found.after if found is not None else None
+        if item.status is ReviewStatus.OPEN or not after:
+            out.append(ReportDecision(item, None, []))
+            continue
+        equal = [Source(s) for s in after.get("equals_sources", [])]
+        out.append(ReportDecision(item, after.get("action"), equal))
+    return out
+
+
+def build_report_context(
+    run: Run,
+    groups: Sequence[Group],
+    rows: Sequence[CanonicalRow],
+    flags: Sequence[ControlFlag],
+    review_items: Sequence[ReviewItem],
+    proof: Proof | None,
+    norm_log: Sequence[NormLogEntry],
+    input_files: Sequence[SourceFile],
+    audit: Sequence[AuditEntry],
+) -> ReportContext:
+    """The `ReportContext` of a run about to be finalised (pure; `run.finalised_at` and
+    `finalised_by` already set to the finalise instant and actor, research R8)."""
+    counts: dict[NormCode, int] = {}
+    for entry in norm_log:
+        counts[entry.code] = counts.get(entry.code, 0) + 1
+    order = list(Source)
+    return ReportContext(
+        run=run,
+        month_label=month_label(run.month),
+        scenario_now=run.scenario_now,
+        headline=headline(groups),
+        proof=proof,
+        exceptions=exception_list(run, groups, rows, flags, review_items, proof),
+        groups=group_views(groups, rows, flags),
+        flags=list(flags),
+        decisions=_decisions(review_items, audit),
+        norm_summary=sorted(counts.items()),
+        norm_examples=list(norm_log[:NORM_EXAMPLES]),
+        input_files=sorted(input_files, key=lambda f: (order.index(f.source), f.page_no or 0)),
+    )
+
+
+def fmt_instant(value: dt.datetime | None) -> str:
+    """`15 Oct 2026 08:30` in Asia/Karachi (no seconds); empty for None."""
+    if value is None:
+        return ""
+    t = value.astimezone(KARACHI)
+    return f"{fmt_date(t.date())} {t.year} {t.hour:02d}:{t.minute:02d}"
+
+
+@dataclass(frozen=True)
+class ReceiptCell:
+    text: str
+    differs: bool
+
+
+@dataclass(frozen=True)
+class ReceiptLine:
+    label: str
+    cells: dict[Source, ReceiptCell]
+    outlier: str
+
+
+def _row_value(row: GroupRowView, label: str) -> str | None:
+    if label == "date":
+        return None if row.date is None else fmt_date(row.date)
+    if label == "supplier":
+        return row.supplier_code
+    if label == "lot":
+        return row.lot_no
+    if row.qty is None:
+        return None
+    text = f"{fmt_qty(row.qty)} {row.uom or ''}".rstrip()
+    if row.qty_base is not None and (row.qty_base != row.qty or row.base_uom != row.uom):
+        text += f" = {fmt_qty(row.qty_base)} {row.base_uom or ''}".rstrip()
+    return text
+
+
+def receipt_lines(view: GroupView) -> list[ReceiptLine]:
+    """The four field lines of a group in the "All receipts" table: each source's values
+    (several rows joined by `, `), the cells of a diff's outlier (with no outlier, every
+    non-empty cell) marked as differing, and the outlier named."""
+    out: list[ReceiptLine] = []
+    for label, fields in _FIELD_ROWS:
+        diffs = [d for d in view.group.diffs if d.field in fields]
+        cells: dict[Source, ReceiptCell] = {}
+        for source in SOURCE_ORDER:
+            values = [v for r in view.rows.get(source, []) if (v := _row_value(r, label))]
+            odd = any(d.outlier is source or d.outlier is None for d in diffs)
+            cells[source] = ReceiptCell(", ".join(values), odd and bool(values))
+        named = [SOURCE_TITLE[d.outlier] if d.outlier else "no outlier" for d in diffs]
+        out.append(ReceiptLine(label, cells, ", ".join(dict.fromkeys(named))))
+    return out
+
+
+def _label(value: str) -> str:
+    return value.replace("_", " ")
+
+
+@lru_cache(maxsize=1)
+def _environment() -> Environment:
+    env = Environment(
+        loader=FileSystemLoader(TEMPLATES),
+        autoescape=True,
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
+    env.filters.update(day=fmt_date, qty=fmt_qty, instant=fmt_instant, label=_label)
+    env.globals.update(
+        SOURCES=SOURCE_ORDER,
+        SOURCE_TITLE=SOURCE_TITLE,
+        CATEGORY_TITLE=CATEGORY_TITLE,
+        receipt_lines=receipt_lines,
+    )
+    return env
+
+
+def render_report_html(ctx: ReportContext) -> bytes:
+    """`report.html` (contracts/frozen-files.md): self-contained UTF-8, sections 1 to 8;
+    deterministic for the same context."""
+    template = _environment().get_template("report.html.j2")
+    return template.render(ctx=ctx).encode("utf-8")
+
+
+def render_outcomes_csv(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> bytes:
+    """`outcomes.csv` (F-09.R4, research R10): header, then one line per row in `rows` order
+    (`list_source_rows`); receipts carry their group's outcome, key, diff fields and outliers."""
+    of_row = {row_id: g for g in groups for ids in g.row_ids.values() for row_id in ids}
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(CSV_HEADER)
+    for row in rows:
+        group = of_row.get(row.source_row_id)
+        outcome = group.outcome if group else row.outcome
+        diffs = group.diffs if group else []
+        writer.writerow(
+            [
+                row.source.value,
+                row.source_row_id,
+                "" if row.grn_no is None else row.grn_no,
+                outcome.value if outcome else row.row_kind.value,
+                group.group_key if group else "",
+                ";".join(d.field.value for d in diffs),
+                ";".join(d.outlier.value if d.outlier else "" for d in diffs),
+                row.row_kind.value,
+            ]
+        )
+    return buffer.getvalue().encode("utf-8")
