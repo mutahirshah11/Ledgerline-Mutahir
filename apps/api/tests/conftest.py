@@ -328,6 +328,20 @@ def notifier() -> "FakeNotifier":
     return FakeNotifier()
 
 
+@pytest.fixture(scope="session")
+def _client_app_template() -> "Any":
+    """One `create_app()` built once per session (NFR-11): building the FastAPI route table
+    (dependant graphs, pydantic models for every endpoint) costs tens of ms, paid 274+ times
+    over the old per-test `create_app()`. Nothing about the route table itself is test-specific
+    (`?fault=`, `ALLOW_FAULTS`, CORS origin and auth settings are all read fresh per request via
+    `get_settings()`, never baked in here); only `app.dependency_overrides` is test-specific, and
+    `client` resets it from scratch every test. A test that mutates the route table itself
+    (`test_F12_auth._stub_routes`) must build its own app instead of reusing this one."""
+    from app.main import create_app
+
+    return create_app()
+
+
 @pytest.fixture
 def client(
     api_settings: None,
@@ -336,28 +350,30 @@ def client(
     memory_blobs: "MemoryBlobStore",
     jwks_fetcher: "FakeJwksFetcher",
     notifier: "FakeNotifier",
+    _client_app_template: "Any",
 ) -> Iterator[TestClient]:
-    """`TestClient(create_app())` over `memory_repo`, `memory_blobs`, `notifier` and the fake
-    JWKS, with the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for
-    the pack.
+    """`TestClient(app)` over `memory_repo`, `memory_blobs`, `notifier` and the fake JWKS, with
+    the three seeded users on the allowlist. `pack_upload` runs EP-03 to EP-07 for the pack.
 
-    A fresh `create_app()` every time, not memoised: some tests (`test_F12_auth._stub_routes`)
-    call `client.app.include_router(...)`, which would otherwise leak routes onto later tests
-    sharing the same app object (test isolation)."""
+    Reuses the one `_client_app_template` app object (NFR-11) and clears its
+    `dependency_overrides` before setting these four, so no override set by a previous test
+    (e.g. `replay`'s `get_model_client`) can leak into this one. A test that mutates the route
+    table itself (`test_F12_auth._stub_routes`) must build its own fresh app, never
+    `client.app.include_router(...)` on this shared one."""
     from app.core.auth import JwksCache, get_jwks_cache
     from app.core.db import get_repo
     from app.core.deps import get_notifier
     from app.core.storage import get_blobstore
     from app.domain.enums import Role
     from app.domain.models import AllowedUser
-    from app.main import create_app
 
     for email, name, role in SEEDED_USERS.values():
         memory_repo.upsert_allowed_user(
             AllowedUser(email=email, display_name=name, role=Role(role))
         )
     jwks = JwksCache(jwks_fetcher)
-    app = create_app()
+    app = _client_app_template
+    app.dependency_overrides.clear()
     app.dependency_overrides[get_repo] = lambda: memory_repo
     app.dependency_overrides[get_blobstore] = lambda: memory_blobs
     app.dependency_overrides[get_notifier] = lambda: notifier
