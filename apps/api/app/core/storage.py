@@ -10,6 +10,7 @@ Signed URLs from `MemoryBlobStore` are fake
 
 import logging
 import time
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -189,7 +190,10 @@ class SupabaseBlobStore:
 
     def get(self, bucket: str, path: str) -> bytes:
         files = self._bucket(bucket)
-        return bytes(self._send(bucket, path, lambda: files.download(path))[0])
+        # Supabase's CDN keeps serving an overwritten object's old bytes (checked against a
+        # live project), so every read asks with a fresh query and never hits a cached copy.
+        fresh = {"fresh": uuid.uuid4().hex}
+        return bytes(self._send(bucket, path, lambda: files.download(path, query_params=fresh))[0])
 
     def exists(self, bucket: str, path: str) -> bool:
         files = self._bucket(bucket)
