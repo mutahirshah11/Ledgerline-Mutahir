@@ -341,8 +341,9 @@ def _mapping(key: str, row_id: str) -> ReviewItem:
 
 
 def test_F09_R1_category3_follows_open_item_rule() -> None:
-    """I3: a non-CELL item the last reconcile did not produce (stale) is not live; CELL items
-    always are; `current_keys=None` keeps every non-RESOLVED item live."""
+    """I3, M-2: an OPEN item whose key is not in `current_keys` (the keys of
+    `engine.open_review_items`) is not live, CELL items included; `current_keys=None` keeps
+    every non-RESOLVED item live."""
     group = _group("GRN:4450", 4450, Outcome.NEEDS_REVIEW, ERP=["ERP-0050"])
     stale = _mapping("MAP:ERP-0050:supplier_code", "ERP-0050")
     rows = [_row("ERP-0050", 4450)]
@@ -358,7 +359,10 @@ def test_F09_R1_category3_follows_open_item_rule() -> None:
     assert _list([group], rows, items=[stale], current_keys=frozenset({stale.item_key})) == live
     cell_item = _unreadable("CELL:ERP-0050:qty", "ERP-0050", 4450, "faded")
     both = _list([group], rows, items=[stale, cell_item], current_keys=none_current)
-    assert _texts(both) == ["4450 qty unreadable on register (faded)"]
+    assert _texts(both) == ["4450 needs review"]  # M-2: CELL items follow the keys too
+    current = frozenset({cell_item.item_key})
+    cell_live = _list([group], rows, items=[stale, cell_item], current_keys=current)
+    assert _texts(cell_live) == ["4450 qty unreadable on register (faded)"]
 
 
 def _page_item() -> ReviewItem:

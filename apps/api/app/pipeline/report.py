@@ -488,14 +488,14 @@ def _review_rank(item: ReviewItem) -> int:
 
 def _live(item: ReviewItem, current_keys: frozenset[str] | None) -> bool:
     """A review item a category 3 line may show: not `RESOLVED`, not `FLAG_ACK` (those show as
-    flags), and, when `current_keys` is given, OPEN only under the one open-item rule
-    (`engine.current_open_items`: CELL items always, others only if the last reconcile produced
-    the key). `CANNOT_DETERMINE` items are decisions and always shown."""
+    flags), and, when `current_keys` is given, OPEN only if its key is one of them (the one
+    open-item rule: the caller passes the keys of `engine.open_review_items`, which already
+    holds the current CELL items). `CANNOT_DETERMINE` items are decisions and always shown."""
     if item.kind is ReviewKind.FLAG_ACK or item.status is ReviewStatus.RESOLVED:
         return False
     if current_keys is None or item.status is not ReviewStatus.OPEN:
         return True
-    return item.kind is ReviewKind.CELL or item.item_key in current_keys
+    return item.item_key in current_keys
 
 
 def _group_draft(group: Group, rows: Rows, items: Sequence[ReviewItem]) -> _Draft | None:
@@ -674,8 +674,9 @@ _FIELD_ROWS: tuple[tuple[str, tuple[ComparedField, ...]], ...] = (
 def group_views(
     groups: Sequence[Group], rows: Sequence[CanonicalRow], flags: Sequence[ControlFlag]
 ) -> list[GroupView]:
-    """EP-11's `GroupView`s (FR-021) in `groups` order: each source's rows sorted by id, with
-    the flag types on each row."""
+    """EP-11's `GroupView`s (FR-021) in `groups` order: sources in `Source` order (not the
+    jsonb key order Postgres returns), each source's rows sorted by id, with the flag types on
+    each row."""
     by_id = {r.source_row_id: r for r in rows}
     on_row: dict[str, list[FlagType]] = {}
     for f in flags:
@@ -692,7 +693,8 @@ def group_views(
                 for row_id in sorted(ids)
                 if row_id in by_id
             ]
-            for source, ids in group.row_ids.items()
+            for source in Source
+            if (ids := group.row_ids.get(source)) is not None
         }
         out.append(GroupView(group=group, rows=views))
     return out
@@ -727,14 +729,23 @@ class ReportContext:
     input_files: list[SourceFile]
 
 
-def _decisions(items: Sequence[ReviewItem], audit: Sequence[AuditEntry]) -> list[ReportDecision]:
-    """Decided items (status ≠ OPEN) in `items` order, then the open ones ("still open")."""
+def _decisions(
+    items: Sequence[ReviewItem],
+    audit: Sequence[AuditEntry],
+    current_keys: frozenset[str] | None = None,
+) -> list[ReportDecision]:
+    """Decided items (status ≠ OPEN) in `items` order, then the open ones ("still open"): with
+    `current_keys`, only those whose key is one of them (the one open-item rule)."""
     newest: dict[str, AuditEntry] = {}
     for entry in audit:  # newest first
         if entry.action is AuditAction.REVIEW_RESOLVED:
             newest.setdefault(entry.entity_id, entry)
     decided = [i for i in items if i.status is not ReviewStatus.OPEN]
-    still_open = [i for i in items if i.status is ReviewStatus.OPEN]
+    still_open = [
+        i
+        for i in items
+        if i.status is ReviewStatus.OPEN and (current_keys is None or i.item_key in current_keys)
+    ]
     out: list[ReportDecision] = []
     for item in decided + still_open:
         found = newest.get(str(item.id))
@@ -778,7 +789,7 @@ def build_report_context(
         ),
         groups=group_views(groups, rows, flags),
         flags=list(flags),
-        decisions=_decisions(review_items, audit),
+        decisions=_decisions(review_items, audit, current_keys),
         norm_summary=sorted(counts.items()),
         norm_examples=list(norm_log[:NORM_EXAMPLES]),
         input_files=sorted(input_files, key=lambda f: (order.index(f.source), f.page_no or 0)),
