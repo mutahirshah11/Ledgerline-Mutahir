@@ -47,7 +47,6 @@ from app.domain.models import (
     RunView,
 )
 from app.pipeline import report
-from app.pipeline.cost import estimate_read_cost
 from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.routes._common import READ_ERRORS, channel
@@ -114,9 +113,11 @@ class UploadResponse(BaseModel):
 
 
 class ConfirmResponse(BaseModel):
-    """EP-07. `read_cost_estimate_usd` (006 read cost, `app.pipeline.cost`): `new_pages` x the
-    per-page token averages x the price settings, US$ to 0.001; None while a price is unset.
-    Known pages come from the extraction cache at US$0."""
+    """EP-07. `read_cost_estimate_usd`: EP-05's `read_cost.estimate_usd` (006 read cost): the
+    pages still lacking a stored read under the current model and prompt x the per-page token
+    averages x the price settings, US$ to 0.001; None while a price is unset. It can differ
+    from `len(new_pages)`: a page known to the manifest whose reads were never stored (or are
+    under another model or prompt) still costs."""
 
     run: RunOut
     new_pages: list[int]
@@ -233,7 +234,7 @@ def confirm_uploads(
         run=RunOut.of(result.run),
         new_pages=result.new_pages,
         known_pages=result.known_pages,
-        read_cost_estimate_usd=estimate_read_cost(len(result.new_pages), get_settings()),
+        read_cost_estimate_usd=finalise.read_cost(repo, result.run).estimate_usd,
     )
 
 

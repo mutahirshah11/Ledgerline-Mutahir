@@ -2,6 +2,7 @@
 exposes the flat EP-05 `RunView` (blueprint C25; 006 plan.md W3, W6, W7, W8) and a typed
 `ReviewItem.context`."""
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -83,4 +84,4 @@ def test_T002_ep14_typed_context_keeps_the_card_json(
     got = [card["context"] for card in resp.json()]
     assert len(got) == len(built) > 0
     for context, (_, expected) in zip(got, built, strict=True):
-        assert list(context.items()) == list(expected.items())
+        assert json.dumps(context) == json.dumps(expected)  # keys, order, int vs float

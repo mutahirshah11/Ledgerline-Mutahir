@@ -761,14 +761,15 @@ class StageProgressView(DomainModel):
 class ReadCost(DomainModel):
     """EP-05 `read_cost` (006 spec.md Clarifications 2026-10-07; `app.pipeline.cost`).
 
-    `new_pages`: register pages this run reads new, i.e. not `cached` in `stage_progress.pages`
-    (before reading: every page without both reads stored before the run). `estimate_usd`:
-    `new_pages` x the per-page token averages x the prices. `input_tokens` / `output_tokens`:
-    the stored reads (current model and prompt) of those pages created since the run was
-    created, i.e. what this run actually read (a read stored earlier, by another run, is a
-    cache hit and costs nothing). `actual_usd`: those tokens x the prices; "0.000" before any
-    page is read and when every page is cached. Both USD fields are None while either price
-    setting is unset."""
+    `new_pages`: register pages this run reads new: a page whose newest extract `OK` event in
+    this run says `cached: false`; before it has one, a page lacking either stored read under
+    the current model and prompt (the same split as EP-07's `read_cost_estimate_usd`).
+    `estimate_usd`: `new_pages` x the per-page token averages x the prices. `input_tokens` /
+    `output_tokens`: the sum of the tokens recorded in this run's extract `OK` and `FAILED`
+    events, each of which holds only the reads that EP-09 call made (0 for cache hits), so no
+    other run's reads are ever counted and a read made before a failure still is.
+    `actual_usd`: those tokens x the current prices; "0.000" before any read and when every
+    page is cached. Both USD fields are None while either price setting is unset."""
 
     new_pages: int
     estimate_usd: DecimalStr | None
