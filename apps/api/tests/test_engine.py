@@ -23,6 +23,7 @@ from app.domain.enums import (
     ProofStatus,
     RegisterField,
     ReviewKind,
+    ReviewReason,
     ReviewStatus,
     RunEventStatus,
     RunStatus,
@@ -335,6 +336,47 @@ def test_engine_status_counts_only_current_open_items(
     assert memory_repo.get_review_item(stale.id) == stale
     entry = max(memory_repo.list_audit(run_id), key=lambda e: e.id)  # this reconcile's entry
     assert entry.after is not None and entry.after["open_review_items"] == 0
+
+
+def test_engine_open_extraction_cell_items_hold_awaiting_review(
+    memory_repo: MemoryRepo,
+    extracted_run: Run,
+    pack_dir: Path,
+    ground_truth_dir: Path,
+    frozen_clock: datetime,
+) -> None:
+    """CELL items come only from extraction (Phase 2), never from the engine: an OPEN one is
+    still current, so it holds the run in `AWAITING_REVIEW` and counts in `open_review_items`
+    after every flag item is resolved (Phase 1 follow-up; F-08, F-09 guard on READY)."""
+    run_id = extracted_run.id
+    cell = resolved_cell(
+        run_id, "REG-p2-r05", RegisterField.QTY, "66", reason=ReviewReason.CORRECTED
+    ).model_copy(
+        update={
+            "status": ReviewStatus.OPEN,
+            "resolved_value": None,
+            "resolved_by": None,
+            "resolved_at": None,
+        }
+    )
+    memory_repo.upsert_review_items(run_id, [cell])  # queued by extract_page
+    reconcile_run(memory_repo, build_engine_inputs(pack_dir, ground_truth_dir, run_id, [cell]))
+    for item in memory_repo.list_review_items(run_id, ReviewStatus.OPEN):
+        if item.kind is not ReviewKind.CELL:
+            memory_repo.resolve_review_item(
+                item.id,
+                status=ReviewStatus.RESOLVED,
+                resolved_value=None,
+                resolved_by="reviewer@example.com",
+                resolved_at=frozen_clock,
+                note="checked with stores",
+            )
+    stored = memory_repo.list_review_items(run_id)
+    reconcile_run(memory_repo, build_engine_inputs(pack_dir, ground_truth_dir, run_id, stored))
+
+    assert memory_repo.get_run(run_id).status is RunStatus.AWAITING_REVIEW
+    entry = max(memory_repo.list_audit(run_id), key=lambda e: e.id)
+    assert entry.after is not None and entry.after["open_review_items"] == 1
 
 
 @pytest.mark.parametrize("status", list(_RECONCILE_PATHS))

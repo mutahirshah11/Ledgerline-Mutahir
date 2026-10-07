@@ -21,6 +21,7 @@ from app.domain.enums import (
     Fault,
     Outcome,
     ProofStatus,
+    ReviewKind,
     ReviewStatus,
     RowKind,
     RunEventStatus,
@@ -341,15 +342,18 @@ def _fail_on_reconcile(repo: Repo, log: _Log, run_id: UUID, exc: Exception) -> N
 
 def _advance_status(repo: Repo, run: Run, current: Sequence[ReviewItem]) -> tuple[RunStatus, int]:
     """Step 7: `EXTRACTED` → `RECONCILED`, then `AWAITING_REVIEW` if any current review item is
-    open, else `READY`. Only stored OPEN items whose `item_key` this reconcile produced count;
-    older items stay stored, untouched (user decision 2026-10-07). Returns the new status and
-    the open item count."""
+    open, else `READY`. Stored OPEN items count when this reconcile produced their `item_key`,
+    or when they are CELL items: those come only from extraction (Phase 2), which the engine
+    never re-produces, so they are always current. Other older items stay stored, untouched
+    (user decision 2026-10-07). Returns the new status and the open item count."""
     status = run.status
     if status is RunStatus.EXTRACTED:
         status = repo.transition_run(run.id, RunStatus.RECONCILED, expected={status}).status
     keys = {item.item_key for item in current}
     open_count = sum(
-        1 for item in repo.list_review_items(run.id, ReviewStatus.OPEN) if item.item_key in keys
+        1
+        for item in repo.list_review_items(run.id, ReviewStatus.OPEN)
+        if item.item_key in keys or item.kind is ReviewKind.CELL
     )
     to = RunStatus.AWAITING_REVIEW if open_count else RunStatus.READY
     repo.transition_run(run.id, to, expected={status})
