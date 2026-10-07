@@ -39,18 +39,18 @@ from app.pipeline.extract import merge_reads
 from app.pipeline.proof import register_counts
 from tests.factories import make_run
 from tests.support.extracted import (
-    NO_COMMITTED_READS,
     PageReads,
     build_engine_inputs_from_pages,
     build_engine_inputs_from_reads,
+    cache_skip_reason,
     cached_pack_pages,
     cached_pack_reads,
     committed_read_files,
     ground_truth_read,
-    write_replay_reads,
 )
 from tests.support.normalised import PACK_RUN_ID
 from tests.support.pack import PAGES, build_engine_inputs, resolved_cell
+from tests.support.pack_pages import hermetic_settings_context, write_cache_files
 
 NOW = datetime(2026, 10, 15, 8, 30, tzinfo=KARACHI)
 REG, ERP, SHEET = Source.REGISTER, Source.ERP, Source.SHEET
@@ -93,11 +93,13 @@ def inputs_for(
         return lambda decisions: build_engine_inputs(
             pack_dir, ground_truth_dir, PACK_RUN_ID, decisions
         )
-    if not committed_read_files(cached_reads_dir):
-        # After the real reads are committed (T033), a missing cache must fail, not skip; see
-        # T042.
-        pytest.skip(NO_COMMITTED_READS)
-    pages = cached_pack_pages(cached_reads_dir, pack_dir, PACK_RUN_ID)
+    with hermetic_settings_context():  # module scope: runs before the autouse fixture
+        skip_reason = cache_skip_reason(cached_reads_dir)
+        if skip_reason is not None:
+            # After the real reads are committed (T033), a missing cache must fail, not skip;
+            # see T042.
+            pytest.skip(skip_reason)
+        pages = cached_pack_pages(cached_reads_dir, pack_dir, PACK_RUN_ID)
     return lambda decisions: build_engine_inputs_from_pages(pack_dir, pages, PACK_RUN_ID, decisions)
 
 
@@ -467,7 +469,7 @@ def test_F03_golden_adapter_cache_source_reads_files_by_image_sha(
     for p in PAGES:
         gt = ground_truth_read(ground_truth_dir, p)
         want[p] = (gt, gt.model_copy(update={"rows": gt.rows[1:]}))
-    write_replay_reads(tmp_path, pack_dir, want, Settings())
+    write_cache_files(tmp_path, pack_dir, want, Settings())
     assert len(committed_read_files(tmp_path)) == 4
     assert cached_pack_reads(tmp_path, pack_dir) == want
 
@@ -477,8 +479,8 @@ def test_F03_golden_adapter_cache_source_uses_current_model_and_prompt_version(
 ) -> None:
     """The cache source reads exactly what a real run reads: files for the current
     `EXTRACT_MODEL` and `PROMPT_VERSION` only. Stale files (another prompt version or model)
-    for the same image are ignored, and a cache holding only stale files counts as empty, so it
-    skips with the same reason."""
+    for the same image are ignored, and a cache holding only stale files has no current reads,
+    so it skips (saying the reads are for another model/prompt version)."""
     current = Settings()
     stale_version = current.model_copy(update={"PROMPT_VERSION": "v2"})
     stale_model = current.model_copy(update={"EXTRACT_MODEL": "other-model"})
@@ -486,11 +488,11 @@ def test_F03_golden_adapter_cache_source_uses_current_model_and_prompt_version(
     shorter: PageReads = {
         p: (a.model_copy(update={"rows": a.rows[1:]}),) * 2 for p, (a, _) in gt.items()
     }
-    write_replay_reads(tmp_path, pack_dir, shorter, stale_version)
-    write_replay_reads(tmp_path, pack_dir, shorter, stale_model)
+    write_cache_files(tmp_path, pack_dir, shorter, stale_version)
+    write_cache_files(tmp_path, pack_dir, shorter, stale_model)
     assert committed_read_files(tmp_path) == []
 
-    write_replay_reads(tmp_path, pack_dir, gt, current)
+    write_cache_files(tmp_path, pack_dir, gt, current)
     assert len(list(tmp_path.glob("*.json"))) == 12
     assert len(committed_read_files(tmp_path)) == 4
     assert cached_pack_reads(tmp_path, pack_dir) == gt

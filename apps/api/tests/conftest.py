@@ -87,12 +87,10 @@ def live_settings() -> "Settings":
 @pytest.fixture(autouse=True)
 def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Settings see no .env and no OS env vars, so local runs behave like CI."""
-    from app.core.config import Settings, get_settings
+    from app.core.config import get_settings
+    from tests.support.pack_pages import make_settings_hermetic
 
-    for name in Settings.model_fields:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setitem(Settings.model_config, "env_file", None)
-    get_settings.cache_clear()
+    make_settings_hermetic(monkeypatch)
     yield
     get_settings.cache_clear()
 
@@ -181,14 +179,19 @@ PACK_PAGE_SOURCES = [
 
 @pytest.fixture(scope="session")
 def pack_images(pack_dir: Path) -> dict[int, bytes]:
-    """The two register page images of the pack, by page number."""
-    return {p: (pack_dir / f"t4_register_page{p}.jpg").read_bytes() for p in (1, 2)}
+    """The two register page images of the pack, by page number (the bytes `pack_pages`
+    extracts; test_F03_pack checks each source read exactly these)."""
+    from scripts.seed_cache import page_image
+    from tests.support.pack import PAGES
+
+    return {p: page_image(pack_dir, p) for p in PAGES}
 
 
 @pytest.fixture
 def replay_client(cached_reads_dir: Path) -> "ReplayModelClient":
-    """Replays the committed reads for the committed EXTRACT_MODEL and PROMPT_VERSION."""
-    from tests.support.extracted import replay_client as build
+    """Replays the committed reads for the committed EXTRACT_MODEL and PROMPT_VERSION, for a
+    test that reads committed pages directly (T026); `pack_pages` builds its own."""
+    from tests.support.pack_pages import replay_client as build
 
     return build(cached_reads_dir)
 
@@ -202,18 +205,22 @@ def pack_pages(
 
     `cache` loads `supabase/seed/extractions/` into a MemoryRepo (`load_cached_extractions`)
     and replays it; it skips while no read exists for the committed model and prompt version.
-    `live` reads afresh with `OpenAIModelClient` built from `live_settings` (this fixture runs
-    before the autouse `hermetic_settings`) into a MemoryRepo, writing nothing to disk.
+    It runs with settings made hermetic here (module fixtures run before the autouse
+    `hermetic_settings`), so the OS env and .env change neither the files matched nor the clock.
+    `live` reads afresh with `OpenAIModelClient` built from `live_settings` into a MemoryRepo,
+    writing nothing to disk; its retries back off for real.
     """
     from app.core.memory_repo import MemoryRepo
     from app.pipeline.model_client import OpenAIModelClient
-    from tests.support.extracted import NO_COMMITTED_READS, committed_read_files
-    from tests.support.pack_pages import cached_pack, extract_pack
+    from tests.support.extracted import cache_skip_reason
+    from tests.support.pack_pages import cached_pack, extract_pack, hermetic_settings_context
 
     if request.param == "cache":
-        if not committed_read_files(cached_reads_dir):
-            pytest.skip(NO_COMMITTED_READS)
-        return cached_pack(cached_reads_dir, pack_dir)
+        with hermetic_settings_context():
+            skip_reason = cache_skip_reason(cached_reads_dir)
+            if skip_reason is not None:
+                pytest.skip(skip_reason)
+            return cached_pack(cached_reads_dir, pack_dir)
     settings: Settings = request.getfixturevalue("live_settings")
     assert settings.OPENAI_API_KEY is not None
     client = OpenAIModelClient(

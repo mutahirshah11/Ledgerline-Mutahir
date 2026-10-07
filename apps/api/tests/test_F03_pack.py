@@ -10,16 +10,28 @@ real read exists.
 """
 
 from fractions import Fraction
+from hashlib import sha256
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from app.domain.enums import CellStatus, RegisterField
-from app.domain.models import Cell
+import tests.support.pack_pages as pack_pages_module
+from app.core.memory_repo import MemoryRepo
+from app.domain.enums import CellStatus, ReadVariant, RegisterField
+from app.domain.models import Cell, PageExtractionResult
+from app.pipeline.extract import extract_page
 from scripts.eval_extraction import evaluate, load_ground_truth
-from tests.support.extracted import ground_truth_read
+from tests.fakes.model_clients import ScriptedModelClient
+from tests.support.extracted import NO_COMMITTED_READS, cache_skip_reason, ground_truth_read
 from tests.support.pack import PAGES
-from tests.support.pack_pages import PackPages, cached_pack, write_cache_files
+from tests.support.pack_pages import (
+    PackPages,
+    cached_pack,
+    extract_pack,
+    offline_settings,
+    write_cache_files,
+)
 
 EXPECTED_REVIEW_KEYS = {"CELL:REG-p2-r05:qty", "CELL:REG-p2-r14:qty"}
 """The only review items the golden counts allow from extraction: 4419's correction and 4428's
@@ -104,6 +116,15 @@ def test_F03_AC6_accuracy_and_no_guess(pack_pages: PackPages) -> None:
     check_ac6_accuracy(pack_pages)
 
 
+def test_F03_pack_pages_are_the_pack_images(
+    pack_pages: PackPages, pack_images: dict[int, bytes]
+) -> None:
+    """Each source extracted the pack's own register images (matched by SHA-256)."""
+    assert {p: pack_pages[p].page.page_sha256 for p in PAGES} == {
+        p: sha256(pack_images[p]).hexdigest() for p in PAGES
+    }
+
+
 def test_F03_pack_no_reviewable_disagreements(pack_pages: PackPages) -> None:
     """Cache only: the committed reads queue exactly 4419's and 4428's qty, so the golden
     counts hold for the `cache` source (FR-035). A live read may differ run to run."""
@@ -162,3 +183,73 @@ def test_F03_pack_assertions_catch_a_guess(
         check_ac1_ink_blot(pages)
     with pytest.raises(AssertionError):
         check_ac6_accuracy(pages)
+
+
+# --- the extraction path itself (offline) ---------------------------------------------------
+
+
+def _spy_extract_page(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Records the keyword arguments `extract_pack` passes to `extract_page`."""
+    calls: list[dict[str, Any]] = []
+
+    def spy(**kwargs: Any) -> PageExtractionResult:
+        calls.append(kwargs)
+        return extract_page(**kwargs)
+
+    monkeypatch.setattr(pack_pages_module, "extract_page", spy)
+    return calls
+
+
+def test_F03_pack_cache_source_never_sleeps(
+    tmp_path: Path, pack_dir: Path, ground_truth_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `cache` source makes no calls, so it passes a no-op sleep to `extract_page`."""
+    write_cache_files(
+        tmp_path, pack_dir, {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
+    )
+    calls = _spy_extract_page(monkeypatch)
+
+    cached_pack(tmp_path, pack_dir)
+
+    assert len(calls) == len(PAGES)
+    for kwargs in calls:
+        sleep = kwargs["sleep"]
+        assert sleep is not None and sleep(30.0) is None  # returns at once: a no-op
+
+
+def test_F03_pack_live_source_backs_off_for_real(
+    pack_dir: Path, ground_truth_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `live` call (no `sleep` given) leaves `extract_page`'s default `time.sleep`, so a
+    retried live read really backs off (FR-007). Scripted client: no network, no sleeping."""
+    answers = {p: ground_truth_read(ground_truth_dir, p).model_dump(mode="json") for p in PAGES}
+    client = ScriptedModelClient({v: [answers[1], answers[2]] for v in ReadVariant})
+    calls = _spy_extract_page(monkeypatch)
+
+    extract_pack(
+        "live", repo=MemoryRepo(), client=client, settings=offline_settings(), pack_dir=pack_dir
+    )
+
+    assert len(calls) == len(PAGES)
+    assert all("sleep" not in kwargs for kwargs in calls)
+
+
+def test_F03_pack_cache_skip_reason(tmp_path: Path, pack_dir: Path, ground_truth_dir: Path) -> None:
+    """No `*.json`: "no committed reads"; only reads for another model or prompt version: says
+    so and names the expected pair; reads for the current pair: no skip."""
+    current = offline_settings()
+    assert cache_skip_reason(tmp_path) == NO_COMMITTED_READS
+    (tmp_path / ".gitkeep").write_text("")
+    assert cache_skip_reason(tmp_path) == NO_COMMITTED_READS
+
+    reads = {p: (ground_truth_read(ground_truth_dir, p),) * 2 for p in PAGES}
+    write_cache_files(
+        tmp_path, pack_dir, reads, current.model_copy(update={"PROMPT_VERSION": "v0"})
+    )
+    expected = f"{current.EXTRACT_MODEL}/{current.PROMPT_VERSION}"
+    assert cache_skip_reason(tmp_path) == (
+        f"committed reads are for another model/prompt version (expected {expected})"
+    )
+
+    write_cache_files(tmp_path, pack_dir, reads, current)
+    assert cache_skip_reason(tmp_path) is None
