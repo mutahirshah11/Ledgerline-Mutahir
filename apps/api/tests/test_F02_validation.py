@@ -7,6 +7,7 @@ Broken copies are built from the pack's own bytes in memory (no files on disk); 
 
 import hashlib
 import io
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -22,6 +23,8 @@ from tests.fakes.api import FakeNotifier
 
 API = "/api/v1"
 Headers = dict[str, str]
+PackUpload = Callable[..., dict[str, Any]]
+BrokenUpload = Callable[[dict[str, bytes]], str]
 
 
 def _error(resp: Any) -> dict[str, Any]:
@@ -67,7 +70,7 @@ def broken_upload(
     tokens: dict[str, Headers],
     memory_blobs: MemoryBlobStore,
     pack_files: dict[str, bytes],
-):
+) -> BrokenUpload:
     """`broken_upload(replacements)`: the pack's files with `replacements` swapped in, uploaded
     and confirmed as the controller; returns the run id."""
     from tests.conftest import PACK_FILES
@@ -144,7 +147,7 @@ def _unreadable_register_bytes() -> bytes:
 
 
 def test_F02_AC1_pack_passes(
-    pack_upload, client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo
+    pack_upload: PackUpload, client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo
 ) -> None:
     run_id = pack_upload()["run"]["id"]
     resp = _validate(client, tokens["controller"], run_id)
@@ -158,7 +161,9 @@ def test_F02_AC1_pack_passes(
     assert [e.status for e in events] == [RunEventStatus.OK, RunEventStatus.STARTED]  # newest first
 
 
-def test_F02_AC2_missing_lot_no_column(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_AC2_missing_lot_no_column(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_erp_grn.csv": _erp_without_lot_no()})
     resp = _validate(client, tokens["controller"], run_id)
     assert resp.status_code == 422
@@ -170,7 +175,9 @@ def test_F02_AC2_missing_lot_no_column(broken_upload, client: TestClient, tokens
     assert "lot_no" in problems[0]["message"]
 
 
-def test_F02_AC3_renamed_worksheet_lists_found(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_AC3_renamed_worksheet_lists_found(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_store_sheet.xlsx": _xlsx(title="Aug-2026")})
     err = _error(_validate(client, tokens["controller"], run_id))
     problems = err["details"]["problems"]
@@ -178,7 +185,9 @@ def test_F02_AC3_renamed_worksheet_lists_found(broken_upload, client: TestClient
     assert "Aug-2026" in problems[0]["message"] and "Sep-2026" in problems[0]["message"]
 
 
-def test_F02_AC4_text_qty_bad_number_with_line(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_AC4_text_qty_bad_number_with_line(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_erp_grn.csv": _erp_with_bad_qty_on_line(5)})
     err = _error(_validate(client, tokens["controller"], run_id))
     problems = err["details"]["problems"]
@@ -186,7 +195,9 @@ def test_F02_AC4_text_qty_bad_number_with_line(broken_upload, client: TestClient
     assert problems[0]["location"]["line"] == 5
 
 
-def test_F02_AC5_two_broken_files_both_reported(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_AC5_two_broken_files_both_reported(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload(
         {
             "t4_erp_grn.csv": _erp_without_lot_no(),
@@ -200,7 +211,7 @@ def test_F02_AC5_two_broken_files_both_reported(broken_upload, client: TestClien
 
 
 def test_F02_AC6_text_date_not_a_problem(
-    pack_upload,
+    pack_upload: PackUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     pack_files: dict[str, bytes],
@@ -223,46 +234,60 @@ def test_F02_AC6_text_date_not_a_problem(
 # --- F-02.R1 to R3 (one representative each at API level; see test_F02_rules.py for units) --
 
 
-def test_F02_R1_bom_accepted(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R1_bom_accepted(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_erp_grn.csv": b"\xef\xbb\xbf" + _erp(GOOD_ROW)})
     resp = _validate(client, tokens["controller"], run_id)
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "problems": []}
 
 
-def test_F02_R1_bad_iso_date(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R1_bad_iso_date(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     bad = GOOD_ROW.replace("2026-09-01,S", "9/1/2026,S")
     run_id = broken_upload({"t4_erp_grn.csv": _erp(bad)})
     err = _error(_validate(client, tokens["controller"], run_id))
     assert [p["code"] for p in err["details"]["problems"]] == ["BAD_DATE"]
 
 
-def test_F02_R1_no_data_rows(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R1_no_data_rows(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_erp_grn.csv": _erp()})
     err = _error(_validate(client, tokens["controller"], run_id))
     assert [p["code"] for p in err["details"]["problems"]] == ["NO_DATA_ROWS"]
 
 
-def test_F02_R1_not_utf8_encoding(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R1_not_utf8_encoding(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_erp_grn.csv": _erp(GOOD_ROW).replace(b"QASR", b"Q\xe9SR")})
     err = _error(_validate(client, tokens["controller"], run_id))
     assert [p["code"] for p in err["details"]["problems"]] == ["ENCODING"]
 
 
-def test_F02_R2_missing_header(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R2_missing_header(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     headers = [h for h in SHEET_HEADERS if h != "Lot"]
     run_id = broken_upload({"t4_store_sheet.xlsx": _xlsx(headers=headers)})
     err = _error(_validate(client, tokens["controller"], run_id))
     assert [p["code"] for p in err["details"]["problems"]] == ["MISSING_HEADER"]
 
 
-def test_F02_R3_image_too_small(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R3_image_too_small(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_register_page1.jpg": _png(799, 1200)})
     err = _error(_validate(client, tokens["controller"], run_id))
     assert [p["code"] for p in err["details"]["problems"]] == ["IMAGE_TOO_SMALL"]
 
 
-def test_F02_R3_image_unreadable(broken_upload, client: TestClient, tokens) -> None:
+def test_F02_R3_image_unreadable(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
     run_id = broken_upload({"t4_register_page1.jpg": _unreadable_register_bytes()})
     err = _error(_validate(client, tokens["controller"], run_id))
     assert [p["code"] for p in err["details"]["problems"]] == ["IMAGE_UNREADABLE"]
@@ -278,7 +303,7 @@ def _ops_chat(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 def test_F02_R5_failure_sets_failed_validate_and_one_ops_alert(
-    broken_upload,
+    broken_upload: BrokenUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     memory_repo: MemoryRepo,
@@ -306,7 +331,7 @@ def test_F02_R5_failure_sets_failed_validate_and_one_ops_alert(
 
 
 def test_F02_R5_no_data_changed(
-    broken_upload,
+    broken_upload: BrokenUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     memory_repo: MemoryRepo,
@@ -337,7 +362,7 @@ def test_F02_R5_no_data_changed(
 
 
 def test_F02_R5_alert_reason_omits_file_contents_shows_codes_and_locations(
-    broken_upload,
+    broken_upload: BrokenUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     notifier: FakeNotifier,
@@ -357,7 +382,7 @@ def test_F02_R5_alert_reason_omits_file_contents_shows_codes_and_locations(
 
 
 def test_F02_R5_alert_reason_caps_at_three_with_and_n_more(
-    broken_upload,
+    broken_upload: BrokenUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     notifier: FakeNotifier,
@@ -380,7 +405,7 @@ def test_F02_R5_alert_reason_caps_at_three_with_and_n_more(
 
 
 def test_F02_R5_no_model_calls_on_failure(
-    broken_upload,
+    broken_upload: BrokenUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     memory_repo: MemoryRepo,
@@ -411,7 +436,7 @@ def test_F02_R5_no_model_calls_on_failure(
 
 
 def test_F02_missing_input_blob_500_stays_uploaded_one_alert(
-    broken_upload,
+    broken_upload: BrokenUpload,
     client: TestClient,
     tokens: dict[str, Headers],
     memory_repo: MemoryRepo,
@@ -440,7 +465,7 @@ def test_F02_missing_input_blob_500_stays_uploaded_one_alert(
 
 
 def test_F02_validate_twice_idempotent(
-    pack_upload, client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo
+    pack_upload: PackUpload, client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo
 ) -> None:
     run_id = pack_upload()["run"]["id"]
     first = _validate(client, tokens["controller"], run_id)
@@ -455,7 +480,7 @@ def test_F02_validate_twice_idempotent(
 
 
 def test_F02_validate_on_failed_validate_409(
-    broken_upload, client: TestClient, tokens: dict[str, Headers]
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
 ) -> None:
     run_id = broken_upload({"t4_erp_grn.csv": _erp_without_lot_no()})
     first = _validate(client, tokens["controller"], run_id)
@@ -470,7 +495,7 @@ def test_F02_validate_on_failed_validate_409(
 
 
 def test_F02_ops_on_run_failed_at_extract_409(
-    pack_upload, client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo
+    pack_upload: PackUpload, client: TestClient, tokens: dict[str, Headers], memory_repo: MemoryRepo
 ) -> None:
     """The `ops_retry` guard admits OPS whenever the run is `FAILED`, whatever the stage; EP-08
     itself still only accepts `UPLOADED` (data-model.md §3), so this is 409, not a retry."""
@@ -500,7 +525,7 @@ def test_F02_ops_on_uploaded_run_403(client: TestClient, tokens: dict[str, Heade
 
 
 def test_F02_validate_concurrent_repeat_no_failed_event_left_behind(
-    pack_upload,
+    pack_upload: PackUpload,
     memory_repo: MemoryRepo,
     memory_blobs: MemoryBlobStore,
     monkeypatch: pytest.MonkeyPatch,

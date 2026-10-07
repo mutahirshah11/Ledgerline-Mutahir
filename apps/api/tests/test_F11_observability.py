@@ -130,6 +130,8 @@ def test_F11_R7_health_never_returns_setting_values(
     for value in settings.secret_values():
         assert value not in text
     assert settings.SUPABASE_URL not in text
+    assert settings.TELEGRAM_OPS_CHAT_ID is not None
+    assert settings.TELEGRAM_CONTROLLER_CHAT_ID is not None
     assert settings.TELEGRAM_OPS_CHAT_ID not in text
     assert settings.TELEGRAM_CONTROLLER_CHAT_ID not in text
 
@@ -320,9 +322,9 @@ def test_F11_AC1_all_timestamps_on_scenario_day(
         assert f.confirmed_at is not None
         _assert_karachi_scenario_day(f.confirmed_at, f"source_file[{f.id}].confirmed_at")
         if f.page_no is not None:
-            page = memory_repo.get_page(f.sha256)
-            assert page is not None
-            _assert_karachi_scenario_day(page.first_seen_at, f"page[{f.sha256}].first_seen_at")
+            entry = memory_repo.get_page(f.sha256)
+            assert entry is not None
+            _assert_karachi_scenario_day(entry.first_seen_at, f"page[{f.sha256}].first_seen_at")
 
     events = memory_repo.list_run_events(rid)
     assert events
