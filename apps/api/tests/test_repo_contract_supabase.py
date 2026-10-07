@@ -11,9 +11,12 @@ import inspect
 import pytest
 
 import tests.test_repo_contract as contract
-from app.core.config import Settings
 from app.core.supabase_repo import SupabaseRepo, create_service_client
-from tests.support.supabase_project import load_test_settings, reset_test_project
+from tests.support.supabase_project import (
+    SupabaseTestProject,
+    load_test_project,
+    reset_test_project,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -23,13 +26,13 @@ for _name, _test in vars(contract).items():
 
 
 @pytest.fixture(scope="module")
-def supabase_settings() -> Settings:
-    return load_test_settings()
+def supabase_project() -> SupabaseTestProject:
+    return load_test_project()
 
 
 @pytest.fixture
-def repo(supabase_settings: Settings) -> SupabaseRepo:
+def repo(supabase_project: SupabaseTestProject) -> SupabaseRepo:
     """Overrides conftest's `repo` for the tests collected in this module."""
-    client = create_service_client(supabase_settings)
-    reset_test_project(client)
-    return SupabaseRepo(supabase_settings, client=client)
+    client = create_service_client(supabase_project.settings)
+    reset_test_project(client, supabase_project.ref)
+    return SupabaseRepo(supabase_project.settings, client=client)

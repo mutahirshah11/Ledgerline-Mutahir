@@ -16,7 +16,7 @@ import tests.test_blobstore as contract
 from app.core import clock
 from app.core.storage import SupabaseBlobStore
 from app.core.supabase_repo import create_service_client
-from tests.support.supabase_project import guard_test_project, load_test_settings
+from tests.support.supabase_project import guard_test_project, load_test_project
 
 pytestmark = pytest.mark.integration
 
@@ -70,10 +70,10 @@ class PrefixedBlobs:
 @pytest.fixture
 def memory_blobs() -> Iterator[PrefixedBlobs]:
     """Overrides conftest's `memory_blobs` for the tests collected in this module."""
-    settings = load_test_settings()
-    client = create_service_client(settings)
-    guard_test_project(client)
-    blobs = PrefixedBlobs(SupabaseBlobStore(settings, client=client))
+    project = load_test_project()
+    client = create_service_client(project.settings)
+    guard_test_project(client, project.ref)
+    blobs = PrefixedBlobs(SupabaseBlobStore(project.settings, client=client))
     yield blobs
     for bucket in ("inputs", "reports"):
         paths = [p for b, p in blobs.written if b == bucket]

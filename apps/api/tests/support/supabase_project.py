@@ -1,13 +1,17 @@
 """The Supabase TEST project for `integration` contract suites (T063, T066, Section 28).
 
-Credentials come from `apps/api/.env.test` ONLY (never `apps/api/.env`, the dev project):
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Without the file the suites skip. The project
-must also carry `tests/sql/test_project_reset.sql`; `guard_test_project` skips otherwise, so a
-real project named by mistake is never written to.
+Credentials come from `apps/api/.env.test` ONLY: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+and `SUPABASE_TEST_PROJECT_REF` (the `<ref>` of `https://<ref>.supabase.co`). Without the file
+the suites skip. They FAIL (never write) when `.env.test` names the same project as
+`apps/api/.env` (the dev project), when the ref does not match the URL host, or when the
+project's `ledgerline_test_project()` (tests/sql/test_project_reset.sql) returns another ref.
+URLs are compared in Python only and never printed.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 
@@ -15,20 +19,41 @@ from app.core.config import Settings
 
 API_DIR = Path(__file__).resolve().parents[2]
 ENV_TEST = API_DIR / ".env.test"
+ENV_DEV = API_DIR / ".env"
 RESET_SQL = "apps/api/tests/sql/test_project_reset.sql"
 
 
-def load_test_settings() -> Settings:
-    """Settings for the test project, or skip. Reads only the two Supabase keys."""
+@dataclass(frozen=True)
+class SupabaseTestProject:
+    settings: Settings
+    ref: str
+
+
+def _same_url(a: str, b: str) -> bool:
+    return a.strip().rstrip("/").lower() == b.strip().rstrip("/").lower()
+
+
+def load_test_project(env_test: Path = ENV_TEST, env_dev: Path = ENV_DEV) -> SupabaseTestProject:
+    """The test project from `env_test`, or skip (no file) / fail (unsafe configuration)."""
     from dotenv import dotenv_values
 
-    if not ENV_TEST.is_file():
+    if not env_test.is_file():
         pytest.skip("integration: create apps/api/.env.test for the Supabase TEST project")
-    values = dotenv_values(ENV_TEST)
+    values = dotenv_values(env_test)
     url, key = values.get("SUPABASE_URL"), values.get("SUPABASE_SERVICE_ROLE_KEY")
+    ref = values.get("SUPABASE_TEST_PROJECT_REF")
     if not url or not key:
         pytest.skip("integration: .env.test needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
-    return Settings(_env_file=None, SUPABASE_URL=url, SUPABASE_SERVICE_ROLE_KEY=key)
+    dev_url = dotenv_values(env_dev).get("SUPABASE_URL") if env_dev.is_file() else None
+    if dev_url and _same_url(dev_url, url):
+        pytest.fail("integration: .env.test names the dev project of apps/api/.env; refusing")
+    if not ref:
+        pytest.fail("integration: .env.test needs SUPABASE_TEST_PROJECT_REF")
+    host = (urlparse(url).hostname or "").lower()
+    if host.split(".")[0] != ref.lower():
+        pytest.fail("integration: SUPABASE_TEST_PROJECT_REF does not match the SUPABASE_URL host")
+    settings = Settings(_env_file=None, SUPABASE_URL=url, SUPABASE_SERVICE_ROLE_KEY=key)
+    return SupabaseTestProject(settings, ref)
 
 
 def _rpc(client: Any, name: str) -> Any:
@@ -42,13 +67,13 @@ def _rpc(client: Any, name: str) -> Any:
         raise
 
 
-def guard_test_project(client: Any) -> None:
-    """Skip unless the project is marked as the test project."""
-    if _rpc(client, "ledgerline_test_project") is not True:
-        pytest.skip(f"integration: apply {RESET_SQL} to the TEST project first")
+def guard_test_project(client: Any, ref: str) -> None:
+    """Fail unless the project marks itself as the test project with this `ref`."""
+    if _rpc(client, "ledgerline_test_project") != ref:
+        pytest.fail(f"integration: ledgerline_test_project() does not return the ref ({RESET_SQL})")
 
 
-def reset_test_project(client: Any) -> None:
+def reset_test_project(client: Any, ref: str) -> None:
     """Empty every table (test project only), so each contract test starts fresh."""
-    guard_test_project(client)
+    guard_test_project(client, ref)
     _rpc(client, "ledgerline_test_reset")

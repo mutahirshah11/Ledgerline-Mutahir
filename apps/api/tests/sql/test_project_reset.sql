@@ -4,16 +4,19 @@
 -- Apply once to the separate Supabase TEST project (the one in apps/api/.env.test), after
 -- supabase/migrations/0001_init.sql, in its SQL editor. The integration contract suites
 -- (tests/test_repo_contract_supabase.py, tests/test_blobstore_supabase.py) refuse to run
--- unless `ledgerline_test_project()` exists, so pointing .env.test at a real project skips
--- instead of writing into it. `ledgerline_test_reset()` empties every table before each Repo
+-- unless `ledgerline_test_project()` returns the SUPABASE_TEST_PROJECT_REF of .env.test, so
+-- pointing .env.test at a real project never writes into it. BEFORE APPLYING: replace
+-- REPLACE_WITH_TEST_PROJECT_REF below with the test project's ref (https://<ref>.supabase.co). `ledgerline_test_reset()` empties every table before each Repo
 -- contract test (the contract assumes a fresh store, like MemoryRepo); it lifts the audit_log
 -- append-only triggers only inside its own transaction.
 -- =============================================================================================
 
+drop function if exists ledgerline_test_project();  -- earlier version returned boolean
+
 create or replace function ledgerline_test_project()
-returns boolean
+returns text
 language sql
-as $$ select true $$;
+as $$ select 'REPLACE_WITH_TEST_PROJECT_REF'::text $$;
 
 create or replace function ledgerline_test_reset()
 returns void
