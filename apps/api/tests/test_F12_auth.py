@@ -7,6 +7,7 @@ added later are covered automatically.
 
 import re
 import secrets
+import threading
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -118,12 +119,22 @@ def test_F12_AC2_unlisted_email_forbidden(
             lambda: make_token(CONTROLLER_EMAIL, kid="rsa-declared"),
             id="jwk-alg-differs",
         ),
+        pytest.param(
+            # same RSA key, valid RS256 signature, but the JWK is declared for PS256 only
+            lambda: make_token(CONTROLLER_EMAIL, alg="RS256", key=RSA_KEY, kid="rsa-ps"),
+            id="RS256-header-PS256-jwk",
+        ),
     ],
 )
 def test_F12_R3_rejects_bad_tokens(
     client: TestClient, jwks_fetcher: FakeJwksFetcher, token: Any
 ) -> None:
-    jwks_fetcher.keys = [public_jwk(), rsa_jwk("rsa"), rsa_jwk("rsa-declared")]
+    jwks_fetcher.keys = [
+        public_jwk(),
+        rsa_jwk("rsa"),
+        rsa_jwk("rsa-declared"),
+        rsa_jwk("rsa-ps", alg="PS256"),
+    ]
     resp = client.get("/api/v1/me", headers=_bearer(token()))
     assert resp.status_code == 401
     assert resp.headers["WWW-Authenticate"] == "Bearer"
@@ -239,6 +250,38 @@ def test_F12_R3_unknown_kids_refetch_at_most_once_per_interval() -> None:
     assert len(fetcher.calls) == 3
     assert cache.get_key(JWKS_URL, TEST_KID) is not None
     assert len(fetcher.calls) == 3
+
+
+def test_F12_R3_concurrent_unknown_kids_fetch_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """N requests with an unknown kid all miss the cache before any of them fetches; the
+    re-check under the fetch lock lets only the first one refetch."""
+    n = 5
+    fetcher = FakeJwksFetcher()
+    cache = JwksCache(fetcher, ttl_s=600, min_refetch_s=30, mono=Mono())
+    assert cache.get_key(JWKS_URL, TEST_KID) is not None  # warm
+    barrier = threading.Barrier(n, timeout=10)
+    seen = threading.local()
+    lookup = cache._lookup
+
+    def first_lookup_meets_at_barrier(url: str, kid: str) -> Any:
+        result = lookup(url, kid)
+        if not getattr(seen, "done", False):
+            seen.done = True
+            barrier.wait()
+        return result
+
+    monkeypatch.setattr(cache, "_lookup", first_lookup_meets_at_barrier)
+    results: list[Any] = []
+    threads = [
+        threading.Thread(target=lambda: results.append(cache.get_key(JWKS_URL, "unknown")))
+        for _ in range(n)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert results == [None] * n
+    assert len(fetcher.calls) == 2
 
 
 def test_F12_R3_outage_costs_one_fetch_per_interval() -> None:

@@ -18,6 +18,14 @@ def test_phase3_setting_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.REPO_BACKEND == "supabase"
 
 
+def test_jwks_cache_not_shorter_than_min_refetch() -> None:
+    """F-12.R3: a cache shorter than the refetch interval would serve 502s between TTL expiry
+    and the next allowed fetch after a failure."""
+    with pytest.raises(ValueError, match="JWKS_CACHE_S"):
+        Settings(_env_file=None, JWKS_CACHE_S=10, JWKS_MIN_REFETCH_S=30)
+    assert Settings(_env_file=None, JWKS_CACHE_S=30, JWKS_MIN_REFETCH_S=30).JWKS_CACHE_S == 30
+
+
 def test_cors_origins_split_on_commas() -> None:
     s = Settings(_env_file=None, CORS_ORIGINS="http://a.test, http://b.test")
     assert s.cors_origin_list == ["http://a.test", "http://b.test"]

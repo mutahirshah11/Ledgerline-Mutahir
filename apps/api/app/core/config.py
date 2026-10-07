@@ -101,6 +101,13 @@ class Settings(BaseSettings):
             raise ValueError("LEDGERLINE_NOW_ANCHOR is required when LEDGERLINE_CLOCK_MODE=offset")
         return self
 
+    @model_validator(mode="after")
+    def _jwks_cache_covers_refetch_interval(self) -> Self:
+        # F-12.R3: keys must outlive the refetch throttle, or a failed refresh 502s until it ends.
+        if self.JWKS_CACHE_S < self.JWKS_MIN_REFETCH_S:
+            raise ValueError("JWKS_CACHE_S must be at least JWKS_MIN_REFETCH_S")
+        return self
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
