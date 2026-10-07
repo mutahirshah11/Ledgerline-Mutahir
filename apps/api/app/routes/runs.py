@@ -193,7 +193,7 @@ def list_runs(repo: RepoDep, limit: Annotated[int, Query(ge=1, le=100)] = 20) ->
             month=run.month,
             status=run.status,
             created_at=run.created_at,
-            counts=stages.outcome_counts(repo, run.id),
+            counts=stages.run_outcome_counts(repo, run.id),
             proof_status=_proof_status(repo, run.id),
         )
         for run in repo.list_runs(limit)
@@ -207,7 +207,7 @@ def get_run(id: UUID, repo: RepoDep) -> RunDetail:
     return RunDetail(
         **RunOut.of(run).model_dump(),
         stage_progress=_stage_progress(repo, run),
-        counts=stages.outcome_counts(repo, run.id),
+        counts=stages.run_outcome_counts(repo, run.id),
         proof_status=_proof_status(repo, run.id),
         open_review_items=len(repo.list_review_items(run.id, ReviewStatus.OPEN)),
     )

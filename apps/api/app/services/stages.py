@@ -31,6 +31,7 @@ from app.domain.enums import (
 )
 from app.domain.ids import parse_month, run_key
 from app.domain.models import AllowedUser, PageManifestEntry, Run, Sha256Hex, SourceFile
+from app.pipeline.engine import outcome_counts_of
 from app.services.audit import audit
 from app.services.runlog import StepLog
 
@@ -434,17 +435,9 @@ def confirm_uploads(
 
 # --- read views ------------------------------------------------------------------------
 
-ROW_OUTCOMES = frozenset({Outcome.DUPLICATE, Outcome.NON_RECEIPT})
-"""Row-only outcomes (Section 8 count table); the rest count groups."""
 
+def run_outcome_counts(repo: Repo, run_id: UUID) -> dict[Outcome, int]:
+    """data-model.md §2 `OutcomeCounts` of a stored run (engine `OutcomeCounts.flat`).
 
-def outcome_counts(repo: Repo, run_id: UUID) -> dict[Outcome, int]:
-    """data-model.md §2 `OutcomeCounts`: all eight keys; groups, except row-only outcomes."""
-    counts = dict.fromkeys(Outcome, 0)
-    for group in repo.list_groups(run_id):
-        if group.outcome not in ROW_OUTCOMES:
-            counts[group.outcome] += 1
-    for row in repo.list_source_rows(run_id):
-        if row.outcome in ROW_OUTCOMES:
-            counts[row.outcome] += 1
-    return counts
+    Two reads (groups, rows) per run; EP-04 calls it per listed run (Phase 5 follow-up)."""
+    return outcome_counts_of(repo.list_source_rows(run_id), repo.list_groups(run_id)).flat()

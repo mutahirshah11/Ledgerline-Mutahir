@@ -17,8 +17,8 @@ from app.services.stages import (
     UploadFileIn,
     confirm_uploads,
     create_run,
-    outcome_counts,
     request_uploads,
+    run_outcome_counts,
 )
 
 USER = AllowedUser(email="controller@kestrel.example", display_name="C", role=Role.CONTROLLER)
@@ -390,8 +390,29 @@ def test_svc_outcome_counts_groups_and_row_only_outcomes(memory_repo: MemoryRepo
     memory_repo.replace_reconciliation(
         run.id, ReconciliationPayload(rows=rows, groups=groups, flags=[], norm_log=[])
     )
-    counts = outcome_counts(memory_repo, run.id)
+    counts = run_outcome_counts(memory_repo, run.id)
     assert set(counts) == set(Outcome)
     assert counts[Outcome.MATCHED] == 2 and counts[Outcome.MISSING] == 1
     assert counts[Outcome.DUPLICATE] == 1 and counts[Outcome.NON_RECEIPT] == 1
     assert counts[Outcome.MISMATCHED] == 0
+
+
+def test_svc_engine_counts_flat_projection(memory_repo: MemoryRepo, run: Run) -> None:
+    """data-model.md §2: group outcomes count groups; DUPLICATE and NON_RECEIPT count rows."""
+    from app.domain.enums import Outcome, RowKind
+    from app.pipeline.engine import outcome_counts_of
+    from tests.factories import make_group, make_row
+
+    groups = [make_group(run.id, "GRN:1"), make_group(run.id, "GRN:2", outcome=Outcome.MISMATCHED)]
+    rows = [
+        make_row(run.id, "REG-p1-r01", group_id=groups[0].id, outcome=Outcome.MATCHED),
+        make_row(run.id, "ERP-0001", group_id=groups[0].id, outcome=Outcome.MATCHED),
+        make_row(run.id, "XLS-r2", row_kind=RowKind.DUPLICATE, outcome=Outcome.DUPLICATE),
+        make_row(run.id, "ERP-0002", row_kind=RowKind.DUPLICATE, outcome=Outcome.DUPLICATE),
+    ]
+    flat = outcome_counts_of(rows, groups).flat()
+    assert flat == dict.fromkeys(Outcome, 0) | {
+        Outcome.MATCHED: 1,
+        Outcome.MISMATCHED: 1,
+        Outcome.DUPLICATE: 2,
+    }

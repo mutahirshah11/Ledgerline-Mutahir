@@ -78,6 +78,20 @@ class OutcomeCounts:
             },
         }
 
+    def flat(self) -> dict[Outcome, int]:
+        """004 data-model.md §2 `OutcomeCounts`: groups per outcome, except the row-only
+        outcomes (DUPLICATE, NON_RECEIPT), which count rows over all sources."""
+        return {
+            o: sum(self.rows_by_outcome[o].values())
+            if o in ROW_ONLY_OUTCOMES
+            else self.groups_by_outcome[o]
+            for o in Outcome
+        }
+
+
+ROW_ONLY_OUTCOMES = frozenset({Outcome.DUPLICATE, Outcome.NON_RECEIPT})
+"""Outcomes a row gets without a group (Section 8 count table, "n/a" groups)."""
+
 
 @dataclass(frozen=True)
 class PipelineResult:
@@ -89,7 +103,8 @@ class PipelineResult:
     counts: OutcomeCounts
 
 
-def _counts(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> OutcomeCounts:
+def outcome_counts_of(rows: Sequence[CanonicalRow], groups: Sequence[Group]) -> OutcomeCounts:
+    """Groups and rows per outcome (also used by the API read views, 004 EP-04/EP-05)."""
     by_group = Counter(g.outcome for g in groups)
     by_row = Counter((r.outcome, r.source) for r in rows if r.outcome is not None)
     return OutcomeCounts(
@@ -157,7 +172,7 @@ def run_pipeline(
         ),
         review_items=review_items,
         proof=proof,
-        counts=_counts(rows, groups),
+        counts=outcome_counts_of(rows, groups),
     )
 
 
