@@ -490,3 +490,40 @@ def test_svc_confirm_files_changed_during_confirm_fails_upload_one_alert(
     events = [e for e in memory_repo.list_run_events(run.id) if e.stage is Stage.UPLOAD]
     assert events[0].status is RunEventStatus.FAILED
     assert [a.action for a in memory_repo.list_audit(run_id=run.id)] == [AuditAction.ALERT_SENT]
+
+
+def test_svc_upload_filename_over_255_chars_rejected() -> None:
+    """EP-06 bounds the declared filename (storage keys and audit rows stay small)."""
+    from pydantic import ValidationError
+
+    spec, _ = _pack()[2]
+    UploadFileIn(**{**spec.model_dump(), "filename": "e" * 251 + ".csv"})
+    with pytest.raises(ValidationError):
+        UploadFileIn(**{**spec.model_dump(), "filename": "e" * 252 + ".csv"})
+
+
+def test_svc_upload_filename_over_255_chars_400(
+    client: Any, tokens: dict[str, dict[str, str]]
+) -> None:
+    headers = tokens["controller"]
+    run_id = client.post("/api/v1/runs", json={"month": "2026-09"}, headers=headers).json()["id"]
+    spec, _ = _pack()[2]
+    declared = {**spec.model_dump(mode="json"), "filename": "e" * 252 + ".csv"}
+    resp = client.post(
+        f"/api/v1/runs/{run_id}/uploads", json={"files": [declared]}, headers=headers
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "BAD_REQUEST"
+
+
+def test_svc_confirm_verifies_each_file_with_one_get(
+    memory_repo: MemoryRepo, blobs: MemoryBlobStore, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FM-01/FM-02 read each object once (`get`, NotFound → FILE_MISSING), no `exists` call."""
+    _upload_all(memory_repo, blobs, run, _pack())
+
+    def no_exists(*_: Any) -> bool:
+        raise AssertionError("exists() called")
+
+    monkeypatch.setattr(blobs, "exists", no_exists)
+    assert confirm_uploads(memory_repo, blobs, run, USER).run.status is RunStatus.UPLOADED

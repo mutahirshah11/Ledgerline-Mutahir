@@ -496,6 +496,29 @@ def test_F02_unexpected_error_500_stays_uploaded_one_alert(
     assert len(notifier.sent) == 1
 
 
+def test_F02_problems_capped_at_200_with_truncated_count(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
+    """A huge broken file cannot make an unbounded 422 body: `details.problems` keeps the
+    first 200 problems and `details.truncated` counts the rest."""
+    bad = GOOD_ROW.replace(",2000,", ",abc,")
+    run_id = broken_upload({"t4_erp_grn.csv": _erp(*([bad] * 250))})
+    resp = _validate(client, tokens["controller"], run_id)
+    assert resp.status_code == 422
+    details = _error(resp)["details"]
+    assert len(details["problems"]) == 200
+    assert details["truncated"] == 50
+    assert details["problems"][0]["location"]["line"] == 1  # the first problems are kept
+
+
+def test_F02_problems_not_truncated_under_cap(
+    broken_upload: BrokenUpload, client: TestClient, tokens: dict[str, Headers]
+) -> None:
+    run_id = broken_upload({"t4_erp_grn.csv": _erp_with_bad_qty_on_line(3)})
+    details = _error(_validate(client, tokens["controller"], run_id))["details"]
+    assert "truncated" not in details and len(details["problems"]) == 1
+
+
 # --- idempotency and retry rules (data-model.md §3) ---------------------------------------
 
 

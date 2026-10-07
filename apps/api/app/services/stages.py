@@ -94,7 +94,7 @@ class UploadFileIn(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     source: Source
-    filename: str = Field(min_length=1)
+    filename: str = Field(min_length=1, max_length=255)
     size_bytes: int = Field(ge=1)
     sha256: Sha256Hex
     page_no: int | None = Field(default=None, ge=1, le=MAX_PAGES)
@@ -345,9 +345,12 @@ def _verify(
         return [_file_ref(f, "UPLOAD_EXPIRED") for f in files]
     problems: list[dict[str, Any]] = []
     for f in files:
-        if not blobs.exists(INPUTS_BUCKET, f.storage_path):
+        try:
+            data = blobs.get(INPUTS_BUCKET, f.storage_path)
+        except NotFound:
             problems.append(_file_ref(f, "FILE_MISSING"))
-        elif hashlib.sha256(blobs.get(INPUTS_BUCKET, f.storage_path)).hexdigest() != f.sha256:
+            continue
+        if hashlib.sha256(data).hexdigest() != f.sha256:
             blobs.delete(INPUTS_BUCKET, f.storage_path)
             problems.append(_file_ref(f, "HASH_MISMATCH"))
     return problems
@@ -561,6 +564,8 @@ def _register_files(repo: Repo, blobs: BlobStore, run_id: UUID) -> list[Register
 
 
 ERROR_MESSAGE_LIMIT = 500
+PROBLEMS_SHOWN = 200
+"""Cap on EP-08's 422 `details.problems`; `details.truncated` counts the rest."""
 """Hard cap on `runs.error_message` (item 3); long enough to show a few problems in full."""
 _SUMMARY_SHOWN = 3
 """How many problems the run's `error_message` and the ops alert reason show in full."""
@@ -685,12 +690,16 @@ def _validate_uploaded(
             now=now,
         )
         return []
+    shown = [p.model_dump(mode="json") for p in problems[:PROBLEMS_SHOWN]]
+    details: dict[str, Any] = {"problems": shown}
+    if len(problems) > PROBLEMS_SHOWN:
+        details["truncated"] = len(problems) - PROBLEMS_SHOWN
     err = ApiError(
         ErrorCode.CONTRACT_VIOLATION,
         422,
         "The inputs break the contract; see details.problems",
         Stage.VALIDATE,
-        {"problems": [p.model_dump(mode="json") for p in problems]},
+        details,
     )
     failed = repo.transition_run(
         run.id,
