@@ -526,7 +526,7 @@ def confirm_uploads(
 def run_outcome_counts(repo: Repo, run_id: UUID) -> dict[Outcome, int]:
     """data-model.md §2 `OutcomeCounts` of a stored run (engine `OutcomeCounts.flat`).
 
-    Two reads (groups, rows) per run; EP-04 calls it per listed run (Phase 5 follow-up)."""
+    Two reads (groups, rows); EP-04 uses the batched `Repo.count_outcomes` instead (006)."""
     return outcome_counts_of(repo.list_source_rows(run_id), repo.list_groups(run_id)).flat()
 
 

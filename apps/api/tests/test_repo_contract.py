@@ -79,6 +79,8 @@ REPO_METHODS = {
     "list_norm_log",
     "save_proof",
     "get_proof",
+    "list_proof_statuses",  # 006 batched read (EP-04)
+    "count_outcomes",  # 006 batched read (EP-04)
     "upsert_review_items",
     "list_review_items",
     "get_review_item",

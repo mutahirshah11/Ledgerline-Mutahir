@@ -174,14 +174,6 @@ class NormLogEntryOut(BaseModel):
     after: str | None
 
 
-# --- views -----------------------------------------------------------------------------
-
-
-def _proof_status(repo: Repo, run_id: UUID) -> ProofStatus | None:
-    proof = repo.get_proof(run_id)
-    return None if proof is None else proof.status
-
-
 # --- endpoints -------------------------------------------------------------------------
 
 
@@ -193,17 +185,22 @@ def create_run(body: CreateRunRequest, user: Controller, repo: RepoDep) -> RunOu
 
 @router.get("/runs", response_model=list[RunSummary])
 def list_runs(repo: RepoDep, limit: Annotated[int, Query(ge=1, le=100)] = 20) -> list[RunSummary]:
-    """EP-04: newest first, counts by outcome and proof status (FR-013)."""
+    """EP-04: newest first, counts by outcome and proof status (FR-013); three Repo reads
+    whatever the limit (006 carry-over, NFR-02)."""
+    runs = repo.list_runs(limit)
+    ids = [run.id for run in runs]
+    counts = repo.count_outcomes(ids)
+    proofs = repo.list_proof_statuses(ids)
     return [
         RunSummary(
             id=run.id,
             month=run.month,
             status=run.status,
             created_at=run.created_at,
-            counts=stages.run_outcome_counts(repo, run.id),
-            proof_status=_proof_status(repo, run.id),
+            counts=counts[run.id],
+            proof_status=proofs.get(run.id),
         )
-        for run in repo.list_runs(limit)
+        for run in runs
     ]
 
 

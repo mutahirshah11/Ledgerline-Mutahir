@@ -9,7 +9,7 @@ Every public method holds one re-entrant lock: FastAPI runs sync routes on a thr
 
 import functools
 import threading
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 from uuid import UUID
@@ -18,9 +18,11 @@ from pydantic import BaseModel
 
 from app.core.errors import AppendOnlyViolation, NotFound, StateConflict, UniqueViolation
 from app.domain.enums import (
+    ROW_ONLY_OUTCOMES,
     NotificationKind,
     NotificationStatus,
     Outcome,
+    ProofStatus,
     ReadVariant,
     ReviewKind,
     ReviewStatus,
@@ -61,6 +63,23 @@ _NOTIFICATION_FIXED_FIELDS = frozenset({"id", "run_id", "kind", "idempotency_key
 _REVIEW_REFRESHED_FIELDS = tuple("reason read_a read_b context grn_no source_row_id field".split())
 
 ExtractionKey = tuple[str, ReadVariant, str, str]
+
+
+def tally_outcomes(
+    run_ids: Iterable[UUID],
+    group_outcomes: Iterable[tuple[UUID, Outcome | None]],
+    row_outcomes: Iterable[tuple[UUID, Outcome | None]],
+) -> dict[UUID, dict[Outcome, int]]:
+    """`count_outcomes` from (run_id, outcome) of groups and rows: groups count for every
+    outcome but `ROW_ONLY_OUTCOMES`, rows only for those (engine `OutcomeCounts.flat`)."""
+    out = {run_id: dict.fromkeys(Outcome, 0) for run_id in run_ids}
+    for run_id, outcome in group_outcomes:
+        if run_id in out and outcome is not None and outcome not in ROW_ONLY_OUTCOMES:
+            out[run_id][outcome] += 1
+    for run_id, row_outcome in row_outcomes:
+        if run_id in out and row_outcome in ROW_ONLY_OUTCOMES:
+            out[run_id][row_outcome] += 1
+    return out
 
 
 def _copy(model: M) -> M:
@@ -410,6 +429,14 @@ class MemoryRepo:
         groups.sort(key=lambda g: (g.grn_no is None, g.grn_no or 0, g.group_key))
         return [_copy(g) for g in groups]
 
+    def count_outcomes(self, run_ids: Sequence[UUID]) -> dict[UUID, dict[Outcome, int]]:
+        recons = [(r, self._recon_of(r)) for r in dict.fromkeys(run_ids)]
+        return tally_outcomes(
+            run_ids,
+            ((r, g.outcome) for r, recon in recons for g in recon.groups.values()),
+            ((r, row.outcome) for r, recon in recons for row in recon.rows.values()),
+        )
+
     def get_group(self, run_id: UUID, group_key: str) -> Group:
         group = self._recon_of(run_id).groups.get(group_key)
         if group is None:
@@ -438,6 +465,9 @@ class MemoryRepo:
     def get_proof(self, run_id: UUID) -> Proof | None:
         proof = self._proofs.get(run_id)
         return None if proof is None else _copy(proof)
+
+    def list_proof_statuses(self, run_ids: Sequence[UUID]) -> dict[UUID, ProofStatus]:
+        return {r: self._proofs[r].status for r in run_ids if r in self._proofs}
 
     # --- review --------------------------------------------------------------------------
 

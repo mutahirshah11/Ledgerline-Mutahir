@@ -271,3 +271,6 @@ REVIEWABLE_REGISTER_FIELDS: frozenset[RegisterField] = frozenset(
 
 PRINTED_ROW_SLOTS = 16
 """Data row slots printed on one register page."""
+
+ROW_ONLY_OUTCOMES = frozenset({Outcome.DUPLICATE, Outcome.NON_RECEIPT})
+"""Outcomes a row gets without a group (Section 8 count table, "n/a" groups)."""

@@ -42,11 +42,14 @@ from app.core.memory_repo import (
     _SOURCE_ORDER,
     _review_sort_key,
     _updated,
+    tally_outcomes,
 )
 from app.domain.enums import (
+    ROW_ONLY_OUTCOMES,
     NotificationKind,
     NotificationStatus,
     Outcome,
+    ProofStatus,
     ReadVariant,
     ReviewStatus,
     RunStatus,
@@ -73,6 +76,21 @@ from app.domain.models import (
 from app.services.runlog import CauseOf, retrying, transient_cause
 
 logger = logging.getLogger(__name__)
+
+
+class _RunOutcome(BaseModel):
+    """`count_outcomes`: one group's or row's run and outcome."""
+
+    run_id: UUID
+    outcome: Outcome | None
+
+
+class _RunProofStatus(BaseModel):
+    """`list_proof_statuses`: one proof's run and status."""
+
+    run_id: UUID
+    status: ProofStatus
+
 
 M = TypeVar("M", bound=BaseModel)
 T = TypeVar("T")
@@ -620,6 +638,31 @@ class SupabaseRepo:
         groups.sort(key=lambda g: (g.grn_no is None, g.grn_no or 0, g.group_key))
         return groups
 
+    def count_outcomes(self, run_ids: Sequence[UUID]) -> dict[UUID, dict[Outcome, int]]:
+        """Two `run_id in (...)` queries of two columns (groups; rows of `ROW_ONLY_OUTCOMES`
+        only), tallied here; each paged by `_rows_all`."""
+        ids = [str(r) for r in dict.fromkeys(run_ids)]
+        if not ids:
+            return {}
+        row_only = sorted(o.value for o in ROW_ONLY_OUTCOMES)
+        groups = self._rows_all(
+            lambda: self._table("groups").select("run_id,outcome").in_("run_id", ids).order("id"),
+            _RunOutcome,
+        )
+        rows = self._rows_all(
+            lambda: (
+                self._table("source_rows")
+                .select("run_id,outcome")
+                .in_("run_id", ids)
+                .in_("outcome", row_only)
+                .order("id")
+            ),
+            _RunOutcome,
+        )
+        return tally_outcomes(
+            run_ids, ((g.run_id, g.outcome) for g in groups), ((r.run_id, r.outcome) for r in rows)
+        )
+
     def get_group(self, run_id: UUID, group_key: str) -> Group:
         group = self._one(
             lambda: (
@@ -663,6 +706,19 @@ class SupabaseRepo:
 
     def get_proof(self, run_id: UUID) -> Proof | None:
         return self._one(lambda: self._table("proofs").select("*").eq("run_id", str(run_id)), Proof)
+
+    def list_proof_statuses(self, run_ids: Sequence[UUID]) -> dict[UUID, ProofStatus]:
+        """One `run_id in (...)` query of two columns (paged by `_rows_all`)."""
+        ids = [str(r) for r in dict.fromkeys(run_ids)]
+        if not ids:
+            return {}
+        found = self._rows_all(
+            lambda: (
+                self._table("proofs").select("run_id,status").in_("run_id", ids).order("run_id")
+            ),
+            _RunProofStatus,
+        )
+        return {p.run_id: p.status for p in found}
 
     # --- review --------------------------------------------------------------------------
 

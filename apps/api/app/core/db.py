@@ -15,6 +15,7 @@ from app.domain.enums import (
     NotificationKind,
     NotificationStatus,
     Outcome,
+    ProofStatus,
     ReadVariant,
     ReviewStatus,
     RunStatus,
@@ -133,6 +134,11 @@ class Repo(Protocol):
     def list_norm_log(
         self, run_id: UUID, source_row_id: str | None = None
     ) -> list[NormLogEntry]: ...
+    def count_outcomes(self, run_ids: Sequence[UUID]) -> dict[UUID, dict[Outcome, int]]:
+        """006 (EP-04, NFR-02): the flat `OutcomeCounts` of each run (004 data-model.md §2:
+        groups per outcome, rows over all sources for `ROW_ONLY_OUTCOMES`), zero-filled for
+        every `Outcome` and every run given, in one read."""
+        ...
 
     # proof (F-07)
     def save_proof(self, proof: Proof) -> Proof:
@@ -140,6 +146,9 @@ class Repo(Protocol):
         ...
 
     def get_proof(self, run_id: UUID) -> Proof | None: ...
+    def list_proof_statuses(self, run_ids: Sequence[UUID]) -> dict[UUID, ProofStatus]:
+        """006 (EP-04, NFR-02): the proof status of each run that has a proof, in one read."""
+        ...
 
     # review (F-08)
     def upsert_review_items(self, run_id: UUID, items: list[ReviewItem]) -> list[ReviewItem]:

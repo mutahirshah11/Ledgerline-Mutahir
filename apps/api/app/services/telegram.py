@@ -22,6 +22,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import Repo
 from app.core.errors import ApiError, LedgerlineError, StateConflict, UpstreamFailed
 from app.domain.enums import (
+    ROW_ONLY_OUTCOMES,
     AuditAction,
     AuditChannel,
     ErrorCode,
@@ -34,7 +35,6 @@ from app.domain.enums import (
 from app.domain.ids import summary_key
 from app.domain.models import ExceptionItem, Notification, Proof, Run
 from app.pipeline import report
-from app.pipeline.engine import ROW_ONLY_OUTCOMES
 from app.services.audit import audit
 from app.services.runlog import OnRetry, StepLog, retrying, stage_step
 
