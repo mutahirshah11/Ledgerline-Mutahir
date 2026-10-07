@@ -24,7 +24,7 @@ from app.core.config import EXTRACT_ATTEMPTS, EXTRACT_TIMEOUT_S, EXTRACT_WAITS_S
 from app.core.errors import PageUnreadable, UpstreamFailed
 from app.core.memory_repo import MemoryRepo
 from app.domain.enums import Fault, ReadVariant, ReviewReason, RunStatus
-from app.domain.models import Extraction, PageRead
+from app.domain.models import Extraction, PageLabelMismatchContext, PageRead
 from app.pipeline import extract
 from app.pipeline.extract import (
     RetryInfo,
@@ -579,6 +579,63 @@ def test_F03_R5_both_fail_reports_read_a_error(repo: MemoryRepo) -> None:
     client = LastBSignals({A: [_status(openai.AuthenticationError, 401)], B: [_timeout()] * 3})
     error = _fails(repo, client)
     assert error.detail == "rejected: HTTP 401"
+
+
+class StoreFailsForA(MemoryRepo):
+    """`put_extraction` raises for read A (once) and signals that A's store was attempted."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.a_attempted = threading.Event()
+        self.failed = False
+
+    def put_extraction(self, extraction: Extraction) -> tuple[Extraction, bool]:
+        if extraction.read_variant is A and not self.failed:
+            self.failed = True
+            self.a_attempted.set()
+            raise RuntimeError("store down")
+        return super().put_extraction(extraction)
+
+
+def test_F03_FR007_store_error_still_stores_other_read(frozen_clock: datetime) -> None:
+    """A's store fails while B is in flight: B is still awaited and stored (FR-007), then the
+    store error is raised; a re-run reads A only."""
+    failing = StoreFailsForA()
+    failing.create_run(make_run(id=RUN_ID))
+
+    class BHeld(HeldClient):
+        def read_page(self, *, variant: ReadVariant, **kwargs: Any) -> RawRead:
+            if variant is B:
+                self.released_in_time = self.release.wait(timeout=WAIT_S)
+            return self.inner.read_page(variant=variant, **kwargs)
+
+    client = BHeld(raw(payload()), [raw(payload())], release=failing.a_attempted)
+    with pytest.raises(RuntimeError, match="store down"):
+        run(failing, client)
+    assert client.released_in_time is True
+    assert stored(failing, A) is None
+    assert stored(failing, B) is not None
+    assert failing.list_review_items(RUN_ID) == []
+
+    later = ScriptedModelClient({A: [raw(payload())]})
+    run(failing, later)
+    assert [r.variant for r in later.requests] == [A]
+
+
+def test_F03_FR021_reads_disagree_on_month_page_keeps_none_item_keeps_both(
+    repo: MemoryRepo,
+) -> None:
+    client = healthy(
+        raw(payload(month_written="Sep 2026", page_no_written="2")),
+        raw(payload(month_written="Oct 2026", page_no_written="3")),
+    )
+    result = run(repo, client)
+    assert result.page.month_written is None and result.page.page_no_written is None
+    (page_item,) = [i for i in result.review_items if i.reason is ReviewReason.PAGE_LABEL_MISMATCH]
+    context = page_item.context
+    assert isinstance(context, PageLabelMismatchContext)
+    assert context.month_written == {A: "Sep 2026", B: "Oct 2026"}
+    assert context.page_no_written == {A: "2", B: "3"}
 
 
 def _response_validation_error() -> Exception:

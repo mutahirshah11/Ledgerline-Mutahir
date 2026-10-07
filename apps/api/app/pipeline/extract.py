@@ -56,6 +56,7 @@ from app.domain.models import (
     PageExtractionResult,
     PageLabelMismatchContext,
     PageRead,
+    RegisterPageInput,
     ReviewItem,
     RowInOneReadContext,
 )
@@ -248,13 +249,20 @@ def _merged_edges(read_a: PageRead, read_b: PageRead) -> tuple[float | None, flo
     return top, bottom
 
 
+def _agreed(a: str | None, b: str | None) -> str | None:
+    """A header value both reads agree on (FR-015 "same"), as read A wrote it, else None."""
+    return a if _same_present(a, b) else None
+
+
 def merge_reads(
     read_a: PageRead, read_b: PageRead, *, page_no: int, page_sha256: str
 ) -> MergedPage:
     """Align both reads by row index (F-03.R8) and merge every cell (FR-016 to FR-021).
 
     Rows are sorted by row index and cells keep the fixed field order (FR-020). Month and page
-    number as written are read A's, or read B's when A has none.
+    number as written are kept (read A's text) only when both reads give the same value under
+    FR-015; when they differ or only one read gives one, neither is trusted and the value is
+    None (the `PAGE_LABEL_MISMATCH` item keeps both reads' own values).
     """
     table_top, table_bottom = _merged_edges(read_a, read_b)
     rows_a = {r.row_index: r for r in read_a.rows}
@@ -273,12 +281,8 @@ def merge_reads(
     return MergedPage(
         page_no=page_no,
         page_sha256=page_sha256,
-        month_written=read_a.month_written
-        if read_a.month_written is not None
-        else read_b.month_written,
-        page_no_written=read_a.page_no_written
-        if read_a.page_no_written is not None
-        else read_b.page_no_written,
+        month_written=_agreed(read_a.month_written, read_b.month_written),
+        page_no_written=_agreed(read_a.page_no_written, read_b.page_no_written),
         table_top=table_top,
         table_bottom=table_bottom,
         blank_row_slots_a=read_a.blank_row_slots,
@@ -286,6 +290,22 @@ def merge_reads(
         row_count_a=len(read_a.rows),
         row_count_b=len(read_b.rows),
         rows=rows,
+    )
+
+
+def register_input(page: MergedPage) -> RegisterPageInput:
+    """A merged page (E1) as the engine's register input (F-07.R3, blueprint C23). Field names
+    differ: `blank_row_slots_a/b` become `blank_slots_a/b`; table edges and the page number as
+    written are not engine inputs."""
+    return RegisterPageInput(
+        page_no=page.page_no,
+        page_sha256=page.page_sha256,
+        month_written=page.month_written,
+        row_count_a=page.row_count_a,
+        row_count_b=page.row_count_b,
+        blank_slots_a=page.blank_row_slots_a,
+        blank_slots_b=page.blank_row_slots_b,
+        rows=page.rows,
     )
 
 
@@ -665,8 +685,9 @@ def _obtain_reads(
 ) -> tuple[dict[ReadVariant, PageRead], int]:
     """Contract §3 steps 2 to 5: both reads (cached, else read in parallel) and the model
     calls made. Each successful read is stored as soon as it completes (FR-007), on this
-    thread, so the repo is never used from a worker. When any read fails, the first failure
-    in variant order (A before B) is raised after every success is stored."""
+    thread, so the repo is never used from a worker. When any read or store fails, every
+    other read is still awaited and each success stored before the first failure in variant
+    order (A before B) is raised; a store error is raised unchanged."""
     reads: dict[ReadVariant, PageRead] = {}
     for v in ReadVariant:
         cached = _cached_read(repo, sha, v, settings)
@@ -699,7 +720,10 @@ def _obtain_reads(
             variant, outcome = futures[future], future.result()
             calls_made += outcome.attempts
             if outcome.error is None:
-                reads[variant] = _store(repo, sha, variant, settings, outcome)
+                try:
+                    reads[variant] = _store(repo, sha, variant, settings, outcome)
+                except Exception as exc:  # keep storing the other read (FR-007)
+                    errors[variant] = exc
             else:
                 errors[variant] = _final_error(outcome.error, outcome.attempts, page_no)
     if errors:

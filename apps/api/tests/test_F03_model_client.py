@@ -1,12 +1,13 @@
 """F-03.R1 / R2 model clients (contracts/extract-service.md §1, research R1, R3). Offline only."""
 
+import ast
 import base64
 import hashlib
 import json
 import logging
 import re
-import subprocess
-import sys
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -65,6 +66,15 @@ def _schema() -> dict[str, Any]:
     return loaded
 
 
+def _without_comments(node: Any) -> Any:
+    """The schema minus every `$comment` annotation, at any depth."""
+    if isinstance(node, dict):
+        return {k: _without_comments(v) for k, v in node.items() if k != "$comment"}
+    if isinstance(node, list):
+        return [_without_comments(v) for v in node]
+    return node
+
+
 def _ticks(*values: int) -> Any:
     it = iter(values)
     return lambda: next(it)
@@ -98,9 +108,12 @@ def test_F03_R1_openai_request_shape() -> None:
             "type": "json_schema",
             "name": "register_page_read",
             "strict": True,
-            "schema": schema,
+            "schema": _without_comments(schema),
         }
     }
+    assert "$comment" not in json.dumps(call["text"])
+    assert "$defs" in call["text"]["format"]["schema"]  # keywords other than $comment are kept
+    assert schema == _schema()  # the caller's schema is not mutated
     (message,) = call["input"]
     assert message["role"] == "user"
     texts = [part["text"] for part in message["content"] if part["type"] == "input_text"]
@@ -206,6 +219,40 @@ def test_F03_R1_builds_sdk_lazily_with_no_retries(monkeypatch: pytest.MonkeyPatc
         image=JPEG, mime="image/jpeg", variant=ReadVariant.B, instructions="x", schema={}
     )
     assert built == [{"api_key": API_KEY, "max_retries": 0, "timeout": EXTRACT_TIMEOUT_S}]
+
+
+def test_F03_R1_concurrent_reads_build_one_sdk_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both read threads ask for the SDK at once; only one client is ever built."""
+    built: list[FakeSDK] = []
+    start = threading.Barrier(2, timeout=5)
+
+    def factory(**_: Any) -> FakeSDK:
+        time.sleep(0.05)  # widen the window in which a second thread could also build one
+        sdk = FakeSDK()
+        built.append(sdk)
+        return sdk
+
+    monkeypatch.setattr(openai, "OpenAI", factory)
+    client = OpenAIModelClient(api_key=API_KEY, model="m")
+    errors: list[BaseException] = []
+
+    def read(variant: ReadVariant) -> None:
+        try:
+            start.wait()
+            client.read_page(
+                image=JPEG, mime="image/jpeg", variant=variant, instructions="x", schema={}
+            )
+        except BaseException as exc:  # surfaced below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=read, args=(v,)) for v in ReadVariant]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=5)
+    assert errors == []
+    assert len(built) == 1
+    assert len(built[0].create_calls) == 2
 
 
 def test_F03_R1_missing_api_key_raises_clear_error() -> None:
@@ -377,11 +424,44 @@ def _request() -> Any:
     return httpx2.Request("POST", "https://api.openai.com/v1/responses")
 
 
+EXTRACT_MODULE = "app.pipeline.extract"
+
+
+def _imports_extract(source: str, package: str = "app.pipeline") -> bool:
+    """True when `source` imports the extract module anywhere (module level or nested)."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            if any(alias.name == EXTRACT_MODULE for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:  # relative: resolve against the module's package
+                parent = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                base = f"{parent}.{base}" if base else parent
+            if base == EXTRACT_MODULE or base.startswith(EXTRACT_MODULE + "."):
+                return True
+            if any(f"{base}.{alias.name}" == EXTRACT_MODULE for alias in node.names):
+                return True
+    return False
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "import app.pipeline.extract",
+        "from app.pipeline.extract import parse_read",
+        "from app.pipeline import extract",
+        "from . import extract",
+        "from .extract import merge_reads",
+        "def f():\n    from app.pipeline.extract import parse_read\n",
+    ],
+)
+def test_F03_import_check_catches_extract_imports(snippet: str) -> None:
+    assert _imports_extract(snippet)
+
+
 def test_F03_model_client_does_not_import_extract() -> None:
-    """No import cycle: the client module stands alone (extract imports it, not vice versa)."""
-    code = (
-        "import sys, app.pipeline.model_client; "
-        "sys.exit(int('app.pipeline.extract' in sys.modules))"
-    )
-    done = subprocess.run([sys.executable, "-c", code], cwd=API_ROOT, check=False)
-    assert done.returncode == 0
+    """NFR-11, no import cycle: the client module stands alone (extract imports it, not vice
+    versa). A static check of every import statement, module level or nested."""
+    source = (API_ROOT / "app" / "pipeline" / "model_client.py").read_text(encoding="utf-8")
+    assert not _imports_extract(source)

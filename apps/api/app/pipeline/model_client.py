@@ -5,6 +5,7 @@ import glob
 import hashlib
 import json
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -53,6 +54,16 @@ SUPPORTED_MIMES = frozenset({"image/jpeg", "image/png"})
 USER_TEXT = "Read this stock register page and answer in the required JSON format."
 
 
+def _strip_comments(node: Any) -> Any:
+    """A copy of the schema without `$comment` annotations at any depth. Only `$comment` is
+    dropped: `$defs` and `$ref` are schema keywords the strict format needs."""
+    if isinstance(node, dict):
+        return {k: _strip_comments(v) for k, v in node.items() if k != "$comment"}
+    if isinstance(node, list):
+        return [_strip_comments(v) for v in node]
+    return node
+
+
 class OpenAIModelClient:
     """Production client: one Responses API call per read, Structured Outputs, no SDK retries.
 
@@ -79,15 +90,21 @@ class OpenAIModelClient:
         self._timer = timer
         # Timeout is set on the client options AND per request on purpose (T019 asserts both).
         self._sdk = None if sdk is None else sdk.with_options(max_retries=0, timeout=timeout_s)
+        self._sdk_lock = threading.Lock()  # both read threads may ask for the SDK at once
 
     def __repr__(self) -> str:
         return f"OpenAIModelClient(model={self.model!r}, timeout_s={self.timeout_s!r})"
 
     def _client(self) -> Any:
+        """The SDK client, built once on first use (double-checked under a lock)."""
         if self._sdk is None:
-            if not self._api_key:
-                raise RuntimeError("OPENAI_API_KEY is not set; cannot call the model")
-            self._sdk = openai.OpenAI(api_key=self._api_key, max_retries=0, timeout=self.timeout_s)
+            with self._sdk_lock:
+                if self._sdk is None:
+                    if not self._api_key:
+                        raise RuntimeError("OPENAI_API_KEY is not set; cannot call the model")
+                    self._sdk = openai.OpenAI(
+                        api_key=self._api_key, max_retries=0, timeout=self.timeout_s
+                    )
         return self._sdk
 
     def read_page(
@@ -121,7 +138,7 @@ class OpenAIModelClient:
                     "type": "json_schema",
                     "name": SCHEMA_NAME,
                     "strict": True,
-                    "schema": schema,
+                    "schema": _strip_comments(schema),
                 }
             },
             store=False,

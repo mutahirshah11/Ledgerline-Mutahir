@@ -258,6 +258,41 @@ def test_F03_R8_table_edges_ordered_are_kept() -> None:
     assert merged.table_top == 0.15 and merged.table_bottom == 0.9
 
 
+@pytest.mark.parametrize(
+    ("a", "b", "want"),
+    [
+        ("Sep 2026", " sep 2026 ", "Sep 2026"),  # same under FR-015: read A's value
+        ("Sep 2026", "Oct 2026", None),  # reads disagree: neither is trusted
+        ("Sep 2026", None, None),  # one read alone is never trusted
+        (None, "Sep 2026", None),
+        (None, None, None),
+    ],
+)
+def test_F03_R8_month_written_kept_only_when_reads_agree(
+    a: str | None, b: str | None, want: str | None
+) -> None:
+    merged = merge_reads(
+        page(row(1), month_written=a), page(row(1), month_written=b), page_no=2, page_sha256=SHA
+    )
+    assert merged.month_written == want
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "want"),
+    [("2", " 2", "2"), ("2", "3", None), ("2", None, None), (None, "2", None)],
+)
+def test_F03_R8_page_no_written_kept_only_when_reads_agree(
+    a: str | None, b: str | None, want: str | None
+) -> None:
+    merged = merge_reads(
+        page(row(1), page_no_written=a),
+        page(row(1), page_no_written=b),
+        page_no=2,
+        page_sha256=SHA,
+    )
+    assert merged.page_no_written == want
+
+
 def test_F03_R7_deterministic() -> None:
     read_a = page(row(3, qty=unclear("5", "6")), row(1), row(7, grn_no=clear("4401")))
     read_b = page(row(1, supplier=clear("other")), row(3, qty=unclear("6", "8")), row(12))
