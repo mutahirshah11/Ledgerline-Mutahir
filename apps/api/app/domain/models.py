@@ -15,6 +15,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PlainSerializer,
+    StrictBool,
     StringConstraints,
     field_validator,
     model_validator,
@@ -679,8 +680,8 @@ class ResolveRequest(DomainModel):
     """EP-15 body (F-08 AC2 to AC5, data-model.md §2)."""
 
     action: ReviewAction
-    value: str | None = None
-    note: str | None = None
+    value: Annotated[str, Field(max_length=64)] | None = None
+    note: Annotated[str, Field(max_length=500)] | None = None
 
     @model_validator(mode="after")
     def _value_and_note_rules(self) -> Self:
@@ -723,7 +724,7 @@ class ExceptionItem(DomainModel):
     builds these (category ranks, C5 flag attachment, deterministic sort), this model only fixes
     the wire shape so `RunView.exceptions` and the Telegram/report builders share one type."""
 
-    category: int
+    category: Annotated[int, Field(ge=1, le=5)]
     kind: ExceptionKind
     grn_no: int | None
     group_key: str | None
@@ -828,13 +829,14 @@ class PageImageLink(DomainModel):
     expires_at: AwareDatetime
     table_top: float | None
     table_bottom: float | None
-    slots: int
+    slots: Literal[16] = 16
 
 
 class FinaliseRequest(DomainModel):
-    """EP-17 body (data-model.md §2, research R14)."""
+    """EP-17 body (data-model.md §2, research R14). Missing/false reach the route, which raises
+    ConfirmRequired; strict so "yes"/1 are rejected rather than coerced."""
 
-    confirm: bool
+    confirm: StrictBool = False
 
 
 class FinaliseResponse(DomainModel):

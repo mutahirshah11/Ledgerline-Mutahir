@@ -63,6 +63,15 @@ def test_resolve_request_extra_fields_forbidden() -> None:
         )
 
 
+def test_resolve_request_value_and_note_max_lengths() -> None:
+    """EP-15 schema: value maxLength 64, note maxLength 500."""
+    m.ResolveRequest(action=ReviewAction.ENTER_VALUE, value="9" * 64, note="n" * 500)
+    with pytest.raises(ValidationError):
+        m.ResolveRequest(action=ReviewAction.ENTER_VALUE, value="9" * 65, note=None)
+    with pytest.raises(ValidationError):
+        m.ResolveRequest(action=ReviewAction.ACKNOWLEDGE, value=None, note="n" * 501)
+
+
 # --- ReviewDecisionAudit ------------------------------------------------------------------
 
 
@@ -163,6 +172,28 @@ def test_finalise_request_confirm_bool() -> None:
         m.FinaliseRequest.model_validate({"confirm": "banana"})
 
 
+def test_finalise_request_confirm_strict_and_defaults_false() -> None:
+    """Missing/false reach the route (ConfirmRequired, R14); coercible non-bools are rejected."""
+    assert m.FinaliseRequest.model_validate({}).confirm is False
+    assert m.FinaliseRequest.model_validate({"confirm": False}).confirm is False
+    for bad in ("yes", "true", 1, 0):
+        with pytest.raises(ValidationError):
+            m.FinaliseRequest.model_validate({"confirm": bad})
+
+
+def test_page_image_link_slots_const_16() -> None:
+    fields = {
+        "page_no": 2,
+        "signed_url": "https://example/signed",
+        "expires_at": AT,
+        "table_top": None,
+        "table_bottom": None,
+    }
+    assert m.PageImageLink.model_validate(fields).slots == 16
+    with pytest.raises(ValidationError):
+        m.PageImageLink.model_validate({**fields, "slots": 15})
+
+
 # --- RunView -------------------------------------------------------------------------------
 
 
@@ -211,6 +242,18 @@ def test_exception_item_fields() -> None:
         text="GRN 4421 missing from SHEET",
     )
     assert item.kind == "MISSING"
+    for bad_category in (0, 6):
+        with pytest.raises(ValidationError):
+            m.ExceptionItem(
+                category=bad_category,
+                kind="MISSING",
+                grn_no=None,
+                group_key=None,
+                source_row_id=None,
+                field=None,
+                flags=[],
+                text="x",
+            )
     with pytest.raises(ValidationError):
         m.ExceptionItem(
             category=1,
