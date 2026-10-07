@@ -5,7 +5,7 @@
 // No `next/headers` import here so client components can import this file; server code passes
 // its cookie store in (see lib/server-api.ts and proxy.ts).
 
-import { createBrowserClient, createServerClient } from "@supabase/ssr";
+import { createBrowserClient, createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Literal `process.env.NEXT_PUBLIC_*` reads so Next inlines them into the browser bundle; these
@@ -30,12 +30,12 @@ export function getBrowserSupabase(): SupabaseClient {
   return browserClient;
 }
 
-export type CookieToSet = { name: string; value: string; options?: Record<string, unknown> };
+export type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 /** What `await cookies()` (next/headers) and `request.cookies` (proxy) both provide. */
 export type CookieStoreLike = {
   getAll(): { name: string; value: string }[];
-  set?(name: string, value: string, options?: Record<string, unknown>): unknown;
+  set?(name: string, value: string, options?: CookieOptions): unknown;
 };
 
 /** A server Supabase client over a request's cookies. In server components cookies are

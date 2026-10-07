@@ -128,3 +128,41 @@
     @apply font-sans;
   }
 }
+
+/* 006-web T020 (NFR-09): a visible focus ring on everything reachable by keyboard, and a skip
+   link that is off-screen until focused. Components may draw their own ring (shadcn
+   `focus-visible:ring-*`); this is the floor. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+  #main:focus-visible {
+    outline: none;
+  }
+}
+
+:root {
+  --focus-ring: oklch(0.546 0.245 262.881);
+}
+
+.dark {
+  --focus-ring: oklch(0.707 0.165 254.624);
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.5rem;
+  z-index: 100;
+  transform: translateY(-200%);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.skip-link:focus {
+  transform: none;
+}
