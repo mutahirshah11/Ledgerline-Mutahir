@@ -9,12 +9,12 @@ filled only with run data (F-09.R2). The frozen `report.html` (template
 """
 
 import csv
+import dataclasses
 import datetime as dt
 import io
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from dataclasses import field as default
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
@@ -80,9 +80,21 @@ DIFF_LABEL: dict[ComparedField, str] = {
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _ROW_PREFIX: dict[str, Source] = {"REG-": Source.REGISTER, "ERP-": Source.ERP, "XLS-": Source.SHEET}
 """Row id prefixes (`app.domain.ids`), so the "Also:" line needs only the exception items."""
-_CAUSES = ("ink blot", "smudge", "stain", "torn", "tear", "faded", "overwritten", "blot")
-"""What covers an illegible cell, as the read's note names it (F-03 R3: "ink blot",
-"overwritten"); the first one found in the note is shown, else the note's first clause."""
+_CAUSES = (
+    "ink blot",
+    "smudge",
+    "smudged",
+    "stain",
+    "stained",
+    "torn",
+    "tear",
+    "faded",
+    "overwritten",
+)
+"""Closed vocabulary of what covers an illegible cell (F-03 R3: "ink blot", "overwritten"):
+the first whole word or phrase of it found in the read's note is shown; nothing else of the
+note ever is (F-09.R2)."""
+_CAUSE_RE = re.compile(r"\b(" + "|".join(re.escape(c) for c in _CAUSES) + r")\b", re.IGNORECASE)
 
 # --- ranks (data-model.md §3) --------------------------------------------------------------
 
@@ -193,16 +205,25 @@ def _first_row(group: Group, rows: Rows) -> CanonicalRow | None:
 # --- line templates (contracts/telegram-message.md) ----------------------------------------
 
 
-def _backdated_clause(flags: Sequence[ControlFlag], rows: Rows) -> str:
-    """`, dated {grn_date}, keyed {entered_at date} by {entered_by}` for an attached
-    `BACKDATED_ENTRY` (the user from `UNUSUAL_USER` on the same row, else the row)."""
+def _ack_clause(flags: Sequence[ControlFlag], rows: Rows) -> str:
+    """The clauses of the acknowledgeable flags attached to a category 1 to 3 line, in flag
+    order: `BACKDATED_ENTRY` → `, dated {grn_date}, keyed {entered_at date} by {entered_by}`
+    (the user from `UNUSUAL_USER` on the same row, else the row); `DATE_OUT_OF_PERIOD` →
+    `, dated {date}, outside {Mon YYYY}` (`, outside {Mon YYYY}` when that row's backdated
+    clause already gave the date)."""
     out = ""
+    backdated = {f.source_row_id for f in flags if f.flag is FlagType.BACKDATED_ENTRY}
     for f in flags:
-        if f.flag is not FlagType.BACKDATED_ENTRY:
-            continue
-        user = _keyed_by(f, flags, rows)
-        out += f", dated {_date_text(f.detail.get('grn_date'))}"
-        out += f", keyed {_date_text(f.detail.get('entered_at'))}" + (f" by {user}" if user else "")
+        if f.flag is FlagType.BACKDATED_ENTRY:
+            user = _keyed_by(f, flags, rows)
+            out += f", dated {_date_text(f.detail.get('grn_date'))}"
+            out += f", keyed {_date_text(f.detail.get('entered_at'))}"
+            out += f" by {user}" if user else ""
+        elif f.flag is FlagType.DATE_OUT_OF_PERIOD:
+            month = f.detail.get("month")
+            if f.source_row_id not in backdated:
+                out += f", dated {_date_text(f.detail.get('date'))}"
+            out += f", outside {month_label(month)}" if month else ""
     return out
 
 
@@ -229,14 +250,15 @@ def line_missing(group: Group, rows: Rows, flags: Sequence[ControlFlag]) -> str:
         where = f"{labels} only"
     else:
         where = f"in {labels}, NOT in " + " + ".join(SOURCE_LABEL[s] for s in group.missing_from)
-    return f"{head}: {where}{_backdated_clause(flags, rows)}"
+    return f"{head}: {where}{_ack_clause(flags, rows)}"
 
 
-def line_diff(group: Group, flags: Sequence[ControlFlag]) -> str:
+def line_diff(group: Group, flags: Sequence[ControlFlag], rows: Rows | None = None) -> str:
     """Category 2: `{grn} {label}: {outlier} {v}, {a} + {b} {v2}` (agreeing values textually
     equal), `…, {a} {va} = {b} {vb}` (equal only after conversion) or, with no outlier,
     `{label}: register {r}, ERP {e}, sheet {s}` (null values take no part); further diffs
-    follow as `; {label}: …`. Dates get ` (Sun)` when that row has an attached `SUNDAY_DATE`."""
+    follow as `; {label}: …`. Dates get ` (Sun)` when that row has an attached `SUNDAY_DATE`;
+    attached acknowledgeable flags add their clauses (`_ack_clause`)."""
     sundays = {f.source_row_id for f in flags if f.flag is FlagType.SUNDAY_DATE}
     parts: list[str] = []
     for diff in group.diffs:
@@ -264,15 +286,12 @@ def line_diff(group: Group, flags: Sequence[ControlFlag]) -> str:
         else:
             listed = ", ".join(f"{SOURCE_LABEL[s]} {v}" for s, v in shown.items())
             parts.append(f"{label}: {listed}")
-    return f"{_group_name(group)} " + "; ".join(parts)
+    return f"{_group_name(group)} " + "; ".join(parts) + _ack_clause(flags, rows or {})
 
 
-def _cause(note: str) -> str:
-    lowered = note.lower()
-    found = [(lowered.find(c), c) for c in _CAUSES if c in lowered]
-    if found:
-        return min(found)[1]
-    return re.split(r"[;|]", note, maxsplit=1)[0].strip()
+def _cause(note: str) -> str | None:
+    found = _CAUSE_RE.search(note)
+    return found.group(1).lower() if found else None
 
 
 def _read_text(item: ReviewItem, which: str) -> str:
@@ -284,17 +303,25 @@ def _read_text(item: ReviewItem, which: str) -> str:
     return " or ".join(cell.candidates) or "none"
 
 
-def line_review(item: ReviewItem, rows: Rows) -> str:
-    """Category 3, from the group's most severe open or undetermined review item."""
+def line_review(item: ReviewItem, rows: Rows, flags: Sequence[ControlFlag] = ()) -> str:
+    """Category 3, from the group's most severe open or undetermined review item (or a
+    page-level `PAGE_LABEL_MISMATCH` item), then the attached flag clauses."""
+    return _review_text(item, rows) + _ack_clause(flags, rows)
+
+
+def _review_text(item: ReviewItem, rows: Rows) -> str:
     who = str(item.grn_no) if item.grn_no is not None else (item.source_row_id or "")
     fld = item.field or "row"
     ctx = item.context
+    if isinstance(ctx, PageLabelMismatchContext):
+        who, fld = f"Register page {ctx.page_no}", "label"
     if item.status is ReviewStatus.CANNOT_DETERMINE:
         return f"{who} {fld} could not be determined: {item.note or ''}".rstrip(": ")
     reason = item.reason
     if reason is ReviewReason.ILLEGIBLE:
         notes = [n for n in (item.read_a and item.read_a.note, getattr(ctx, "note", None)) if n]
-        return f"{who} {fld} unreadable on register" + (f" ({_cause(notes[0])})" if notes else "")
+        cause = _cause(notes[0]) if notes else None
+        return f"{who} {fld} unreadable on register" + (f" ({cause})" if cause else "")
     if reason is ReviewReason.CORRECTED:
         struck = ctx.struck if isinstance(ctx, CellContext) else None
         current = next((c.value for c in (item.read_a, item.read_b) if c and c.value), None)
@@ -304,8 +331,8 @@ def line_review(item: ReviewItem, rows: Rows) -> str:
         return f"{who} {fld} unclear on register (reads: {reads})"
     if reason is ReviewReason.ROW_IN_ONE_READ and isinstance(ctx, RowInOneReadContext):
         return f"{who} row read only once on register page {ctx.page_no}"
-    if reason is ReviewReason.PAGE_LABEL_MISMATCH and isinstance(ctx, PageLabelMismatchContext):
-        return f"register page {ctx.page_no} label does not match the run"
+    if reason is ReviewReason.PAGE_LABEL_MISMATCH:
+        return f"{who}: label does not match the run"
     row = rows.get(item.source_row_id or "")
     source = SOURCE_LABEL[row.source] if row is not None else "a source"
     if reason is ReviewReason.CONFLICTING_ROWS_IN_SOURCE:
@@ -391,7 +418,7 @@ def also_phrases(items: Sequence[ExceptionItem]) -> list[str]:
         else:
             returns.append(part)
     for source, (dups, returns) in by_source.items():
-        parts = dups + (returns if len(returns) == 1 else [f"{len(returns)} returns"])
+        parts = dups + (returns if len(returns) <= 1 else [f"{len(returns)} returns"])
         phrases.append(_lists(source) + " and ".join(p for p in parts if p))
     return phrases
 
@@ -423,7 +450,7 @@ class _Draft:
     source_row_id: str | None
     field: str | None
     render: _Render
-    flags: list[ControlFlag] = default(default_factory=list)
+    flags: list[ControlFlag] = dataclasses.field(default_factory=list)
 
     def key(self) -> tuple[int, int, int, str, str, str]:
         grn = NO_GRN if self.grn_no is None else self.grn_no
@@ -457,7 +484,20 @@ def _review_rank(item: ReviewItem) -> int:
     return _REVIEW_RANK.get(item.reason, _UNKNOWN_MAPPING_RANK)
 
 
+def _live(item: ReviewItem, current_keys: frozenset[str] | None) -> bool:
+    """A review item a category 3 line may show: not `RESOLVED`, not `FLAG_ACK` (those show as
+    flags), and, when `current_keys` is given, OPEN only under the one open-item rule
+    (`engine.current_open_items`: CELL items always, others only if the last reconcile produced
+    the key). `CANNOT_DETERMINE` items are decisions and always shown."""
+    if item.kind is ReviewKind.FLAG_ACK or item.status is ReviewStatus.RESOLVED:
+        return False
+    if current_keys is None or item.status is not ReviewStatus.OPEN:
+        return True
+    return item.kind is ReviewKind.CELL or item.item_key in current_keys
+
+
 def _group_draft(group: Group, rows: Rows, items: Sequence[ReviewItem]) -> _Draft | None:
+    """`items`: the live review items (`_live`)."""
     if group.outcome not in _GROUP_CATEGORY:
         return None
     category, kind = _GROUP_CATEGORY[group.outcome]
@@ -469,16 +509,10 @@ def _group_draft(group: Group, rows: Rows, items: Sequence[ReviewItem]) -> _Draf
         return draft(0, None, lambda f: line_missing(group, rows, f))
     if kind == "MISMATCH":
         diff = group.diffs[0].field if group.diffs else ComparedField.QTY
-        return draft(_DIFF_RANK[diff], diff.value, lambda f: line_diff(group, f))
+        return draft(_DIFF_RANK[diff], diff.value, lambda f: line_diff(group, f, rows))
     ids = {i for ids in group.row_ids.values() for i in ids}
     mine = sorted(
-        (
-            i
-            for i in items
-            if i.source_row_id in ids
-            and i.kind is not ReviewKind.FLAG_ACK
-            and i.status is not ReviewStatus.RESOLVED
-        ),
+        (i for i in items if i.source_row_id in ids),
         key=lambda i: (_review_rank(i), i.item_key),
     )
     worst = mine[0] if mine else None
@@ -488,13 +522,19 @@ def _group_draft(group: Group, rows: Rows, items: Sequence[ReviewItem]) -> _Draf
     render: _Render
     if worst is not None:
         found = worst
-        render = lambda f: line_review(found, rows)  # noqa: E731
+        render = lambda f: line_review(found, rows, f)  # noqa: E731
     elif kind == "UNMATCHED":
-        render = lambda f: _line_unmatched(group, rows)  # noqa: E731
+        render = lambda f: _line_unmatched(group, rows) + _ack_clause(f, rows)  # noqa: E731
     else:
-        render = lambda f: f"{name} needs review"  # noqa: E731
+        render = lambda f: f"{name} needs review" + _ack_clause(f, rows)  # noqa: E731
     first = _first_row(group, rows) if kind == "UNMATCHED" else None
     return draft(rank, fld, render, first.source_row_id if first else None)
+
+
+def _page_draft(item: ReviewItem, rows: Rows) -> _Draft:
+    """A live page-level item (`PAGE_LABEL_MISMATCH`, no row): its own category 3 line."""
+    render: _Render = lambda f: line_review(item, rows, f)  # noqa: E731
+    return _Draft(3, _review_rank(item), "REVIEW", None, None, None, item.field, render)
 
 
 def exception_list(
@@ -504,32 +544,45 @@ def exception_list(
     flags: Sequence[ControlFlag],
     review_items: Sequence[ReviewItem],
     proof: Proof | None,
+    *,
+    current_keys: frozenset[str] | None = None,
 ) -> list[ExceptionItem]:
     """The one ordered exception list (F-09.R1, FR-017, FR-018; data-model.md §3).
 
     Categories: 1 `MISSING`, 2 `MISMATCHED` (by first diff: qty/unit, lot, date, supplier),
-    3 `NEEDS_REVIEW` / `UNMATCHED_NO_KEY` (Clarification 1), 4 acknowledgeable flags,
-    5 duplicates, non-receipts and other flags; ties by GRN, then row id. A flag attaches to the
-    row's own duplicate or non-receipt item, else to the category 1 to 3 item of its row's group
-    or GRN (C5), else stands alone (category 4 or 5; later flags of a category 4 flag's row
-    attach to it). `run` and `proof` are part of the contract for later templates; the list is
+    3 `NEEDS_REVIEW` / `UNMATCHED_NO_KEY` and open page-level items (Clarification 1),
+    4 acknowledgeable flags, 5 duplicates (one per `duplicate_of`), non-receipts and other flags;
+    ties by GRN, then row id. A flag attaches to the row's own duplicate or non-receipt item,
+    else to the category 1 to 3 item of its row's group or GRN (C5; groups taken in (GRN, group
+    key) order), else stands alone (category 4 or 5; only `UNUSUAL_USER` on a standalone
+    `BACKDATED_ENTRY`'s row attaches to it, for "by {user}"). `current_keys`: the item keys the
+    last reconcile produced (the one open-item rule, `_live`); None treats every non-RESOLVED
+    item as live. `run` and `proof` are part of the contract for later templates; the list is
     computed on read and never stored (plan key point 3)."""
     by_id = {r.source_row_id: r for r in rows}
+    live = [i for i in review_items if _live(i, current_keys)]
     drafts: list[_Draft] = []
     by_row: dict[str, _Draft] = {}
     by_grn: dict[int, _Draft] = {}
+    by_original: dict[str, _Draft] = {}
     for row in sorted(rows, key=lambda r: r.source_row_id):
-        if row.row_kind in _ROW_ONLY_RANK:
-            render = _bind_row(row, rows)
-            kind: ExceptionKind = (
-                "DUPLICATE" if row.row_kind is RowKind.DUPLICATE else "NON_RECEIPT"
-            )
-            rank = _ROW_ONLY_RANK[row.row_kind]
-            own = _Draft(5, rank, kind, row.grn_no, None, row.source_row_id, None, render)
-            drafts.append(own)
-            by_row[row.source_row_id] = own
-    for group in groups:
-        line = _group_draft(group, by_id, review_items)
+        if row.row_kind not in _ROW_ONLY_RANK:
+            continue
+        original = row.duplicate_of if row.row_kind is RowKind.DUPLICATE else None
+        if original is not None and original in by_original:
+            by_row[row.source_row_id] = by_original[original]
+            continue
+        kind: ExceptionKind = "DUPLICATE" if row.row_kind is RowKind.DUPLICATE else "NON_RECEIPT"
+        rank = _ROW_ONLY_RANK[row.row_kind]
+        own = _Draft(5, rank, kind, row.grn_no, None, row.source_row_id, None, _bind_row(row, rows))
+        drafts.append(own)
+        by_row[row.source_row_id] = own
+        if original is not None:
+            by_original[original] = own
+    for group in sorted(
+        groups, key=lambda g: (NO_GRN if g.grn_no is None else g.grn_no, g.group_key)
+    ):
+        line = _group_draft(group, by_id, live)
         if line is None:
             continue
         drafts.append(line)
@@ -538,17 +591,27 @@ def exception_list(
                 by_row.setdefault(row_id, line)
         if group.grn_no is not None:
             by_grn.setdefault(group.grn_no, line)
+    pages = [
+        (i.context.page_no, i.item_key, i)
+        for i in live
+        if i.source_row_id is None and isinstance(i.context, PageLabelMismatchContext)
+    ]
+    for *_, page in sorted(pages, key=lambda p: p[:2]):
+        drafts.append(_page_draft(page, by_id))
+    backdated: dict[str, _Draft] = {}
     for flag in sorted(flags, key=_flag_key):
         target = by_row.get(flag.source_row_id or "")
         if target is None and flag.grn_no is not None:
             target = by_grn.get(flag.grn_no)
+        if target is None and flag.flag is FlagType.UNUSUAL_USER:
+            target = backdated.get(flag.source_row_id or "")
         if target is not None:
             target.flags.append(flag)
             continue
         alone = _flag_draft(flag, by_id)
         drafts.append(alone)
-        if alone.category == 4 and flag.source_row_id is not None:
-            by_row[flag.source_row_id] = alone
+        if flag.flag is FlagType.BACKDATED_ENTRY and flag.source_row_id is not None:
+            backdated[flag.source_row_id] = alone
     return [d.item() for d in sorted(drafts, key=_Draft.key)]
 
 
@@ -692,9 +755,12 @@ def build_report_context(
     norm_log: Sequence[NormLogEntry],
     input_files: Sequence[SourceFile],
     audit: Sequence[AuditEntry],
+    *,
+    current_keys: frozenset[str] | None = None,
 ) -> ReportContext:
     """The `ReportContext` of a run about to be finalised (pure; `run.finalised_at` and
-    `finalised_by` already set to the finalise instant and actor, research R8)."""
+    `finalised_by` already set to the finalise instant and actor, research R8); `current_keys`
+    as in `exception_list`."""
     counts: dict[NormCode, int] = {}
     for entry in norm_log:
         counts[entry.code] = counts.get(entry.code, 0) + 1
@@ -705,7 +771,9 @@ def build_report_context(
         scenario_now=run.scenario_now,
         headline=headline(groups),
         proof=proof,
-        exceptions=exception_list(run, groups, rows, flags, review_items, proof),
+        exceptions=exception_list(
+            run, groups, rows, flags, review_items, proof, current_keys=current_keys
+        ),
         groups=group_views(groups, rows, flags),
         flags=list(flags),
         decisions=_decisions(review_items, audit),

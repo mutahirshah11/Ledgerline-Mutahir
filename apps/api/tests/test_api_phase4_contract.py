@@ -73,7 +73,7 @@ def test_EP05_run_view_fields(
 
 @pytest.mark.parametrize("path", ["groups", "flags", "proof"])
 def test_EP11_to_EP13_unknown_run_404(
-    path: str, client: TestClient, api_client_as: Callable[[str], TestClient]
+    path: str, api_client_as: Callable[[str], TestClient]
 ) -> None:
     resp = api_client_as("reviewer").get(f"{API}/runs/{uuid4()}/{path}")
     assert resp.status_code == 404

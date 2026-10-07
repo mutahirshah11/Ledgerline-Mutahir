@@ -6,6 +6,8 @@ import random
 import re
 from collections.abc import Callable
 from datetime import timedelta
+from decimal import Decimal
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -14,11 +16,34 @@ from fastapi.testclient import TestClient
 from app.core import clock
 from app.core.errors import UniqueViolation
 from app.core.storage import REPORTS_BUCKET, BlobStore, MemoryBlobStore
-from app.domain.enums import ComparedField, Outcome, RunStatus, Source
-from app.domain.models import ExceptionItem, ReportLinks
+from app.domain.enums import (
+    CellStatus,
+    ComparedField,
+    FlagType,
+    Outcome,
+    ReadVariant,
+    ReviewKind,
+    ReviewReason,
+    RowKind,
+    RunStatus,
+    Source,
+)
+from app.domain.models import (
+    CanonicalRow,
+    Cell,
+    ControlFlag,
+    Diff,
+    ExceptionItem,
+    Group,
+    PageLabelMismatchContext,
+    ReportLinks,
+    ReviewItem,
+    RowMeta,
+    UnknownMappingContext,
+)
 from app.pipeline import report
 from app.services import finalise
-from tests.factories import T0
+from tests.factories import T0, make_flag, make_group, make_review, make_row, make_run
 from tests.support.pack_run import CONTROLLER, PackRun
 from tests.support.trace import assert_traced, numbers_in
 
@@ -189,6 +214,261 @@ def test_F09_R2_line_diff_after_review_and_without_outlier(pack_run: PackRun) ->
     )
     one_null = mismatched.model_copy(update={"diffs": [qty]})  # register qty unread: no part
     assert report.line_diff(one_null, []) == "4419 qty: ERP 66 DRUM, sheet 60 DRUM"
+
+
+# --- US2 review fixes: synthetic inputs (C1, I1 to I3, I6, I7) ------------------------------
+
+RUN = make_run()
+RID = RUN.id
+
+
+def _row(row_id: str, grn: int | None = None, **over: Any) -> CanonicalRow:
+    return make_row(RID, row_id, grn_no=grn, **over)
+
+
+def _flag(flag: FlagType, grn: int | None, row_id: str | None, **detail: str) -> ControlFlag:
+    return make_flag(RID, flag=flag, grn_no=grn, source_row_id=row_id, detail=detail)
+
+
+def _group(key: str, grn: int | None, outcome: Outcome, **row_ids: list[str]) -> Group:
+    ids = {Source[s]: v for s, v in row_ids.items()}
+    return make_group(RID, key, grn_no=grn, outcome=outcome, row_ids=ids)
+
+
+def _list(
+    groups: tuple[Group, ...] | list[Group] = (),
+    rows: tuple[CanonicalRow, ...] | list[CanonicalRow] = (),
+    flags: tuple[ControlFlag, ...] | list[ControlFlag] = (),
+    items: tuple[ReviewItem, ...] | list[ReviewItem] = (),
+    current_keys: frozenset[str] | None = None,
+) -> list[ExceptionItem]:
+    return report.exception_list(RUN, groups, rows, flags, items, None, current_keys=current_keys)
+
+
+def _texts(items: list[ExceptionItem]) -> list[str]:
+    return [i.text for i in items]
+
+
+def _dups_and_returns(n_dups: int, n_returns: int) -> list[CanonicalRow]:
+    rows = [_row("XLS-r10", 4409)]
+    for k in range(n_dups):
+        rows.append(
+            _row(f"XLS-r1{k + 1}", 4409, row_kind=RowKind.DUPLICATE, duplicate_of="XLS-r10")
+        )
+    for k in range(n_returns):
+        kind = RowKind.NON_RECEIPT
+        rows.append(_row(f"XLS-r3{k}", None, row_kind=kind, qty=Decimal(-5), uom="PCS"))
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("n_dups", "n_returns", "phrase"),
+    [
+        (1, 0, "Sheet lists 4409 twice"),
+        (0, 1, "Sheet lists one return (-5 PCS)"),
+        (0, 3, "Sheet lists 3 returns"),
+        (2, 2, "Sheet lists 4409 3 times and 2 returns"),
+    ],
+)
+def test_F09_R2_also_duplicates_and_returns(n_dups: int, n_returns: int, phrase: str) -> None:
+    """C1: no "and 0 returns"; one DUPLICATE item per `duplicate_of` (not one per copy)."""
+    items = _list(rows=_dups_and_returns(n_dups, n_returns))
+    assert report.also_phrases(items) == [phrase]
+    assert sum(1 for i in items if i.kind == "DUPLICATE") == min(n_dups, 1)
+
+
+def _unreadable(key: str, row_id: str, grn: int, note: str | None) -> ReviewItem:
+    read = Cell(value=None, status=CellStatus.ILLEGIBLE, note=note)
+    return make_review(RID, key, grn_no=grn, source_row_id=row_id, read_a=read)
+
+
+@pytest.mark.parametrize(
+    ("note", "text"),
+    [
+        ("ink blot over the digits", "4428 qty unreadable on register (ink blot)"),
+        ("Stained corner; maybe 25", "4428 qty unreadable on register (stained)"),
+        ("page torn, smudge too", "4428 qty unreadable on register (torn)"),
+        ("stainless digits look like 25", "4428 qty unreadable on register"),
+        ("blot over digits", "4428 qty unreadable on register"),
+        ("the model is unsure; 25 or 26", "4428 qty unreadable on register"),
+        (None, "4428 qty unreadable on register"),
+    ],
+)
+def test_F09_R2_illegible_cause_closed_vocabulary(note: str | None, text: str) -> None:
+    """I1: whole words of a closed vocabulary only; never a clause of the model's note."""
+    item = _unreadable("CELL:REG-p1-r01:qty", "REG-p1-r01", 4428, note)
+    assert report.line_review(item, {}) == text
+
+
+def test_F09_C5_category4_absorbs_only_unusual_user_of_backdated_row() -> None:
+    """I2: BACKDATED + DATE_OUT_OF_PERIOD on one row without a numbered line are two items."""
+    row = "ERP-0040"
+    flags = [
+        _flag(
+            FlagType.BACKDATED_ENTRY,
+            4440,
+            row,
+            grn_date="2026-08-29",
+            entered_at="2026-10-02 08:00",
+        ),
+        _flag(FlagType.UNUSUAL_USER, 4440, row, entered_by="admin2", usual="clerk"),
+        _flag(FlagType.DATE_OUT_OF_PERIOD, 4440, row, date="2026-08-29", month="2026-09"),
+    ]
+    items = _list(rows=[_row(row, 4440)], flags=flags)
+    assert _texts(items) == [
+        "GRN 4440 keyed 2 Oct by admin2, dated 29 Aug",
+        "ERP-0040 dated 29 Aug, outside Sep 2026",
+    ]
+    assert [[f.flag.value for f in i.flags] for i in items] == [
+        ["BACKDATED_ENTRY", "UNUSUAL_USER"],
+        ["DATE_OUT_OF_PERIOD"],
+    ]
+
+
+def _mapping(key: str, row_id: str) -> ReviewItem:
+    return make_review(
+        RID,
+        key,
+        kind=ReviewKind.UNKNOWN_MAPPING,
+        reason=ReviewReason.UNKNOWN_SUPPLIER,
+        grn_no=4450,
+        source_row_id=row_id,
+        field="supplier_code",
+        read_a=None,
+        read_b=None,
+        context=UnknownMappingContext(source=Source.ERP, raw="ACME"),
+    )
+
+
+def test_F09_R1_category3_follows_open_item_rule() -> None:
+    """I3: a non-CELL item the last reconcile did not produce (stale) is not live; CELL items
+    always are; `current_keys=None` keeps every non-RESOLVED item live."""
+    group = _group("GRN:4450", 4450, Outcome.NEEDS_REVIEW, ERP=["ERP-0050"])
+    stale = _mapping("MAP:ERP-0050:supplier_code", "ERP-0050")
+    rows = [_row("ERP-0050", 4450)]
+    live = _list([group], rows, items=[stale])
+    assert _texts(live) == ["4450 supplier_code not recognised on ERP (ACME)"]
+    none_current: frozenset[str] = frozenset()
+    gone = _list([group], rows, items=[stale], current_keys=none_current)
+    assert _texts(gone) == ["4450 needs review"]
+    ctx = report.build_report_context(
+        RUN, [group], rows, [], [stale], None, [], [], [], current_keys=none_current
+    )
+    assert ctx.exceptions == gone
+    assert _list([group], rows, items=[stale], current_keys=frozenset({stale.item_key})) == live
+    cell_item = _unreadable("CELL:ERP-0050:qty", "ERP-0050", 4450, "faded")
+    both = _list([group], rows, items=[stale, cell_item], current_keys=none_current)
+    assert _texts(both) == ["4450 qty unreadable on register (faded)"]
+
+
+def _page_item() -> ReviewItem:
+    ctx = PageLabelMismatchContext(
+        page_no=3,
+        run_month="2026-09",
+        month_written={ReadVariant.A: "Aug", ReadVariant.B: "Aug"},
+        page_no_written={ReadVariant.A: "3", ReadVariant.B: "3"},
+    )
+    return make_review(
+        RID,
+        "PAGE:3",
+        reason=ReviewReason.PAGE_LABEL_MISMATCH,
+        source_row_id=None,
+        field="page",
+        read_a=None,
+        read_b=None,
+        context=ctx,
+    )
+
+
+def _alone(flag: FlagType, **detail: str) -> tuple[list[CanonicalRow], list[ControlFlag]]:
+    return [_row("XLS-r70", 4470)], [_flag(flag, 4470, "XLS-r70", **detail)]
+
+
+_FLAG_LINES = [
+    (FlagType.SUNDAY_DATE, {"date": "2026-09-13"}, "XLS-r70 dated 13 Sep (Sun)"),
+    (
+        FlagType.OUT_OF_ORDER,
+        {"date": "2026-09-02", "previous_row": "XLS-r69", "previous_date": "2026-09-05"},
+        "XLS-r70 dated 2 Sep, after XLS-r69 dated 5 Sep",
+    ),
+    (
+        FlagType.UNUSUAL_USER,
+        {"entered_by": "admin2", "usual": "clerk"},
+        "XLS-r70 keyed by admin2, usually clerk",
+    ),
+    (FlagType.UNKNOWN_SUPPLIER, {"raw": "ACME"}, "XLS-r70 supplier not on the map (ACME)"),
+    (FlagType.UNKNOWN_UNIT, {"raw": "bx"}, "XLS-r70 unit not on the map (bx)"),
+]
+
+
+@pytest.mark.parametrize(("flag", "detail", "text"), _FLAG_LINES)
+def test_F09_R2_category5_flag_lines(flag: FlagType, detail: dict[str, str], text: str) -> None:
+    """I6: standalone category 5 flags (SCR-04 and the report; not in the message)."""
+    rows, flags = _alone(flag, **detail)
+    assert [(i.category, i.kind, i.text) for i in _list(rows=rows, flags=flags)] == [
+        (5, "FLAG", text)
+    ]
+
+
+def test_F09_R2_templates_beyond_the_pack() -> None:
+    """I6: multi-GRN gap, "needs review" fallback, page-level PAGE_LABEL_MISMATCH item; ranks
+    of the page item (2) and UNKNOWN_MAPPING (3) in category 3."""
+    gap = [_flag(FlagType.SEQUENCE_GAP, 4401, None, low="4401", high="4403")]
+    assert _texts(_list(flags=gap)) == ["GRNs 4401 to 4403 missing everywhere"]
+    bare = _group("GRN:4460", 4460, Outcome.NEEDS_REVIEW, SHEET=["XLS-r60"])
+    assert _texts(_list([bare], [_row("XLS-r60", 4460)])) == ["4460 needs review"]
+    group = _group("GRN:4450", 4450, Outcome.NEEDS_REVIEW, ERP=["ERP-0050"])
+    rows = [_row("ERP-0050", 4450)]
+    items = _list(
+        [group], rows, items=[_mapping("MAP:ERP-0050:supplier_code", "ERP-0050"), _page_item()]
+    )
+    assert [(i.category, i.kind, i.grn_no, i.source_row_id, i.field, i.text) for i in items] == [
+        (3, "REVIEW", None, None, "page", "Register page 3: label does not match the run"),
+        (
+            3,
+            "REVIEW",
+            4450,
+            None,
+            "supplier_code",
+            "4450 supplier_code not recognised on ERP (ACME)",
+        ),
+    ]
+
+
+def test_F09_C5_ack_clause_on_diff_and_review_lines() -> None:
+    """I7: an attached BACKDATED_ENTRY / DATE_OUT_OF_PERIOD is printed on category 2 and 3
+    lines too."""
+    values: dict[Source, str | None] = {Source.REGISTER: "A", Source.ERP: "B", Source.SHEET: "A"}
+    diff = Diff(field=ComparedField.LOT_NO, values=values, compared=values, outlier=Source.ERP)
+    mism = _group("GRN:4480", 4480, Outcome.MISMATCHED, ERP=["ERP-0080"])
+    mism = mism.model_copy(update={"diffs": [diff]})
+    review = _group("GRN:4481", 4481, Outcome.NEEDS_REVIEW, ERP=["ERP-0081"])
+    rows = [_row("ERP-0080", 4480), _row("ERP-0081", 4481, meta=RowMeta(entered_by="clerk"))]
+    flags = [
+        _flag(
+            FlagType.BACKDATED_ENTRY,
+            4480,
+            "ERP-0080",
+            grn_date="2026-09-01",
+            entered_at="2026-10-02 08:00",
+        ),
+        _flag(FlagType.DATE_OUT_OF_PERIOD, 4481, "ERP-0081", date="2026-08-30", month="2026-09"),
+    ]
+    assert _texts(_list([mism, review], rows, flags)) == [
+        "4480 lot: ERP B, register + sheet A, dated 1 Sep, keyed 2 Oct",
+        "4481 needs review, dated 30 Aug, outside Sep 2026",
+    ]
+
+
+def test_F09_C5_shared_grn_attachment_ignores_group_order() -> None:
+    """Groups are sorted by (GRN, group key) before flags attach to them."""
+    a = _group("GRN:4490", 4490, Outcome.NEEDS_REVIEW, ERP=["ERP-0090"])
+    b = _group("GRN:4490|2", 4490, Outcome.NEEDS_REVIEW, SHEET=["XLS-r90"])
+    rows = [_row("ERP-0090", 4490), _row("XLS-r90", 4490)]
+    gap = [_flag(FlagType.SEQUENCE_GAP, 4490, None, low="4490", high="4490")]
+    first = _list([a, b], rows, gap)
+    assert _list([b, a], rows, gap) == first
+    assert [i.group_key for i in first if i.flags] == ["GRN:4490"]
 
 
 # --- US3: frozen report files (T040 to T043; F-09.R3 to R5, contracts/frozen-files.md) -------

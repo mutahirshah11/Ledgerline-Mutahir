@@ -738,8 +738,8 @@ StageState = Literal["PENDING", "RUNNING", "OK", "FAILED"]
 
 
 class StageProgress(DomainModel):
-    """Mirrors `app.routes.runs.StageProgress` (EP-05); kept here so `RunView` does not import the
-    routes layer. Dedupe candidate for T039 (tasks.md carry-over)."""
+    """One stage's line of `RunView.stage_progress` (EP-05), built by
+    `services/finalise.stage_progress` (its only definition)."""
 
     stage: Stage
     state: StageState
