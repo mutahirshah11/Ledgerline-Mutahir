@@ -221,10 +221,16 @@ def test_svc_uploads_again_deletes_existing_object_before_new_url(
     specs = [s for s, _ in _pack()]
     first = request_uploads(memory_repo, blobs, run, specs)
     erp_slot = next(s for s in first if s.source is Source.ERP)
+    page1_slot = next(s for s in first if s.page_no == 1)
     blobs.put(INPUTS_BUCKET, erp_slot.storage_path, ERP, "text/csv")
+    blobs.put(INPUTS_BUCKET, page1_slot.storage_path, IMG1, "image/jpeg")
     assert blobs.exists(INPUTS_BUCKET, erp_slot.storage_path)
-    request_uploads(memory_repo, blobs, run, specs)
+    assert blobs.exists(INPUTS_BUCKET, page1_slot.storage_path)
+    second = request_uploads(memory_repo, blobs, run, specs)  # page 1 is kept, not replaced
+    assert [s.file_id for s in second] == [s.file_id for s in first]
     assert not blobs.exists(INPUTS_BUCKET, erp_slot.storage_path)
+    assert not blobs.exists(INPUTS_BUCKET, page1_slot.storage_path)
+    assert all(s.signed_url for s in second)
 
 
 def test_svc_uploads_after_created_409(

@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core import clock
 from app.core.config import get_settings
 from app.core.db import Repo
-from app.core.errors import ApiError, StateConflict
+from app.core.errors import ApiError, NotFound, StateConflict
 from app.core.storage import INPUTS_BUCKET, BlobStore
 from app.domain.enums import (
     AuditAction,
@@ -242,13 +242,13 @@ def request_uploads(
     stored = [keep.get(w.sha256) or repo.add_source_file(w) for w in wanted]
     StepLog(repo, run.id, Stage.UPLOAD, now).write(RunEventStatus.STARTED, {"files": len(stored)})
     expires = get_settings().UPLOAD_WINDOW_S
+    _require_created(repo.get_run(run.id))  # a concurrent confirm must not race the deletes below
     slots: list[UploadSlot] = []
     for f in stored:
         # Signed upload URLs are `upsert=false`: a path already holding an object (a fixed ERP
         # or sheet path re-requested, or a kept file re-requested) must be cleared first, or the
-        # browser's upload gets a 409 (research R5).
-        if blobs.exists(INPUTS_BUCKET, f.storage_path):
-            blobs.delete(INPUTS_BUCKET, f.storage_path)
+        # browser's upload gets a 409 (research R5). `delete` is a no-op when nothing is there.
+        blobs.delete(INPUTS_BUCKET, f.storage_path)
         slots.append(
             UploadSlot(
                 file_id=f.id,
@@ -475,6 +475,9 @@ stage call on a finalised run is 409 (data-model.md §3, "any stage" row)."""
 
 
 def _source_bytes(repo: Repo, blobs: BlobStore, run_id: UUID, source: Source) -> bytes:
+    """NotFound (the blob is missing) or ValueError (not exactly one confirmed file of
+    `source`, a broken upload state) on an unpack failure (item 4: this is the API's own fault,
+    not a contract problem, so the caller maps it to 500, not 422)."""
     (file,) = repo.list_source_files(run_id, source)
     return blobs.get(INPUTS_BUCKET, file.storage_path)
 
@@ -487,10 +490,64 @@ def _register_files(repo: Repo, blobs: BlobStore, run_id: UUID) -> list[Register
     ]
 
 
+ERROR_MESSAGE_LIMIT = 500
+"""Hard cap on `runs.error_message` (item 3); long enough to show a few problems in full."""
+_SUMMARY_SHOWN = 3
+"""How many problems the run's `error_message` and the ops alert reason show in full."""
+
+
+def _capped_list(texts: Sequence[str], shown: int) -> str:
+    """The first `shown` items, then `"; and N more"` for the rest; one summary line."""
+    head = list(texts[:shown])
+    rest = len(texts) - len(head)
+    if rest > 0:
+        head.append(f"and {rest} more")
+    return "; ".join(head)
+
+
 def _problem_summary(problems: Sequence[ValidationProblem]) -> str:
+    """`runs.error_message` (item 3): plain-language problem text, capped to
+    `ERROR_MESSAGE_LIMIT` characters (a hard limit, not a clean cut)."""
     n = len(problems)
     label = "problem" if n == 1 else "problems"
-    return f"{n} {label}: " + "; ".join(p.message for p in problems)
+    text = f"{n} {label}: " + _capped_list([p.message for p in problems], _SUMMARY_SHOWN)
+    return text[:ERROR_MESSAGE_LIMIT]
+
+
+def _alert_problem_text(p: ValidationProblem) -> str:
+    """One problem named by its code and location only — never a cell value, a file's own
+    text, or anything else read from the file (contracts/alerts.md "no file contents";
+    item 2). `location.worksheet` here is the month's own expected sheet name, derived from
+    the run, not something read from the workbook."""
+    source = p.source.value
+    loc = p.location
+    if loc is None:
+        return f"{source} {p.code.value}"
+    if loc.line is not None:  # ERP: "ERP line 5 qty BAD_NUMBER"
+        words = [source, f"line {loc.line}"]
+        if loc.column:
+            words.append(loc.column)
+        words.append(p.code.value)
+        return " ".join(words)
+    words = [source, p.code.value]  # sheet / register: "SHEET MISSING_WORKSHEET Sep-2026"
+    if loc.worksheet:
+        words.append(loc.worksheet)
+    if loc.column:
+        words.append(loc.column)
+    if loc.row is not None:
+        words.append(f"row {loc.row}")
+    if loc.page_no is not None:
+        words.append(f"page {loc.page_no}")
+    return " ".join(words)
+
+
+def _alert_reason(problems: Sequence[ValidationProblem]) -> str:
+    """The ops alert's "Error:" reason (item 2): counts and codes/locations only, capped like
+    `_problem_summary` but never carrying a problem's own (data-derived) message text."""
+    n = len(problems)
+    label = "problem" if n == 1 else "problems"
+    body = _capped_list([_alert_problem_text(p) for p in problems], _SUMMARY_SHOWN)
+    return f"{n} {label} ({body})"
 
 
 def validate_stage(
@@ -505,18 +562,40 @@ def validate_stage(
     """EP-08 (F-02.R5, Clarification 3, data-model.md §3). Only a run `UPLOADED` is checked;
     `VALIDATED` or later repeats as `{ok: true}` with no writes; any other status (including
     `CREATED` and `FAILED` at any stage) is 409 `RUN_STATE_CONFLICT` — validate has no retry
-    from `FAILED` (FR-024): a run failed at validate must be re-created, not retried."""
+    from `FAILED` (FR-024): a run failed at validate must be re-created, not retried. The role
+    guard lets `OPS` through on a `FAILED` run as a pre-check (contracts/auth.md); this service
+    still returns 409 for `OPS` the same as `CONTROLLER`, since there is nothing to retry."""
     if run.status in _VALIDATE_PAST:
         return []
     if run.status is not RunStatus.UPLOADED:
         raise StateConflict(run)
     with stage_step(repo, run.id, Stage.VALIDATE, now=now):
-        erp = _source_bytes(repo, blobs, run.id, Source.ERP)
-        sheet = _source_bytes(repo, blobs, run.id, Source.SHEET)
-        registers = _register_files(repo, blobs, run.id)
+        try:
+            erp = _source_bytes(repo, blobs, run.id, Source.ERP)
+            sheet = _source_bytes(repo, blobs, run.id, Source.SHEET)
+            registers = _register_files(repo, blobs, run.id)
+        except (NotFound, ValueError) as exc:
+            # item 4: the run's own inputs are missing or inconsistent in storage — the API's
+            # fault, not the contract's. The run stays UPLOADED (no transition) so it can be
+            # called again once the inputs are restored; one ops alert either way.
+            broken = ApiError(
+                ErrorCode.INTERNAL_ERROR, 500, "Run inputs are missing from storage", Stage.VALIDATE
+            )
+            stage_failed_alert(repo, notifier, run, Stage.VALIDATE, broken, now=now)
+            raise broken from exc
         problems = validate_files(run.month, erp, sheet, registers)
         if not problems:
-            moved = repo.transition_run(run.id, RunStatus.VALIDATED, expected={RunStatus.UPLOADED})
+            try:
+                moved = repo.transition_run(
+                    run.id, RunStatus.VALIDATED, expected={RunStatus.UPLOADED}
+                )
+            except StateConflict as conflict:
+                current = conflict.current
+                if current.status not in _VALIDATE_PAST:
+                    raise  # a genuine conflict (e.g. moved to FAILED): a real FAILED event
+                return []  # lost the race to another validate call that already passed
+            # Not atomic with the transition above: a crash between the two lines leaves the
+            # run VALIDATED with no RUN_VALIDATED entry (item 9); accepted for this phase.
             audit(
                 repo,
                 user.email,
@@ -529,7 +608,6 @@ def validate_stage(
                 now=now,
             )
             return []
-        summary = _problem_summary(problems)
         err = ApiError(
             ErrorCode.CONTRACT_VIOLATION,
             422,
@@ -542,7 +620,10 @@ def validate_stage(
             RunStatus.FAILED,
             expected={RunStatus.UPLOADED},
             failed_stage=Stage.VALIDATE,
-            error_message=summary,
+            error_message=_problem_summary(problems),
         )
-        stage_failed_alert(repo, notifier, failed, Stage.VALIDATE, err, now=now)
+        alert_err = ApiError(
+            ErrorCode.CONTRACT_VIOLATION, 422, _alert_reason(problems), Stage.VALIDATE
+        )
+        stage_failed_alert(repo, notifier, failed, Stage.VALIDATE, alert_err, now=now)
         raise err  # `stage_step` writes the FAILED run event on the way out
