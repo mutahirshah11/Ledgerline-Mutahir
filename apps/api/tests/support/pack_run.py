@@ -32,7 +32,7 @@ from app.services.telegram import Notifier
 from tests.fakes.api import FakeNotifier
 
 SCENARIO_NOW = datetime(2026, 10, 15, 8, 30, tzinfo=clock.KARACHI)
-"""The scenario instant (conftest `frozen_clock`)."""
+"""The scenario instant: conftest `frozen_clock` and `frozen_scenario_clock` freeze here."""
 PACK_UPLOADS = (
     ("t4_register_page1.jpg", Source.REGISTER, 1),
     ("t4_register_page2.jpg", Source.REGISTER, 2),

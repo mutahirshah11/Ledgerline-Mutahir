@@ -131,10 +131,11 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> datetime:
     """Freeze app.core.clock at the scenario instant (2026-10-15 08:30 Asia/Karachi)."""
     from app.core import clock
     from app.core.config import Settings
+    from tests.support.pack_run import SCENARIO_NOW
 
     settings = Settings(
         _env_file=None,
-        LEDGERLINE_NOW=datetime(2026, 10, 15, 8, 30, tzinfo=clock.KARACHI),
+        LEDGERLINE_NOW=SCENARIO_NOW,
         LEDGERLINE_CLOCK_MODE="frozen",
         LEDGERLINE_NOW_ANCHOR=None,
     )
@@ -497,10 +498,10 @@ def pack_run(
 @pytest.fixture
 def api_client_as(
     client: TestClient, tokens: dict[str, dict[str, str]], zero_waits: None
-) -> Callable[[str], TestClient]:
+) -> Iterator[Callable[[str], TestClient]]:
     """`api_client_as(role)`: a TestClient on the `client` app (same repo, blobs, notifier)
     that sends the bearer token of `controller`, `reviewer`, `ops` or `stranger` (not on the
-    allowlist) on every request. One client per role per test."""
+    allowlist) on every request. One client per role per test, closed at teardown."""
     made: dict[str, TestClient] = {}
 
     def as_role(role: str) -> TestClient:
@@ -508,4 +509,6 @@ def api_client_as(
             made[role] = TestClient(client.app, headers=tokens[role])
         return made[role]
 
-    return as_role
+    yield as_role
+    for test_client in made.values():
+        test_client.close()
