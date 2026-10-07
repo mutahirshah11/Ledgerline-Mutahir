@@ -106,6 +106,25 @@ def test_F11_R2_failed_write_error_never_hides_the_original(run: Run) -> None:
         raise KeyError("original")
 
 
+def test_F11_R2_failed_write_log_never_quotes_the_original(
+    run: Run, caplog: pytest.LogCaptureFixture
+) -> None:
+    class BrokenRepo(MemoryRepo):
+        def add_run_event(self, event: RunEvent) -> RunEvent:
+            if event.status is RunEventStatus.FAILED:
+                raise RuntimeError("database down")
+            return super().add_run_event(event)
+
+    repo = BrokenRepo()
+    repo.create_run(run)
+    secret_url = "https://api.example.test/botSECRET-77/sendMessage"
+    with pytest.raises(ValueError), stage_step(repo, run.id, Stage.NOTIFY, now=ticking(1)):
+        raise ValueError(secret_url)
+    assert caplog.records
+    assert "SECRET-77" not in caplog.text
+    assert all(r.exc_info is None for r in caplog.records)
+
+
 def test_F11_R2_base_exception_is_not_logged_as_failed(memory_repo: MemoryRepo, run: Run) -> None:
     with (
         pytest.raises(KeyboardInterrupt),

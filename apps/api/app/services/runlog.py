@@ -112,8 +112,13 @@ def stage_step(
     except Exception as exc:
         try:
             step.write(RunEventStatus.FAILED, {**base, "error": _error_text(exc)}, elapsed_ms())
-        except Exception:
-            logger.exception("run event FAILED not written for %s", stage.value)
+        except Exception as write_exc:
+            # Type names only: a traceback would print the original error, which may quote a URL.
+            logger.error(
+                "run event FAILED not written for %s: %s",
+                stage.value,
+                type(write_exc).__name__,
+            )
         raise
     step.write(RunEventStatus.OK, dict(base), elapsed_ms())
 
