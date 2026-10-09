@@ -40,7 +40,7 @@ test("SCR-04-AC2 proof badge shows rows placed once on PASS and the failed check
 test("SCR-04-AC3 sections in order with the API's lines verbatim and in order", async ({ page, mockApi }) => {
   await mockApi.signIn("CONTROLLER", "pre-review");
   await page.goto(`/runs/${MAIN}`);
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Finalise", exact: true })).toBeVisible(); // after EP-02
   expect(await sectionNames(page)).toEqual([
     "Act on these",
     "Sources disagree",
@@ -89,10 +89,13 @@ test("SCR-04-AC4 flags and statuses in plain language, never raw codes", async (
   await expect(act.getByText("Entered late and back-dated")).toBeVisible();
   await expect(act.getByText("Entered by an unusual user")).toBeVisible();
   await expect(page.getByRole("region", { name: "Sources disagree" }).getByText("Dated on a Sunday")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Finalise", exact: true })).toBeVisible();
   const text = await page.locator("#main").innerText();
+  expect(text).not.toMatch(/[A-Z][A-Z0-9]*_[A-Z0-9_]+/); // MISMATCHED_..., AWAITING_REVIEW, BACKDATED_ENTRY
   expect(text).not.toMatch(
-    /MISMATCHED|NEEDS_REVIEW|MATCHED_AFTER|AWAITING_REVIEW|BACKDATED_ENTRY|UNUSUAL_USER|SUNDAY_DATE|SEQUENCE_GAP|OUT_OF_ORDER|NON_RECEIPT|\bREGISTER\b|\bSHEET\b|\/ERP/,
+    /(MATCHED|MISMATCHED|MISSING|DUPLICATE|PASS|FAIL|READY|FINALISED|FAILED|EXTRACTING|REGISTER|SHEET|CELL|FLAG|MISMATCH|REVIEW|PENDING|SENDING|SENT)/,
   );
+  expect(text).not.toContain("/ERP");
 });
 
 test("SCR-04-AC5 finalise asks with the open count, calls EP-17 and shows the sent time", async ({ page, mockApi }) => {
@@ -108,6 +111,7 @@ test("SCR-04-AC5 finalise asks with the open count, calls EP-17 and shows the se
   expect(calls).toHaveLength(1);
   expect(calls[0].body).toEqual({ confirm: true });
   await expect(page.getByRole("button", { name: "Finalise and send" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Report", exact: true })).toBeFocused();
 });
 
 test("SCR-04-AC6 summary not delivered banner; Resend calls EP-17 once and the banner goes", async ({ page, mockApi }) => {
@@ -123,6 +127,10 @@ test("SCR-04-AC6 summary not delivered banner; Resend calls EP-17 once and the b
 
 test("SCR-04-AC7 finalised run is read-only and asks EP-18 only on download click", async ({ page, mockApi }) => {
   await mockApi.signIn("CONTROLLER", "finalised");
+  const run = mockApi.fixture<{ summary: Record<string, unknown> }>("ep05-finalised");
+  // Supabase stores UTC: 03:31:30Z is 08:31 in Asia/Karachi.
+  const summary = { ...run.summary, sent_at: "2026-10-15T03:31:30+00:00" };
+  await mockApi.use({ "EP-05": { status: 200, body: { ...run, summary } } });
   await page.goto(`/runs/${MAIN}`);
   await expect(page.getByText("This run is finalised and read-only.")).toBeVisible();
   await expect(page.getByText("Finalised. Summary sent to the controller at 08:31")).toBeVisible();
@@ -179,4 +187,100 @@ test("SCR-04-AC10 usable at 380 px with no sideways page scroll", async ({ page,
   const box = await button.boundingBox();
   expect(box && box.x + box.width).toBeLessThanOrEqual(380);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(380);
+});
+
+// --- review fix round: paths beyond the ten acceptance tests (FR ids, not SCR-04-AC ids) --------
+
+type Json = Record<string, unknown>;
+
+test("FR-020 a failed Resend shows the API's message and reloads the run", async ({ page, mockApi }) => {
+  const message = "The summary send stalled; check Telegram by hand before anything else";
+  await mockApi.signIn("CONTROLLER", "summary-failed");
+  await mockApi.use({
+    "EP-17": { status: 409, body: { error: { code: "RUN_STATE_CONFLICT", message, stage: "notify", details: {} } } },
+  });
+  await page.goto(`/runs/${RUN_IDS["summary-failed"]}`);
+  await page.getByRole("button", { name: "Resend" }).click();
+  await expect(page.getByText(message)).toHaveCount(1);
+  await expect.poll(() => mockApi.count("EP-05", { via: "browser" })).toBe(1);
+  expect(await mockApi.count("EP-17")).toBe(1);
+});
+
+test("FR-019 EP-17 409 PROOF_NOT_PASSED disables Finalise and send with the reason", async ({ page, mockApi }) => {
+  await mockApi.signIn("CONTROLLER", "pre-review");
+  await mockApi.use({ "EP-17": "ep17-not-ready" });
+  await page.goto(`/runs/${MAIN}`);
+  await page.getByRole("button", { name: "Finalise and send" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Finalise and send" }).click();
+  await expect(page.getByRole("button", { name: "Finalise and send" })).toBeDisabled();
+  await expect(page.getByText("Proof has not passed")).toBeVisible();
+  expect(await mockApi.count("EP-17")).toBe(1);
+});
+
+test("FR-019 Finalise and send is disabled while EP-17 is in flight", async ({ page, mockApi }) => {
+  await mockApi.signIn("CONTROLLER", "pre-review");
+  await mockApi.use({ "EP-17": { fixture: "ep17-sent", delayMs: 1500 } });
+  await page.goto(`/runs/${MAIN}`);
+  const button = page.getByRole("button", { name: "Finalise and send" });
+  await button.click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Finalise and send" }).click();
+  await expect(button).toBeDisabled();
+  await expect(page.getByText("Finalised. Summary sent to the controller at 08:31")).toBeVisible();
+  expect(await mockApi.count("EP-17")).toBe(1);
+});
+
+test("FR-020 summary PENDING offers Resend; SENDING says so; a stale SENDING warns to check Telegram", async ({
+  page,
+  mockApi,
+}) => {
+  const run = mockApi.fixture<Json & { summary: Json; scenario_now: string }>("ep05-finalised");
+  const withSummary = (summary: Json) => ({ status: 200, body: { ...run, summary: { ...run.summary, ...summary } } });
+  await mockApi.signIn("CONTROLLER", "finalised");
+
+  await mockApi.use({ "EP-05": withSummary({ status: "PENDING", sent_at: null }) });
+  await page.goto(`/runs/${MAIN}`);
+  await expect(page.getByText("Summary not delivered")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resend" })).toBeVisible();
+
+  await mockApi.use({ "EP-05": withSummary({ status: "SENDING", sent_at: null, updated_at: run.scenario_now }) });
+  await page.goto(`/runs/${MAIN}`);
+  await expect(page.getByText("Summary is being sent")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resend" })).toHaveCount(0);
+
+  await mockApi.use({
+    "EP-05": withSummary({ status: "SENDING", sent_at: null, updated_at: "2026-10-15T08:20:00+05:00" }),
+  });
+  await page.goto(`/runs/${MAIN}`);
+  await expect(page.getByText("Summary may have been delivered — check Telegram before resending")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resend" })).toHaveCount(0);
+  await expect(page.getByText("Summary is being sent")).toHaveCount(0);
+});
+
+test("FR-022 in-progress run links back to its steps; a FAILED run offers Retry without a message", async ({
+  page,
+  mockApi,
+}) => {
+  await mockApi.signIn("CONTROLLER", "extracting");
+  await page.goto(`/runs/${MAIN}`);
+  await expect(page.getByText("This run is still in progress")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue this run" })).toHaveAttribute("href", `/runs/new?run=${MAIN}`);
+
+  const id = RUN_IDS["failed-extract"];
+  const failed = mockApi.fixture<Json>("ep05-failed-extract");
+  await mockApi.scenario("failed-extract");
+  await mockApi.use({ "EP-05": { status: 200, body: { ...failed, error_message: null } } });
+  await page.goto(`/runs/${id}`);
+  await expect(page.getByRole("alert").getByText("Failed at reading pages.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Retry" })).toHaveAttribute("href", `/runs/new?run=${id}`);
+});
+
+test("FR-016 proof badge falls back to the run's proof status when EP-13 fails", async ({ page, mockApi }) => {
+  await mockApi.signIn("CONTROLLER", "pre-review");
+  await mockApi.use({
+    "EP-13": { status: 500, body: { error: { code: "INTERNAL_ERROR", message: "boom", stage: null, details: {} } } },
+  });
+  await page.goto(`/runs/${MAIN}`);
+  const badge = page.getByTestId("proof-badge");
+  await expect(badge).toHaveText("Proof passed");
+  await expect(badge).toHaveAttribute("data-status", "PASS");
 });
