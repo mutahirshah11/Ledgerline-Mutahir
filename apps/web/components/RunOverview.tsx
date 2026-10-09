@@ -7,9 +7,22 @@ import { useMe } from "@/app/providers";
 import { Banner } from "@/components/Banner";
 import { ExceptionSections } from "@/components/ExceptionSections";
 import { FinalisePanel, SummaryNotDelivered, useFinalise, type RunView } from "@/components/FinalisePanel";
-import { ProofPanel, type Proof } from "@/components/ProofPanel";
+import { ProofPanel, ProofStatusBadge, type Proof } from "@/components/ProofPanel";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
 import { stageText } from "@/lib/wording";
+
+// FR-022: statuses before AWAITING_REVIEW/READY (and short of FINALISED/FAILED) are still being
+// built by SCR-03's step runner; this page has nothing of theirs yet to show, so it points back
+// there instead of rendering an empty overview (lib/run-steps.ts's own `PAST_RECONCILE` boundary,
+// read the other way round).
+const IN_PROGRESS_STATUSES: ReadonlySet<RunView["status"]> = new Set([
+  "CREATED",
+  "UPLOADED",
+  "VALIDATED",
+  "EXTRACTING",
+  "EXTRACTED",
+  "RECONCILED",
+]);
 
 // SCR-04 body (006-web T042; FR-016..FR-022, FR-036). The server page reads EP-05 + EP-13 and
 // hands them here; this client part keeps the run in state so EP-17's answer (finalise / resend)
@@ -29,7 +42,11 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
   const finalise = useFinalise(run, setRun);
   const id = run.id;
   const failed = run.status === "FAILED";
+  const inProgress = IN_PROGRESS_STATUSES.has(run.status);
   const actualCost = run.read_cost.actual_usd;
+  const stageLine = failed && run.failed_stage ? `Failed at ${stageText(run.failed_stage)}.` : null;
+  // FR-022: a FAILED run can carry `error_message: null`; still show *something* to act on.
+  const failureTitle = run.error_message ?? stageLine;
 
   return (
     <div className="mx-auto w-full max-w-3xl min-w-0 space-y-5 px-4 py-6 [overflow-wrap:anywhere]">
@@ -40,7 +57,16 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
           <span>{run.month}</span>
           {actualCost !== null && <span>Read cost US${actualCost}</span>}
         </div>
-        {proof && <ProofPanel proof={proof} />}
+        {proof ? (
+          <ProofPanel proof={proof} />
+        ) : (
+          run.proof_status && (
+            <ProofStatusBadge
+              status={run.proof_status}
+              text={run.proof_status === "PASS" ? "Proof passed" : "Proof failed"}
+            />
+          )
+        )}
         <nav aria-label="Run pages" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           <Link href={`/runs/${id}/results`} className="underline underline-offset-4">
             See all receipts
@@ -54,10 +80,21 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
         </nav>
       </header>
 
-      {run.error_message && (
+      {inProgress && (
+        <Banner
+          tone="info"
+          title="This run is still in progress"
+          action={
+            <Link href={`/runs/new?run=${id}`} className="mt-2 inline-block font-medium underline underline-offset-4">
+              Continue this run
+            </Link>
+          }
+        />
+      )}
+      {failureTitle && (
         <Banner
           tone="error"
-          title={run.error_message}
+          title={failureTitle}
           action={
             failed && can.retry ? (
               <Link href={`/runs/new?run=${id}`} className="mt-2 inline-block font-medium underline underline-offset-4">
@@ -66,7 +103,9 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
             ) : undefined
           }
         >
-          {failed && run.failed_stage && <p>Failed at {stageText(run.failed_stage)}.</p>}
+          {/* `stageLine` already carries the title when there is no separate error message
+           * (FR-022: a FAILED run can have `error_message: null`); don't repeat it. */}
+          {run.error_message && stageLine && <p>{stageLine}</p>}
         </Banner>
       )}
       <SummaryNotDelivered finalise={finalise} canResend={can.finalise} />
