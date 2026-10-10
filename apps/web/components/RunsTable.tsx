@@ -7,6 +7,7 @@
 // (CONTROLLER, lib/me.ts); the API stays the authority either way.
 
 import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { CheckCircle2, CircleSlash, FolderOpen, Plus, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -23,6 +24,7 @@ import {
 import { Empty } from "@/components/states";
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
+import { cn } from "@/lib/utils";
 import type { components } from "@/lib/api-types";
 import type { Outcome } from "@/lib/wording";
 
@@ -38,6 +40,22 @@ function proofText(status: RunSummary["proof_status"]): string {
   return "Not run yet";
 }
 
+function ProofCell({ status }: { status: RunSummary["proof_status"] }) {
+  const Icon = status === "PASS" ? CheckCircle2 : status === "FAIL" ? XCircle : CircleSlash;
+  const tone =
+    status === "PASS"
+      ? "text-green-700 dark:text-green-400"
+      : status === "FAIL"
+        ? "text-red-700 dark:text-red-400"
+        : "text-muted-foreground";
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 text-sm", tone)}>
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      {proofText(status)}
+    </span>
+  );
+}
+
 function nonZeroOutcomes(counts: RunSummary["counts"]): { outcome: Outcome; count: number }[] {
   return Object.entries(counts)
     .filter(([, count]) => count > 0)
@@ -50,7 +68,10 @@ function nonZeroOutcomes(counts: RunSummary["counts"]): { outcome: Outcome; coun
 const features = tableFeatures({});
 const columnHelper = createColumnHelper<typeof features, RunSummary>();
 const columns = columnHelper.columns([
-  columnHelper.accessor("month", { header: "Month" }),
+  columnHelper.accessor("month", {
+    header: "Month",
+    cell: (info) => <span className="font-medium text-foreground">{info.getValue()}</span>,
+  }),
   columnHelper.display({
     id: "status",
     header: "Status",
@@ -58,13 +79,17 @@ const columns = columnHelper.columns([
   }),
   columnHelper.accessor("created_at", {
     header: "Created",
-    cell: (info) => <time dateTime={info.getValue()}>{info.getValue()}</time>,
+    cell: (info) => (
+      <time dateTime={info.getValue()} className="text-muted-foreground">
+        {info.getValue()}
+      </time>
+    ),
   }),
   columnHelper.display({
     id: "outcomes",
     header: "Outcomes",
     cell: (info) => (
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap gap-1.5">
         {nonZeroOutcomes(info.row.original.counts).map(({ outcome, count }) => (
           <OutcomeBadge key={outcome} outcome={outcome} count={count} />
         ))}
@@ -74,7 +99,7 @@ const columns = columnHelper.columns([
   columnHelper.display({
     id: "proof",
     header: "Proof",
-    cell: (info) => proofText(info.row.original.proof_status),
+    cell: (info) => <ProofCell status={info.row.original.proof_status} />,
   }),
 ]);
 
@@ -84,61 +109,81 @@ export function RunsTable({ runs }: RunsTableProps) {
   const table = useTable({ features, columns, data: runs });
 
   const newRunLink = can.createRun ? (
-    <Button render={<Link href="/runs/new" />}>New run</Button>
+    <Button render={<Link href="/runs/new" />} className="bg-emerald-700 hover:bg-emerald-700/90">
+      <Plus className="h-4 w-4" aria-hidden="true" />
+      New run
+    </Button>
   ) : null;
 
   if (runs.length === 0) {
-    return <Empty text="No runs yet." action={newRunLink} />;
+    return (
+      <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+          <FolderOpen className="h-6 w-6" aria-hidden="true" />
+        </div>
+        <Empty text="No runs yet." action={newRunLink} />
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Runs</h1>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Runs</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Reconciliation runs for Kestrel Industries, newest first.
+          </p>
+        </div>
         {newRunLink}
       </div>
-      <Table>
-        <TableHeader>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <TableHead key={header.id}>
-                  {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                </TableHead>
-              ))}
-            </TableRow>
-          ))}
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows.map((row) => {
-            const run = row.original;
-            const href = `/runs/${run.id}`;
-            const open = () => router.push(href);
-            return (
-              <TableRow
-                key={row.id}
-                data-testid={`run-row-${run.id}`}
-                tabIndex={0}
-                aria-label={`Open run ${run.month}`}
-                className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={open}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    open();
-                  }
-                }}
-              >
-                {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    <table.FlexRender cell={cell} />
-                  </TableCell>
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className="h-11 bg-muted/40 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+                  >
+                    {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                  </TableHead>
                 ))}
               </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.map((row) => {
+              const run = row.original;
+              const href = `/runs/${run.id}`;
+              const open = () => router.push(href);
+              return (
+                <TableRow
+                  key={row.id}
+                  data-testid={`run-row-${run.id}`}
+                  tabIndex={0}
+                  aria-label={`Open run ${run.month}`}
+                  className="cursor-pointer transition-colors hover:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-inset dark:hover:bg-emerald-950/20"
+                  onClick={open}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      open();
+                    }
+                  }}
+                >
+                  {row.getAllCells().map((cell) => (
+                    <TableCell key={cell.id} className="py-3">
+                      <table.FlexRender cell={cell} />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

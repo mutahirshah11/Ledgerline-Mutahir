@@ -11,6 +11,7 @@
 // "retrying (attempt n of 3)". Money and counts are shown exactly as the API sends them.
 
 import { useQuery } from "@tanstack/react-query";
+import { PlayCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -413,8 +414,8 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
 
   if (resumeError) {
     return (
-      <div className="mx-auto w-full max-w-3xl p-4">
-        <h1 className="mb-4 text-2xl font-semibold">Start a run</h1>
+      <div className="mx-auto w-full max-w-3xl p-6">
+        <h1 className="mb-4 text-2xl font-semibold tracking-tight text-foreground">Start a run</h1>
         <ErrorState error={resumeError} />
       </div>
     );
@@ -423,12 +424,17 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
   const showForm = resumeState === "none" || resumeState === "created";
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
-      <h1 className="text-2xl font-semibold">Start a run</h1>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Start a run</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Add this month&apos;s register pages, ERP export and store sheet; Ledgerline reads, reconciles and proves them.
+        </p>
+      </div>
       {resumeState === "loading" ? <Loading /> : null}
 
       {showForm ? (
-        <>
+        <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
           <label className="flex flex-col gap-1 text-sm font-medium sm:max-w-xs">
             Month
             <input
@@ -436,7 +442,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
               value={month}
               onChange={(e) => setMonth(e.target.value)}
               disabled={started || resumeState === "created"}
-              className="rounded-md border px-2 py-1 font-normal"
+              className="rounded-md border border-border px-2.5 py-1.5 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             />
           </label>
           <div className="grid gap-3 md:grid-cols-3">
@@ -444,55 +450,63 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
             {zone("ERP", "erp", ".csv,text/csv", false)}
             {zone("SHEET", "sheet", ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", false)}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={onRun} disabled={!canRun || busy}>
+          <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+            <Button
+              type="button"
+              onClick={onRun}
+              disabled={!canRun || busy}
+              className="bg-emerald-700 hover:bg-emerald-700/90"
+            >
+              <PlayCircle className="h-4 w-4" aria-hidden="true" />
               Run
             </Button>
             {me.status === "ready" && !me.can.createRun ? (
               <p className="text-sm text-muted-foreground">Your role cannot do this</p>
             ) : null}
           </div>
-        </>
+        </div>
       ) : null}
 
       <ReadCost estimate={estimate} actualUsd={actualUsd} />
 
       {shownSteps ? (
-        <StepTracker
-          steps={shownSteps}
-          canRetry={me.can.retry}
-          onRetry={(key) => {
-            if (!busy) void runFrom(key);
-          }}
-          extra={{
-            upload: duplicateOf ? (
-              <Link href={`/runs/${duplicateOf}`} className="mt-1 inline-block text-sm underline">
-                {stepLines.openThatRun}
-              </Link>
-            ) : null,
-            validate: checks ? (
-              <ul aria-label="File checks" className="mt-2 flex flex-col gap-1 text-sm">
-                {SOURCES.map((source) => {
-                  const mine = checks.filter((p) => p.source === source);
-                  return mine.length === 0 ? (
-                    <li key={source} className="text-green-800 dark:text-green-400">
-                      <span aria-hidden="true">✓</span> {ZONE_LABEL[source]}: OK
-                    </li>
-                  ) : (
-                    <li key={source} className="text-red-800 dark:text-red-300">
-                      <span className="font-medium">
-                        <span aria-hidden="true">✕</span> {ZONE_LABEL[source]}
-                      </span>
-                      {mine.map((p, i) => (
-                        <p key={i}>{p.message}</p>
-                      ))}
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null,
-          }}
-        />
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <StepTracker
+            steps={shownSteps}
+            canRetry={me.can.retry}
+            onRetry={(key) => {
+              if (!busy) void runFrom(key);
+            }}
+            extra={{
+              upload: duplicateOf ? (
+                <Link href={`/runs/${duplicateOf}`} className="mt-1 inline-block text-sm text-emerald-700 underline dark:text-emerald-400">
+                  {stepLines.openThatRun}
+                </Link>
+              ) : null,
+              validate: checks ? (
+                <ul aria-label="File checks" className="mt-2 flex flex-col gap-1 text-sm">
+                  {SOURCES.map((source) => {
+                    const mine = checks.filter((p) => p.source === source);
+                    return mine.length === 0 ? (
+                      <li key={source} className="text-green-800 dark:text-green-400">
+                        <span aria-hidden="true">✓</span> {ZONE_LABEL[source]}: OK
+                      </li>
+                    ) : (
+                      <li key={source} className="text-red-800 dark:text-red-300">
+                        <span className="font-medium">
+                          <span aria-hidden="true">✕</span> {ZONE_LABEL[source]}
+                        </span>
+                        {mine.map((p, i) => (
+                          <p key={i}>{p.message}</p>
+                        ))}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null,
+            }}
+          />
+        </div>
       ) : null}
     </div>
   );

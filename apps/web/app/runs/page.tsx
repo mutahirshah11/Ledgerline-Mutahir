@@ -7,5 +7,9 @@ import { RunsTable } from "@/components/RunsTable";
 export default async function RunsPage() {
   const client = await serverApi({ next: "/runs" });
   const runs = await client.get("/runs", { query: { limit: 20 } });
-  return <RunsTable runs={runs} />;
+  return (
+    <div className="mx-auto w-full max-w-6xl p-6">
+      <RunsTable runs={runs} />
+    </div>
+  );
 }
