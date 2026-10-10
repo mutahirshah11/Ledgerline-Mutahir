@@ -5,6 +5,7 @@
 // reachable "Choose files" button, lists them with their problem inline, and (register pages)
 // numbers them in list order with "Move up" / "Move down" buttons. The number is a label only.
 
+import { AlertCircle, ArrowDown, ArrowUp, UploadCloud, X } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -57,8 +58,10 @@ export function FileDropZone({
   return (
     <fieldset
       className={cn(
-        "min-w-0 rounded-md border-2 border-dashed p-3",
-        over ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-border",
+        "min-w-0 rounded-xl border-2 border-dashed p-4 transition-colors",
+        over
+          ? "border-emerald-400 bg-emerald-50/70 dark:border-emerald-600 dark:bg-emerald-950/20"
+          : "border-border bg-muted/10",
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -68,8 +71,13 @@ export function FileDropZone({
       onDrop={onDrop}
       disabled={disabled}
     >
-      <legend className="px-1 font-medium">{label}</legend>
-      <p className="text-sm text-muted-foreground">Drop {multiple ? "files" : "a file"} here, or</p>
+      <legend className="flex items-center gap-1.5 px-1 text-sm font-semibold text-foreground">
+        <UploadCloud className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+        {label}
+      </legend>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Drop {multiple ? "files" : "a file"} here, or
+      </p>
       <input
         ref={input}
         type="file"
@@ -89,7 +97,7 @@ export function FileDropZone({
         type="button"
         variant="outline"
         size="sm"
-        className="mt-1"
+        className="mt-2"
         disabled={disabled}
         onClick={() => input.current?.click()}
         aria-label={`Choose ${multiple ? "files" : "file"} for ${label}`}
@@ -100,18 +108,32 @@ export function FileDropZone({
       {files.length > 0 ? (
         <ol
           aria-label={numbered ? `${label} in order` : `${label} files`}
-          className="mt-2 flex flex-col gap-1"
+          className="mt-3 flex flex-col gap-1.5"
         >
           {files.map((f, i) => {
             const problem = problems[i];
             return (
-              <li key={`${f.name}-${i}`} className="flex flex-wrap items-center gap-2 text-sm">
+              <li
+                key={`${f.name}-${i}`}
+                className={cn(
+                  "flex flex-wrap items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 text-sm",
+                  problem ? "border-red-200 dark:border-red-900" : "border-border",
+                )}
+              >
+                {numbered ? (
+                  <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 px-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    {i + 1}
+                  </span>
+                ) : null}
                 {numbered ? <span className="font-medium">Page {i + 1}</span> : null}
                 <span className="min-w-0 break-all">{f.name}</span>
                 {problem ? (
-                  <span className="text-red-700 dark:text-red-400">{fileProblemText(problem)}</span>
+                  <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-400">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {fileProblemText(problem)}
+                  </span>
                 ) : null}
-                <span className="ml-auto flex gap-1">
+                <span className="mt-1 flex w-full basis-full flex-wrap justify-end gap-1">
                   {numbered ? (
                     <>
                       <Button
@@ -121,6 +143,7 @@ export function FileDropZone({
                         disabled={disabled || i === 0}
                         onClick={() => onReorder!(i, i - 1)}
                       >
+                        <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
                         Move up<span className="sr-only"> page {i + 1}</span>
                       </Button>
                       <Button
@@ -130,11 +153,13 @@ export function FileDropZone({
                         disabled={disabled || i === files.length - 1}
                         onClick={() => onReorder!(i, i + 1)}
                       >
+                        <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
                         Move down<span className="sr-only"> page {i + 1}</span>
                       </Button>
                     </>
                   ) : null}
                   <Button type="button" variant="ghost" size="xs" disabled={disabled} onClick={() => onRemove(i)}>
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
                     Remove<span className="sr-only"> {f.name}</span>
                   </Button>
                 </span>
@@ -144,7 +169,10 @@ export function FileDropZone({
         </ol>
       ) : null}
       {zoneProblem ? (
-        <p className="mt-2 text-sm text-red-700 dark:text-red-400">{fileProblemText(zoneProblem)}</p>
+        <p className="mt-2 flex items-center gap-1.5 text-sm text-red-700 dark:text-red-400">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {fileProblemText(zoneProblem)}
+        </p>
       ) : null}
     </fieldset>
   );

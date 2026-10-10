@@ -11,6 +11,7 @@
 // EP-05 is read once for the run status (FINALISED, and READY when the queue empties).
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
@@ -100,14 +101,38 @@ export function ReviewQueue({ runId }: { runId: string }) {
   const left = items?.length ?? 0;
   const error = listQ.error ?? runQ.error;
 
+  const progressPct = total > 0 ? Math.min(100, Math.round(((total - left) / total) * 100)) : 0;
+
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4 px-3 py-4 sm:px-6">
-      <p className="text-sm">
-        <Link href={`/runs/${runId}`} className="underline underline-offset-2">
+    <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-8">
+      <div className="flex flex-col gap-3">
+        <Link
+          href={`/runs/${runId}`}
+          className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-muted-foreground transition-colors hover:text-emerald-700"
+        >
+          <ArrowLeft aria-hidden="true" className="h-4 w-4" />
           Run overview
         </Link>
-      </p>
-      <h1 className="text-xl font-semibold">Review queue</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
+          {total > 0 ? (
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <p
+                data-testid="review-progress"
+                className="whitespace-nowrap rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
+              >
+                {left} of {total} left
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       {error ? (
         <ErrorState error={error instanceof ApiError ? error : { status: 0 }} />
@@ -115,12 +140,6 @@ export function ReviewQueue({ runId }: { runId: string }) {
         <Loading />
       ) : (
         <>
-          {total > 0 ? (
-            <p data-testid="review-progress" className="text-sm font-medium">
-              {left} of {total} left
-            </p>
-          ) : null}
-
           {current ? (
             <>
               <ReviewCard
@@ -140,19 +159,23 @@ export function ReviewQueue({ runId }: { runId: string }) {
               ) : null}
             </>
           ) : (
-            <div className="flex flex-col gap-2">
-              <p>Nothing left to review.</p>
+            <div className="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/50 p-6 dark:border-emerald-800/40 dark:bg-emerald-500/5">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-600" />
+                <p className="text-base font-semibold">Nothing left to review.</p>
+              </div>
               {readOnlyReason ? <p className="text-sm text-muted-foreground">{readOnlyReason}</p> : null}
               {run ? (
                 <p className="text-sm">
                   Run status: <RunStatusBadge status={run.status} failedStage={run.failed_stage} />
                 </p>
               ) : null}
-              <p>
-                <Link href={`/runs/${runId}`} className="underline underline-offset-2">
-                  Back to overview
-                </Link>
-              </p>
+              <Link
+                href={`/runs/${runId}`}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+              >
+                Back to overview
+              </Link>
             </div>
           )}
         </>

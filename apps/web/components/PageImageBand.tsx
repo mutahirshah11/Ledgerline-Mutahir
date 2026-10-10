@@ -59,10 +59,24 @@ export function PageImageBand({ src, pageNo, rowIndex, tableTop, tableBottom, on
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      {rowIndex !== null && band === null ? <p className="text-sm font-medium">Row {rowIndex}</p> : null}
-      {failed ? <p className="text-sm text-red-800 dark:text-red-300">The page image could not be loaded.</p> : null}
-      <div ref={boxRef} className="max-h-[60vh] w-full overflow-y-auto rounded-md border">
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Register photo · Page {pageNo}
+        </p>
+        {rowIndex !== null && band === null ? (
+          <p className="text-sm font-semibold text-foreground">Row {rowIndex}</p>
+        ) : null}
+      </div>
+      {failed ? (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-900/30 dark:text-red-300">
+          The page image could not be loaded.
+        </p>
+      ) : null}
+      <div
+        ref={boxRef}
+        className="max-h-[65vh] w-full overflow-x-hidden overflow-y-auto rounded-xl border border-border bg-muted/20 shadow-sm"
+      >
         <div className="relative w-full">
           {url ? (
             // eslint-disable-next-line @next/next/no-img-element -- short-lived signed link, not optimisable
@@ -75,14 +89,14 @@ export function PageImageBand({ src, pageNo, rowIndex, tableTop, tableBottom, on
               onError={() => void handleError()}
             />
           ) : (
-            <p className="p-4 text-sm">Loading…</p>
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
           )}
           {url && band ? (
             <div
               ref={bandRef}
               data-testid="row-band"
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 border-y-2 border-amber-500 bg-amber-300/35"
+              className="pointer-events-none absolute inset-x-0 border-y-[3px] border-emerald-500 bg-emerald-400/20 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]"
               style={{ top: pct(band.top), height: pct(band.height) }}
             />
           ) : null}

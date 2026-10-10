@@ -12,6 +12,7 @@
 // DD/MM, lot L####-###, GRN 3 to 6 digits); they stay strings. The note is kept in
 // sessionStorage per item id until the item is decided, so a 401 sign-in round trip keeps it.
 
+import { AlertTriangle, CheckCircle2, HelpCircle, PencilLine, ThumbsUp } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { PageImageBand } from "@/components/PageImageBand";
@@ -80,6 +81,12 @@ const ACTION_LABEL: Record<ReviewAction, string> = {
   ENTER_VALUE: "Enter value",
   CANNOT_DETERMINE: "Cannot determine",
   ACKNOWLEDGE: "Acknowledge",
+};
+const ACTION_ICON: Record<ReviewAction, typeof CheckCircle2> = {
+  ACCEPT_READ: CheckCircle2,
+  ENTER_VALUE: PencilLine,
+  CANNOT_DETERMINE: HelpCircle,
+  ACKNOWLEDGE: ThumbsUp,
 };
 const ACTION_ORDER: ReviewAction[] = ["ACCEPT_READ", "ENTER_VALUE", "CANNOT_DETERMINE", "ACKNOWLEDGE"];
 
@@ -362,11 +369,19 @@ function errorOf(err: unknown): CardError | null {
 
 function ReadBlock({ label, cell, testId }: { label: string; cell: Cell | null; testId: string }) {
   return (
-    <div data-testid={testId} className="min-w-0 rounded-md border p-2">
-      <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-      <p className="break-words font-medium">{readText(cell)}</p>
-      {cell ? <p className="text-xs text-muted-foreground">{cellStatusLabel(cell.status)}</p> : null}
-      {cell?.note ? <p className="break-words text-sm">{cell.note}</p> : null}
+    <div data-testid={testId} className="min-w-0 rounded-xl border border-border/70 bg-muted/30 p-3">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white"
+        >
+          {label.slice(-1)}
+        </span>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      </div>
+      <p className="mt-1.5 break-words text-base font-semibold text-foreground">{readText(cell)}</p>
+      {cell ? <p className="mt-0.5 text-xs text-muted-foreground">{cellStatusLabel(cell.status)}</p> : null}
+      {cell?.note ? <p className="mt-1 break-words text-sm text-muted-foreground">{cell.note}</p> : null}
     </div>
   );
 }
@@ -419,11 +434,24 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
     <article
       data-testid="review-card"
       aria-labelledby={`${ids}-reason`}
-      className="flex min-w-0 flex-col gap-4 rounded-lg border bg-card p-3 text-card-foreground sm:p-4"
+      className={`flex min-w-0 flex-col gap-4 rounded-2xl border bg-card p-4 text-card-foreground shadow-sm sm:p-6 ${
+        decided || readOnly ? "border-l-4 border-l-border" : "border-l-4 border-l-emerald-500"
+      }`}
     >
-      <h2 id={`${ids}-reason`} data-testid="reason-line" className="break-words text-base font-semibold">
-        {item.reasonLine}
-      </h2>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          <AlertTriangle
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 ${decided || readOnly ? "text-muted-foreground" : "text-emerald-600"}`}
+          />
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {decided ? "Decided" : readOnly ? "Read only" : "Needs your decision"}
+          </span>
+        </div>
+        <h2 id={`${ids}-reason`} data-testid="reason-line" className="break-words text-lg font-semibold leading-snug">
+          {item.reasonLine}
+        </h2>
+      </div>
 
       {item.image ? (
         <PageImageBand
@@ -444,24 +472,32 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
       ) : null}
 
       {item.details.length ? (
-        <dl className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+        <dl className="grid grid-cols-1 gap-x-3 gap-y-1 rounded-xl border border-border/70 bg-muted/20 p-3 text-sm sm:grid-cols-[auto_1fr]">
           {item.details.map((d) => (
             <div key={d.label} className="contents">
               <dt className="text-muted-foreground">{d.label}</dt>
-              <dd className="break-words">{d.value}</dd>
+              <dd className="break-words font-medium">{d.value}</dd>
             </div>
           ))}
         </dl>
       ) : null}
 
       {item.otherSources ? (
-        <section data-testid="other-sources" aria-labelledby={`${ids}-other`} className="text-sm">
-          <h3 id={`${ids}-other`} className="text-xs font-medium text-muted-foreground">
+        <section
+          data-testid="other-sources"
+          aria-labelledby={`${ids}-other`}
+          className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-3 text-sm"
+        >
+          <h3 id={`${ids}-other`} className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {item.otherSources.label}
           </h3>
-          <ul className="flex flex-wrap gap-x-4">
+          <ul className="mt-1.5 flex flex-wrap gap-2">
             {item.otherSources.values.map((o) => (
-              <li key={o.source} data-testid="other-source" className="break-words">
+              <li
+                key={o.source}
+                data-testid="other-source"
+                className="break-words rounded-full bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-sm"
+              >
                 {o.source === "ERP" ? "ERP" : "Sheet"} {o.value ?? `not in ${sourceLabel(o.source)}`}
               </li>
             ))}
@@ -470,17 +506,23 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
       ) : null}
 
       {error ? (
-        <p role="alert" className="rounded-md bg-red-100 p-2 text-sm text-red-900 dark:bg-red-900/30 dark:text-red-300">
-          {error.text}
+        <p
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900/40 dark:bg-red-900/30 dark:text-red-300"
+        >
+          <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="break-words">{error.text}</span>
         </p>
       ) : null}
 
-      {readOnly && readOnlyReason ? <p className="text-sm text-muted-foreground">{readOnlyReason}</p> : null}
+      {readOnly && readOnlyReason ? (
+        <p className="rounded-xl bg-muted/40 px-3 py-2 text-sm text-muted-foreground">{readOnlyReason}</p>
+      ) : null}
 
       {showActions ? (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4 border-t border-border/60 pt-4">
           {canEnter ? (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor={`${ids}-value`}>Value</Label>
               <Input
                 id={`${ids}-value`}
@@ -488,6 +530,7 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
                 autoComplete="off"
                 inputMode={item.valueField === "qty" ? "decimal" : undefined}
                 maxLength={64}
+                className="sm:max-w-xs"
                 onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.preventDefault(); // Enter never decides
@@ -495,7 +538,7 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
               />
             </div>
           ) : null}
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor={`${ids}-note`}>Note</Label>
             <Textarea
               id={`${ids}-note`}
@@ -507,18 +550,24 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
               }}
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {ACTION_ORDER.filter((a) => item.actions.includes(a)).map((a) => (
-              <Button
-                key={a}
-                type="button"
-                variant={a === "CANNOT_DETERMINE" ? "outline" : "default"}
-                disabled={busy || (a === "ACCEPT_READ" && !item.acceptable)}
-                onClick={() => void act(a)}
-              >
-                {ACTION_LABEL[a]}
-              </Button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {ACTION_ORDER.filter((a) => item.actions.includes(a)).map((a) => {
+              const ActionIcon = ACTION_ICON[a];
+              return (
+                <Button
+                  key={a}
+                  type="button"
+                  size="lg"
+                  variant={a === "CANNOT_DETERMINE" ? "outline" : "default"}
+                  disabled={busy || (a === "ACCEPT_READ" && !item.acceptable)}
+                  className={a !== "CANNOT_DETERMINE" ? "bg-emerald-600 text-white hover:bg-emerald-600/90" : ""}
+                  onClick={() => void act(a)}
+                >
+                  <ActionIcon aria-hidden="true" className="h-4 w-4" />
+                  {ACTION_LABEL[a]}
+                </Button>
+              );
+            })}
           </div>
         </div>
       ) : null}
