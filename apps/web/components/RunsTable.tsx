@@ -1,188 +1,79 @@
 "use client";
 
-// 006-web T057 (US6, SCR-02, contracts/screens.md "SCR-02"): the client table for the runs list.
-// Rows are keyboard-activatable (tabIndex + Enter, same target as the click handler — contracts
-// don't mandate a real per-row <a>, and a row spans several <td>s, so this is this task's own
-// choice over wrapping the whole row in a link). "New run" only for a `can.createRun` person
-// (CONTROLLER, lib/me.ts); the API stays the authority either way.
+// 2026 redesign of SCR-02 (the Runs dashboard): hero health summary + "how this month was
+// checked" + clickable stat cards + the real "every month at a glance" table (MonthlyTable,
+// which owns every SCR-02 contract requirement — testids, aria-labels, row navigation) + this
+// run's activity. "New run" stays gated by `can.createRun` exactly as before.
 
-import { createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
-import { CheckCircle2, CircleSlash, FolderOpen, Plus, XCircle } from "lucide-react";
+import { Plus } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { useMe } from "@/app/providers";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Empty } from "@/components/states";
-import { OutcomeBadge } from "@/components/OutcomeBadge";
-import { RunStatusBadge } from "@/components/RunStatusBadge";
-import { cn } from "@/lib/utils";
+import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
+import { DashboardHero } from "@/components/dashboard/DashboardHero";
+import { MonthlyTable } from "@/components/dashboard/MonthlyTable";
+import { RunsEmptyState } from "@/components/dashboard/RunsEmptyState";
+import { SourceCheckCard } from "@/components/dashboard/SourceCheckCard";
+import { SummaryStats } from "@/components/dashboard/SummaryStats";
+import type { WaffleCell } from "@/components/dashboard/Waffle";
 import type { components } from "@/lib/api-types";
-import type { Outcome } from "@/lib/wording";
 
 export type RunSummary = components["schemas"]["RunSummary"];
+export type RunView = components["schemas"]["RunView"];
+export type GroupView = components["schemas"]["GroupView"];
+export type AuditEntryOut = components["schemas"]["AuditEntryOut"];
 
 export type RunsTableProps = {
   runs: RunSummary[];
+  /** The newest run's full detail, groups (for the waffle) and audit trail — best-effort: any of
+   * these can be null if that extra read failed, and the dashboard still renders without it. */
+  latest: RunView | null;
+  latestGroups: GroupView[] | null;
+  latestAudit: AuditEntryOut[] | null;
 };
 
-function proofText(status: RunSummary["proof_status"]): string {
-  if (status === "PASS") return "Proof passed";
-  if (status === "FAIL") return "Proof failed";
-  return "Not run yet";
+function waffleCells(run: RunView, groups: GroupView[] | null): WaffleCell[] {
+  if (!groups || groups.length === 0) return [];
+  return groups.map(({ group }): WaffleCell => {
+    if (group.outcome === "MATCHED" || group.outcome === "MATCHED_AFTER_CONVERSION") return "matched";
+    if (run.status === "FINALISED") return "resolved";
+    return "needs";
+  });
 }
 
-function ProofCell({ status }: { status: RunSummary["proof_status"] }) {
-  const Icon = status === "PASS" ? CheckCircle2 : status === "FAIL" ? XCircle : CircleSlash;
-  const tone =
-    status === "PASS"
-      ? "text-green-700 dark:text-green-400"
-      : status === "FAIL"
-        ? "text-red-700 dark:text-red-400"
-        : "text-muted-foreground";
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 text-sm", tone)}>
-      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-      {proofText(status)}
-    </span>
-  );
-}
-
-function nonZeroOutcomes(counts: RunSummary["counts"]): { outcome: Outcome; count: number }[] {
-  return Object.entries(counts)
-    .filter(([, count]) => count > 0)
-    .map(([outcome, count]) => ({ outcome: outcome as Outcome, count }));
-}
-
-// @tanstack/react-table v9 (table-core skills/getting-started/SKILL.md "Setup"): `tableFeatures`
-// picks which optional state/row-model slots exist (none needed — the list is unfiltered,
-// unsorted, unpaginated, EP-04 does the ordering); `useTable` always builds the core row model.
-const features = tableFeatures({});
-const columnHelper = createColumnHelper<typeof features, RunSummary>();
-const columns = columnHelper.columns([
-  columnHelper.accessor("month", {
-    header: "Month",
-    cell: (info) => <span className="font-medium text-foreground">{info.getValue()}</span>,
-  }),
-  columnHelper.display({
-    id: "status",
-    header: "Status",
-    cell: (info) => <RunStatusBadge status={info.row.original.status} />,
-  }),
-  columnHelper.accessor("created_at", {
-    header: "Created",
-    cell: (info) => (
-      <time dateTime={info.getValue()} className="text-muted-foreground">
-        {info.getValue()}
-      </time>
-    ),
-  }),
-  columnHelper.display({
-    id: "outcomes",
-    header: "Outcomes",
-    cell: (info) => (
-      <div className="flex flex-wrap gap-1.5">
-        {nonZeroOutcomes(info.row.original.counts).map(({ outcome, count }) => (
-          <OutcomeBadge key={outcome} outcome={outcome} count={count} />
-        ))}
-      </div>
-    ),
-  }),
-  columnHelper.display({
-    id: "proof",
-    header: "Proof",
-    cell: (info) => <ProofCell status={info.row.original.proof_status} />,
-  }),
-]);
-
-export function RunsTable({ runs }: RunsTableProps) {
-  const router = useRouter();
+export function RunsTable({ runs, latest, latestGroups, latestAudit }: RunsTableProps) {
   const { can } = useMe();
-  const table = useTable({ features, columns, data: runs });
 
   const newRunLink = can.createRun ? (
-    <Button render={<Link href="/runs/new" />} className="bg-emerald-700 hover:bg-emerald-700/90">
+    <Button render={<Link href="/runs/new" />} className="gap-2 bg-primary hover:bg-primary-hover">
       <Plus className="h-4 w-4" aria-hidden="true" />
       New run
     </Button>
   ) : null;
 
   if (runs.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-          <FolderOpen className="h-6 w-6" aria-hidden="true" />
-        </div>
-        <Empty text="No runs yet." action={newRunLink} />
-      </div>
-    );
+    return <RunsEmptyState canCreateRun={can.createRun} />;
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">Runs</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Reconciliation runs for Kestrel Industries, newest first.
-          </p>
+          <p className="text-sm text-muted-foreground">Good to see you</p>
+          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground">Reconciliation runs</h1>
         </div>
         {newRunLink}
       </div>
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className="h-11 bg-muted/40 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-                  >
-                    {header.isPlaceholder ? null : <table.FlexRender header={header} />}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.map((row) => {
-              const run = row.original;
-              const href = `/runs/${run.id}`;
-              const open = () => router.push(href);
-              return (
-                <TableRow
-                  key={row.id}
-                  data-testid={`run-row-${run.id}`}
-                  tabIndex={0}
-                  aria-label={`Open run ${run.month}`}
-                  className="cursor-pointer transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-inset"
-                  onClick={open}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      open();
-                    }
-                  }}
-                >
-                  {row.getAllCells().map((cell) => (
-                    <TableCell key={cell.id} className="py-3">
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+
+      {latest ? <DashboardHero run={latest} cells={waffleCells(latest, latestGroups)} /> : null}
+      {latest ? <SourceCheckCard run={latest} /> : null}
+
+      <SummaryStats runs={runs} />
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
+        <MonthlyTable runs={runs} />
+        <ActivityFeed entries={latestAudit ?? []} />
       </div>
     </div>
   );
