@@ -7,9 +7,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-figtree);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  --font-heading: var(--font-bricolage);
+  /* Back-compat alias: pages not touched by the 2026 redesign still reference
+     var(--font-fraunces) for their headings; point it at the new display font too so the whole
+     app shares one typographic system without editing every one of those files. */
+  --font-fraunces: var(--font-bricolage);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -39,6 +43,24 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-2: var(--primary-soft-2);
+  --color-primary-tint-text: var(--primary-tint-text);
+  --color-border-strong: var(--border-strong);
+  --color-divider: var(--divider);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-ink: var(--success-ink);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-ink: var(--danger-ink);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-faint: var(--faint);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -48,39 +70,60 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* Ledgerline 2026 redesign — Teal + Lime design tokens (design_handoff_ledgerline_redesign). Plain
+   hex, not oklch: lets these be copied straight from the handoff's token table without conversion
+   and diffed/verified against it directly. */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #f1f7f6;
+  --foreground: #0d2a2c;
+  --card: #ffffff;
+  --card-foreground: #0d2a2c;
+  --popover: #ffffff;
+  --popover-foreground: #0d2a2c;
+  --primary: #0e7c86;
+  --primary-hover: #0b6870;
+  --primary-foreground: #ffffff;
+  --primary-soft: #e2f3f4;
+  --primary-soft-2: #c5e6e8;
+  --primary-tint-text: #d6eff1;
+  --secondary: #f6f8fb;
+  --secondary-foreground: #0d2a2c;
+  --muted: #f6f8fb;
+  --muted-foreground: #66748c;
+  --accent: #e2f3f4;
+  --accent-foreground: #0e7c86;
+  --destructive: #e5534b;
+  --border: #e2e8f1;
+  --border-strong: #d5deeb;
+  --divider: #edf1f6;
+  --input: #d5deeb;
+  --ring: #0e7c86;
+  --success: #86d97a;
+  --success-soft: #eaf8e6;
+  --success-ink: #2a6b1f;
+  --warning: #f2b441;
+  --warning-soft: #fdf3dc;
+  --warning-ink: #8a5a00;
+  --danger: #e5534b;
+  --danger-soft: #fdecea;
+  --danger-ink: #b0302a;
+  --ink: #0d2a2c;
+  --ink-2: #44536e;
+  --faint: #9aa8bd;
+  --chart-1: #0e7c86;
+  --chart-2: #86d97a;
+  --chart-3: #f2b441;
+  --chart-4: #e5534b;
+  --chart-5: #44536e;
+  --radius: 0.75rem;
+  --sidebar: #0d2a2c;
+  --sidebar-foreground: #e2f3f4;
+  --sidebar-primary: #0e7c86;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #123a3d;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #0e7c86;
 }
 
 .dark {

@@ -61,4 +61,5 @@ addopts = "-m \"not integration and not live\""
 markers = [
     "integration: needs a real Supabase project (Phase 6)",
     "live: needs OPENAI_API_KEY; skipped otherwise",
+    "slow: takes minutes (007-ship real-lifetime link expiry); select explicitly",
 ]
