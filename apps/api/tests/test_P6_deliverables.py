@@ -1,6 +1,7 @@
-"""007-ship US2 (contracts/readme-outline.md): `README.md` is the only doc a reviewer reads
-before the 15-minute fresh-clone clock starts, so these checks run every commit, offline. T025
-to T029.
+"""007-ship US2/US3 (contracts/readme-outline.md, contracts/nfr-report.md): `README.md` is the
+only doc a reviewer reads before the 15-minute fresh-clone clock starts, and NFR-07 (no
+pandas/numpy in the deployed function) is checked the same way, offline, every commit. T025 to
+T029, T041.
 """
 
 import re
@@ -130,3 +131,53 @@ def test_P6_readme_no_secrets() -> None:
         assert email in ALLOWED_EMAILS or email.endswith(f"@{ALLOWED_EMAIL_DOMAIN}"), (
             f"README.md must not name a real email address: {email}"
         )
+
+
+def test_P6_no_pandas_numpy() -> None:
+    """NFR-07: the deployed Python function stays small; pandas/numpy alone would blow past the
+    250 MB uncompressed limit."""
+    lock_text = (API_DIR / "uv.lock").read_text(encoding="utf-8")
+    for package in ("pandas", "numpy"):
+        assert f'name = "{package}"' not in lock_text, f"{package} must never be a dependency"
+
+
+NFR_REPORT = REPO_ROOT / "NFR_REPORT.md"
+EXPECTED_NFR_IDS = tuple(f"NFR-{n:02d}" for n in range(1, 12))
+TIMED_NFR_IDS = frozenset({"NFR-01", "NFR-02", "NFR-05", "NFR-11"})
+NFR_RESULTS = frozenset({"MET", "NOT MET", "NOT MEASURED"})
+
+
+def _nfr_table_1_rows() -> list[list[str]]:
+    if not NFR_REPORT.is_file():
+        pytest.fail("NFR_REPORT.md does not exist at the repo root")
+    text = NFR_REPORT.read_text(encoding="utf-8")
+    start = text.index("## Table 1")
+    end = text.index("## Table 2")
+    lines = [line for line in text[start:end].splitlines() if line.startswith("| NFR-")]
+    return [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
+
+
+def test_P6_nfr_report_complete() -> None:
+    rows = _nfr_table_1_rows()
+    assert [row[0] for row in rows] == list(EXPECTED_NFR_IDS)
+    for nfr_id, _requirement, _target, _method, values, result, evidence, _env, _date in rows:
+        assert result in NFR_RESULTS, f"{nfr_id}: Result must be one of {sorted(NFR_RESULTS)}"
+        if result == "NOT MET":
+            assert evidence, f"{nfr_id}: a NOT MET row needs a one-line reason in Evidence"
+        if result == "MET":
+            assert evidence, f"{nfr_id}: a MET row needs non-empty Evidence"
+            assert values, f"{nfr_id}: a MET row needs non-empty Values"
+            if nfr_id in TIMED_NFR_IDS:
+                assert len(values.split(",")) == 3, f"{nfr_id}: a timed MET row needs 3 values"
+
+
+def test_P6_nfr_report_table_2_has_six_rows() -> None:
+    if not NFR_REPORT.is_file():
+        pytest.fail("NFR_REPORT.md does not exist at the repo root")
+    text = NFR_REPORT.read_text(encoding="utf-8")
+    start = text.index("## Table 2")
+    end = text.index("## Table 3")
+    rows = [
+        line for line in text[start:end].splitlines() if line.startswith("|") and "---" not in line
+    ]
+    assert len(rows) == 1 + 6  # header + 6 metric rows
