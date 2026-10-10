@@ -27,6 +27,7 @@ RESET_SQL = "apps/api/tests/sql/test_project_reset.sql"
 class SupabaseTestProject:
     settings: Settings
     ref: str
+    anon_key: str | None = None
 
 
 def _same_url(a: str, b: str) -> bool:
@@ -53,7 +54,19 @@ def load_test_project(env_test: Path = ENV_TEST, env_dev: Path = ENV_DEV) -> Sup
     if host.split(".")[0] != ref.lower():
         pytest.fail("integration: SUPABASE_TEST_PROJECT_REF does not match the SUPABASE_URL host")
     settings = Settings(_env_file=None, SUPABASE_URL=url, SUPABASE_SERVICE_ROLE_KEY=key)
-    return SupabaseTestProject(settings, ref)
+    return SupabaseTestProject(settings, ref, anon_key=values.get("SUPABASE_ANON_KEY"))
+
+
+def create_anon_client(project: SupabaseTestProject) -> Any:
+    """A client using the test project's anon key, for RLS-denial checks (007-ship FR-006)."""
+    if not project.anon_key:
+        pytest.skip("integration: .env.test needs SUPABASE_ANON_KEY for anon-RLS checks")
+    from supabase import create_client
+    from supabase.lib.client_options import SyncClientOptions
+
+    options = SyncClientOptions(auto_refresh_token=False, persist_session=False)
+    assert project.settings.SUPABASE_URL is not None
+    return create_client(project.settings.SUPABASE_URL, project.anon_key, options=options)
 
 
 def _rpc(client: Any, name: str, params: dict[str, Any] | None = None) -> Any:
