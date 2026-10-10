@@ -54,7 +54,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // local state (e.g. an in-progress file upload) the instant `status` finishes "loading" and
   // flips `showShell` true. The fix: always render the same wrapper; only the <aside> itself is
   // conditional, as a sibling that doesn't affect `children`'s position.
-  const showShell = status === "ready" && person !== null && pathname !== "/forbidden" && !isSignedOutPath(pathname);
+  //
+  // The shell's visibility depends only on the PATH, not on `status`/`person` being loaded yet:
+  // a protected route only ever renders here once the server component has already confirmed the
+  // visitor is signed in (serverApi redirects to /login otherwise), so the brief client-side
+  // "loading" window (while EP-02 /me answers) is never actually a signed-out state — gating on
+  // `status === "ready"` just made the whole sidebar flash away and back on every load/refresh.
+  // Person-dependent bits (name/role, "Start a run"'s `can.createRun`) render as skeletons
+  // instead until `status` settles.
+  const showShell = pathname !== "/forbidden" && !isSignedOutPath(pathname);
+  const personReady = status === "ready" && person !== null;
 
   async function signOut() {
     await getBrowserSupabase().auth.signOut({ scope: "local" });
@@ -67,7 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen w-full flex-1">
-      {showShell && person ? (
+      {showShell ? (
         <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground/70 lg:flex">
           <div>
             <div className="flex items-center gap-2.5 px-5 py-6">
@@ -95,7 +104,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <LayoutGrid className="h-4 w-4" aria-hidden="true" />
                 Dashboard
               </Link>
-              {can.createRun ? (
+              {!personReady ? (
+                <div className="mx-3 my-1.5 h-[34px] animate-pulse rounded-md bg-sidebar-accent/40" />
+              ) : can.createRun ? (
                 <Link
                   href="/runs/new"
                   className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -138,13 +149,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="border-t border-sidebar-border p-3">
             <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
-                {initials(person.displayName || person.email)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">{person.displayName}</p>
-                <p className="truncate text-[11px] text-sidebar-foreground/50">{person.role}</p>
-              </div>
+              {personReady && person ? (
+                <>
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
+                    {initials(person.displayName || person.email)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-white">{person.displayName}</p>
+                    <p className="truncate text-[11px] text-sidebar-foreground/50">{person.role}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-sidebar-accent/40" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-3 w-24 animate-pulse rounded bg-sidebar-accent/40" />
+                    <div className="h-2.5 w-14 animate-pulse rounded bg-sidebar-accent/40" />
+                  </div>
+                </>
+              )}
             </div>
             <button
               type="button"

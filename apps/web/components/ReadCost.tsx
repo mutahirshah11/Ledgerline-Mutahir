@@ -15,7 +15,7 @@ export type ReadCostProps = {
 export function ReadCost({ estimate, actualUsd }: ReadCostProps) {
   if (!estimate && actualUsd === undefined) return null;
   return (
-    <section aria-label="Read cost" className="rounded-md bg-muted/50 p-3 text-sm">
+    <section aria-label="Read cost" className="rounded-xl border border-border bg-muted/40 p-3.5 text-sm">
       {estimate ? <p>{readCostEstimateLine(estimate.newPages, estimate.usd)}</p> : null}
       {actualUsd !== undefined ? <p className="font-medium">{readCostActualLine(actualUsd)}</p> : null}
     </section>
