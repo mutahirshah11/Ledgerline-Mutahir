@@ -5,6 +5,7 @@ history/
 Ledgerline_Blueprint_PRD.md
 docs/
 specs/
+Ledgerline SaaS redesign/
 
 # Secrets: every env file, including the .env.example templates
 .env*

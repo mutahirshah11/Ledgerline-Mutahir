@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { Fraunces, Geist, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Figtree, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { Providers } from "./providers";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Ledgerline's typographic system (2026 redesign): Figtree for every UI/body string, Bricolage
+// Grotesque for headlines (landing, login, dashboard, page/card titles) — both replace the
+// previous Geist/Fraunces pairing everywhere, not just the redesigned pages, so the whole app
+// reads as one product.
+const figtree = Figtree({
+  variable: "--font-figtree",
   subsets: ["latin"],
 });
 
@@ -14,13 +18,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// A distinctive display serif for headlines (landing, login, run headline) — paired with Geist
-// Sans for everything else. Used deliberately as Ledgerline's own typographic signature, not a
-// generic sans-everywhere look.
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+const bricolage = Bricolage_Grotesque({
+  variable: "--font-bricolage",
   subsets: ["latin"],
-  axes: ["opsz", "SOFT", "WONK"],
 });
 
 export const metadata: Metadata = {
@@ -34,7 +34,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
+      className={`${figtree.variable} ${geistMono.variable} ${bricolage.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {/* 006-web T020 (NFR-09): first tab stop jumps past navigation to the screen. */}
