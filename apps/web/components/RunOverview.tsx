@@ -1,5 +1,6 @@
 "use client";
 
+import { Receipt, ScrollText, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -9,6 +10,7 @@ import { ExceptionSections } from "@/components/ExceptionSections";
 import { FinalisePanel, SummaryNotDelivered, useFinalise, type RunView } from "@/components/FinalisePanel";
 import { ProofPanel, ProofStatusBadge, type Proof } from "@/components/ProofPanel";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
+import { Button } from "@/components/ui/button";
 import { stageText } from "@/lib/wording";
 
 // FR-022: statuses before AWAITING_REVIEW/READY (and short of FINALISED/FAILED) are still being
@@ -49,9 +51,16 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
   const failureTitle = run.error_message ?? stageLine;
 
   return (
-    <div className="mx-auto w-full max-w-3xl min-w-0 space-y-5 px-4 py-6 [overflow-wrap:anywhere]">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">{run.headline}</h1>
+    <div className="mx-auto w-full max-w-3xl min-w-0 space-y-6 px-4 py-6 [overflow-wrap:anywhere]">
+      <header className="space-y-3">
+        <div>
+          <p className="text-xs font-medium tracking-wide text-emerald-700/70 uppercase dark:text-emerald-400/70">
+            Run overview
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#0b3328] [overflow-wrap:anywhere] sm:text-3xl dark:text-emerald-50">
+            {run.headline}
+          </h1>
+        </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
           <RunStatusBadge status={run.status} failedStage={run.failed_stage} />
           <span>{run.month}</span>
@@ -67,16 +76,19 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
             />
           )
         )}
-        <nav aria-label="Run pages" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          <Link href={`/runs/${id}/results`} className="underline underline-offset-4">
+        <nav aria-label="Run pages" className="flex flex-wrap gap-2 text-sm">
+          <Button variant="outline" size="sm" render={<Link href={`/runs/${id}/results`} />}>
+            <Receipt className="h-4 w-4" aria-hidden="true" />
             See all receipts
-          </Link>
-          <Link href={`/runs/${id}/proof`} className="underline underline-offset-4">
+          </Button>
+          <Button variant="outline" size="sm" render={<Link href={`/runs/${id}/proof`} />}>
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
             Proof
-          </Link>
-          <Link href={`/runs/${id}/audit`} className="underline underline-offset-4">
+          </Button>
+          <Button variant="outline" size="sm" render={<Link href={`/runs/${id}/audit`} />}>
+            <ScrollText className="h-4 w-4" aria-hidden="true" />
             Audit
-          </Link>
+          </Button>
         </nav>
       </header>
 

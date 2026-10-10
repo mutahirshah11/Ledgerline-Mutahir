@@ -1,3 +1,6 @@
+import { CheckCircle2, ShieldAlert, ShieldCheck, XCircle } from "lucide-react";
+import type { ReactNode } from "react";
+
 import type { components } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 import { type Outcome, type Source, sourceLabel } from "@/lib/wording";
@@ -61,18 +64,20 @@ export function ProofStatusBadge({
   className?: string;
 }) {
   const pass = status === "PASS";
+  const Icon = pass ? ShieldCheck : ShieldAlert;
   return (
     <p
       data-testid="proof-badge"
       data-status={status}
       className={cn(
-        "inline-flex max-w-full items-center rounded-md px-2 py-1 text-sm font-medium [overflow-wrap:anywhere]",
+        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold [overflow-wrap:anywhere]",
         pass
-          ? "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-300"
-          : "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-300",
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+          : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
         className,
       )}
     >
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
       {text}
     </p>
   );
@@ -86,19 +91,50 @@ const SOURCES: readonly Source[] = ["REGISTER", "ERP", "SHEET"];
 
 /** PASS/FAIL in text and colour (NFR-09: never colour alone), with the check's one-line meaning. */
 function CheckStatus({ id, pass }: { id: ProofCheckId; pass: boolean }) {
+  const Icon = pass ? CheckCircle2 : XCircle;
   return (
     <p
       data-testid={`proof-check-${id}`}
       data-status={pass ? "PASS" : "FAIL"}
       className={cn(
-        "inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-sm font-medium [overflow-wrap:anywhere]",
+        "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold [overflow-wrap:anywhere]",
         pass
-          ? "bg-green-100 text-green-900 dark:bg-green-900/30 dark:text-green-300"
-          : "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-300",
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+          : "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
       )}
     >
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
       {id} {pass ? "PASS" : "FAIL"} — {PROOF_CHECK_MEANING[id]}
     </p>
+  );
+}
+
+/** Shared card chrome for each C1..C5 block: a left accent bar that reads PASS/FAIL at a glance. */
+function CheckCard({ pass, children }: { pass: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm dark:bg-card",
+        pass ? "border-l-4 border-l-emerald-500" : "border-l-4 border-l-red-500",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Small-caps table header row, reused by the C1/C3/C4 tables below. */
+function TableHead({ cols }: { cols: string[] }) {
+  return (
+    <thead>
+      <tr className="border-b text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        {cols.map((c) => (
+          <th key={c} scope="col" className="py-1.5 pr-4">
+            {c}
+          </th>
+        ))}
+      </tr>
+    </thead>
   );
 }
 
@@ -112,105 +148,97 @@ function FullProofPanel({ proof, counts, className }: { proof: Proof; counts?: P
   const placed = C2.rows - C2.unplaced.length - C2.placed_twice.length;
   const byOutcome = Object.entries(counts ?? {}).filter(([, n]) => (n ?? 0) > 0) as [Outcome, number][];
   return (
-    <section data-testid="proof-panel-full" className={cn("flex flex-col gap-6", className)}>
-      <div data-testid="proof-c1" className="flex flex-col gap-2">
-        <CheckStatus id="C1" pass={C1.pass} />
-        <table data-testid="proof-c1-table" className="w-full max-w-md text-sm">
-          <thead>
-            <tr className="text-left">
-              <th scope="col">Source</th>
-              <th scope="col">Rows in</th>
-              <th scope="col">Rows placed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SOURCES.map((source) => {
-              const row = C1.per_source[source];
-              return (
-                <tr key={source} data-testid={`proof-c1-row-${source}`}>
-                  <th scope="row" className="text-left font-normal">{sourceLabel(source)}</th>
-                  <td>{row?.in ?? 0}</td>
-                  <td>{row?.placed ?? 0}</td>
+    <section data-testid="proof-panel-full" className={cn("flex flex-col gap-4", className)}>
+      <div data-testid="proof-c1">
+        <CheckCard pass={C1.pass}>
+          <CheckStatus id="C1" pass={C1.pass} />
+          <table data-testid="proof-c1-table" className="w-full max-w-md border-collapse text-sm">
+            <TableHead cols={["Source", "Rows in", "Rows placed"]} />
+            <tbody>
+              {SOURCES.map((source) => {
+                const row = C1.per_source[source];
+                return (
+                  <tr key={source} data-testid={`proof-c1-row-${source}`} className="border-b last:border-0">
+                    <th scope="row" className="py-1.5 pr-4 text-left font-normal">{sourceLabel(source)}</th>
+                    <td className="py-1.5 pr-4 tabular-nums">{row?.in ?? 0}</td>
+                    <td className="py-1.5 tabular-nums">{row?.placed ?? 0}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {byOutcome.length > 0 && (
+            <div className="flex flex-wrap gap-1" aria-label="Rows by outcome">
+              {byOutcome.map(([outcome, count]) => (
+                <OutcomeBadge key={outcome} outcome={outcome} count={count} />
+              ))}
+            </div>
+          )}
+        </CheckCard>
+      </div>
+
+      <div data-testid="proof-c2">
+        <CheckCard pass={C2.pass}>
+          <CheckStatus id="C2" pass={C2.pass} />
+          <p>{placed} of {C2.rows} rows placed once</p>
+          {C2.unplaced.length > 0 && <p>Unplaced: {C2.unplaced.join(", ")}</p>}
+          {C2.placed_twice.length > 0 && <p>Placed twice: {C2.placed_twice.join(", ")}</p>}
+        </CheckCard>
+      </div>
+
+      <div data-testid="proof-c3">
+        <CheckCard pass={C3.pass}>
+          <CheckStatus id="C3" pass={C3.pass} />
+          <table data-testid="proof-c3-table" className="w-full max-w-md border-collapse text-sm">
+            <TableHead cols={["Source", "Count"]} />
+            <tbody>
+              {SOURCES.map((source) => (
+                <tr key={source} data-testid={`proof-c3-row-${source}`} className="border-b last:border-0">
+                  <th scope="row" className="py-1.5 pr-4 text-left font-normal">{sourceLabel(source)}</th>
+                  <td className="py-1.5 tabular-nums">{C3.per_source[source] ?? 0}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {byOutcome.length > 0 && (
-          <div className="flex flex-wrap gap-1" aria-label="Rows by outcome">
-            {byOutcome.map(([outcome, count]) => (
-              <OutcomeBadge key={outcome} outcome={outcome} count={count} />
-            ))}
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+          {C3.problems.length > 0 && <p>{C3.problems.join(", ")}</p>}
+        </CheckCard>
       </div>
 
-      <div data-testid="proof-c2" className="flex flex-col gap-2">
-        <CheckStatus id="C2" pass={C2.pass} />
-        <p>{placed} of {C2.rows} rows placed once</p>
-        {C2.unplaced.length > 0 && <p>Unplaced: {C2.unplaced.join(", ")}</p>}
-        {C2.placed_twice.length > 0 && <p>Placed twice: {C2.placed_twice.join(", ")}</p>}
+      <div data-testid="proof-c4">
+        <CheckCard pass={C4.pass}>
+          <CheckStatus id="C4" pass={C4.pass} />
+          <table data-testid="proof-c4-table" className="w-full max-w-md border-collapse text-sm">
+            <TableHead cols={["Source", "Unit", "Qty in", "Qty placed"]} />
+            <tbody>
+              {Object.entries(C4.by_source_unit).map(([key, balance]) => {
+                const { source, unit } = parseSourceUnitKey(key);
+                return (
+                  <tr key={key} data-testid={`proof-c4-row-${key}`} className="border-b last:border-0">
+                    <th scope="row" className="py-1.5 pr-4 text-left font-normal">{source}</th>
+                    <td className="py-1.5 pr-4">{unit}</td>
+                    <td className="py-1.5 pr-4 tabular-nums">{balance.in}</td>
+                    <td className="py-1.5 tabular-nums">{balance.placed}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {C4.qty_unknown.length > 0 && (
+            <p data-testid="proof-c4-qty-unknown" className="text-amber-800 dark:text-amber-300">
+              Quantity unknown (not counted as zero): {C4.qty_unknown.join(", ")}
+            </p>
+          )}
+        </CheckCard>
       </div>
 
-      <div data-testid="proof-c3" className="flex flex-col gap-2">
-        <CheckStatus id="C3" pass={C3.pass} />
-        <table data-testid="proof-c3-table" className="w-full max-w-md text-sm">
-          <thead>
-            <tr className="text-left">
-              <th scope="col">Source</th>
-              <th scope="col">Count</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SOURCES.map((source) => (
-              <tr key={source} data-testid={`proof-c3-row-${source}`}>
-                <th scope="row" className="text-left font-normal">{sourceLabel(source)}</th>
-                <td>{C3.per_source[source] ?? 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {C3.problems.length > 0 && <p>{C3.problems.join(", ")}</p>}
-      </div>
-
-      <div data-testid="proof-c4" className="flex flex-col gap-2">
-        <CheckStatus id="C4" pass={C4.pass} />
-        <table data-testid="proof-c4-table" className="w-full max-w-md text-sm">
-          <thead>
-            <tr className="text-left">
-              <th scope="col">Source</th>
-              <th scope="col">Unit</th>
-              <th scope="col">Qty in</th>
-              <th scope="col">Qty placed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(C4.by_source_unit).map(([key, balance]) => {
-              const { source, unit } = parseSourceUnitKey(key);
-              return (
-                <tr key={key} data-testid={`proof-c4-row-${key}`}>
-                  <th scope="row" className="text-left font-normal">{source}</th>
-                  <td>{unit}</td>
-                  <td>{balance.in}</td>
-                  <td>{balance.placed}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {C4.qty_unknown.length > 0 && (
-          <p data-testid="proof-c4-qty-unknown">
-            Quantity unknown (not counted as zero): {C4.qty_unknown.join(", ")}
+      <div data-testid="proof-c5">
+        <CheckCard pass={C5.pass}>
+          <CheckStatus id="C5" pass={C5.pass} />
+          <p data-testid="proof-c5-grns" className="text-sm">{C5.grns} GRNs</p>
+          <p data-testid="proof-c5-gaps" className="text-sm">
+            {C5.gaps.length > 0 ? `Gaps: ${C5.gaps.join(", ")}` : "No gaps"}
           </p>
-        )}
-      </div>
-
-      <div data-testid="proof-c5" className="flex flex-col gap-2">
-        <CheckStatus id="C5" pass={C5.pass} />
-        <p data-testid="proof-c5-grns">{C5.grns} GRNs</p>
-        <p data-testid="proof-c5-gaps">
-          {C5.gaps.length > 0 ? `Gaps: ${C5.gaps.join(", ")}` : "No gaps"}
-        </p>
+        </CheckCard>
       </div>
     </section>
   );

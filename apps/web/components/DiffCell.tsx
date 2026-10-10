@@ -1,3 +1,5 @@
+import { AlertTriangle } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 // contracts/components.md "DiffCell" (006-web T053; US5, SCR-05-AC1/AC2). Shows a cell's recorded
@@ -41,8 +43,9 @@ export function DiffCell({
   return (
     <span
       className={cn(
-        "inline-flex flex-col gap-0.5",
-        differs && "rounded bg-amber-100 px-1 dark:bg-amber-900/30",
+        "inline-flex flex-col gap-0.5 rounded-md border border-transparent px-1.5 py-1 transition-colors",
+        differs && !isOutlier && "border-muted-foreground/15 bg-muted/40",
+        isOutlier && "border-amber-300/70 bg-amber-50 shadow-[inset_0_0_0_1px_rgba(217,119,6,0.08)] dark:border-amber-700/50 dark:bg-amber-950/30",
       )}
       aria-label={
         isOutlier
@@ -55,7 +58,8 @@ export function DiffCell({
         <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{compared}</span>
       )}
       {isOutlier && (
-        <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="size-3" aria-hidden="true" />
           (different)
         </span>
       )}

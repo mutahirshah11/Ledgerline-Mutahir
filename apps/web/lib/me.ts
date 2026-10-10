@@ -61,8 +61,9 @@ export function toSessionPerson(me: Me): SessionPerson {
 }
 
 /** Pages a signed-out visitor may open (FR-001). `/__test__/**` pages guard themselves with
- * ENABLE_TEST_PAGES (T023). Everything else redirects to `/login?next=`. */
-const SIGNED_OUT_PREFIXES = ["/login", "/auth/callback", "/__test__"] as const;
+ * ENABLE_TEST_PAGES (T023). "/" is the public marketing landing (app/page.tsx) — it redirects a
+ * signed-in visitor to `/runs` itself. Everything else redirects to `/login?next=`. */
+const SIGNED_OUT_PREFIXES = ["/", "/login", "/auth/callback", "/__test__"] as const;
 
 function underPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);

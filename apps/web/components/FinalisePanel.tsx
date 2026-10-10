@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckCircle2, Download, FileText, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner } from "@/components/Banner";
@@ -134,6 +135,7 @@ export function SummaryNotDelivered({ finalise, canResend }: SummaryNotDelivered
         action={
           canResend ? (
             <Button className="mt-2" onClick={() => void finalise.send()} disabled={finalise.sending}>
+              <Download className="h-4 w-4" aria-hidden="true" />
               Resend
             </Button>
           ) : undefined
@@ -199,20 +201,38 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
   if (run.status === "FINALISED") {
     const summary = run.summary;
     return (
-      <section aria-labelledby="finalise-heading" className="space-y-3 rounded-lg border p-4">
-        <h2 id="finalise-heading" ref={reportHeadingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
-          Report
-        </h2>
-        <p>This run is finalised and read-only.</p>
+      <section
+        aria-labelledby="finalise-heading"
+        className="space-y-3 rounded-xl border border-l-4 border-l-emerald-500 bg-white p-5 shadow-sm dark:bg-card"
+      >
+        <div className="flex items-center gap-2.5">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />
+          <h2
+            id="finalise-heading"
+            ref={reportHeadingRef}
+            tabIndex={-1}
+            className="text-lg font-semibold tracking-tight outline-none"
+          >
+            Report
+          </h2>
+        </div>
+        <p className="text-sm text-muted-foreground">This run is finalised and read-only.</p>
         {summary?.status === "SENT" && summary.sent_at && (
-          <p role="status">Finalised. Summary sent to the controller at {hhmm(summary.sent_at)}</p>
+          <p
+            role="status"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 [overflow-wrap:anywhere] dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+          >
+            Finalised. Summary sent to the controller at {hhmm(summary.sent_at)}
+          </p>
         )}
         {finalise.error && <p role="alert">{errorStateText(finalise.error)}</p>}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 pt-1">
           <Button variant="outline" disabled={downloading !== null} onClick={() => void download("report")}>
+            <FileText className="h-4 w-4" aria-hidden="true" />
             Download report
           </Button>
           <Button variant="outline" disabled={downloading !== null} onClick={() => void download("csv")}>
+            <Download className="h-4 w-4" aria-hidden="true" />
             Download outcomes CSV
           </Button>
         </div>
@@ -232,16 +252,23 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
       : `${n} review items are still open. Finalise and send the summary now?`;
 
   return (
-    <section aria-labelledby="finalise-heading" className="space-y-3 rounded-lg border p-4">
-      <h2 id="finalise-heading" className="text-lg font-semibold">
-        Finalise
-      </h2>
+    <section
+      aria-labelledby="finalise-heading"
+      className="space-y-3 rounded-xl border border-l-4 border-l-[#0b3328] bg-white p-5 shadow-sm dark:bg-card"
+    >
+      <div className="flex items-center gap-2.5">
+        <ShieldCheck className="h-5 w-5 shrink-0 text-[#0b3328] dark:text-emerald-400" aria-hidden="true" />
+        <h2 id="finalise-heading" className="text-lg font-semibold tracking-tight">
+          Finalise
+        </h2>
+      </div>
       {!open && !closing && (
         <Button
           disabled={blocked || finalise.sending}
           aria-describedby={blocked ? "finalise-reason" : undefined}
           onClick={() => setOpen(true)}
-          className="max-w-full"
+          size="lg"
+          className="max-w-full bg-[#0b3328] hover:bg-[#0b3328]/90"
         >
           Finalise and send
         </Button>
