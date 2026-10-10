@@ -1,6 +1,8 @@
+import { AlertTriangle, ArrowLeftRight, Clock3, Flag, Info } from "lucide-react";
 import Link from "next/link";
 
 import type { components } from "@/lib/api-types";
+import { cn } from "@/lib/utils";
 import { flagLabel } from "@/lib/wording";
 
 // contracts/components.md "ExceptionSections" (006-web T040; F-09.R1, FR-016, FR-017, FR-018).
@@ -31,6 +33,17 @@ export const SECTION_TITLES: Record<1 | 2 | 3 | 4 | 5, string> = {
 
 const CATEGORIES = [1, 2, 3, 4, 5] as const;
 
+/** Per-category icon (decorative, aria-hidden) and left-accent colour — organises the five
+ * sections at a glance without relying on colour alone (NFR-09: the heading text always carries
+ * the meaning; this is pure visual grouping). */
+const SECTION_STYLE: Record<1 | 2 | 3 | 4 | 5, { icon: typeof AlertTriangle; accent: string }> = {
+  1: { icon: AlertTriangle, accent: "border-l-red-400" },
+  2: { icon: ArrowLeftRight, accent: "border-l-amber-400" },
+  3: { icon: Clock3, accent: "border-l-blue-400" },
+  4: { icon: Flag, accent: "border-l-orange-400" },
+  5: { icon: Info, accent: "border-l-slate-300" },
+};
+
 function lineHref(runId: string, item: ExceptionItem): string | null {
   if (item.group_key && item.grn_no !== null) return `/runs/${runId}/results?grn=${item.grn_no}`;
   return null;
@@ -39,9 +52,13 @@ function lineHref(runId: string, item: ExceptionItem): string | null {
 function ExceptionLine({ item, runId }: { item: ExceptionItem; runId: string }) {
   const href = lineHref(runId, item);
   return (
-    <li className="py-1.5 [overflow-wrap:anywhere]">
+    <li className="py-2 text-sm [overflow-wrap:anywhere]">
       {href ? (
-        <Link data-testid="exception-line" href={href} className="underline-offset-4 hover:underline">
+        <Link
+          data-testid="exception-line"
+          href={href}
+          className="font-medium text-foreground underline-offset-4 hover:text-primary hover:underline"
+        >
           {item.text}
         </Link>
       ) : (
@@ -71,9 +88,15 @@ export function ExceptionSections({ exceptions, runId, openReviewItems, readOnly
         const waiting = category === 3 && openReviewItems > 0;
         if (items.length === 0 && !waiting) return null;
         const headingId = `exceptions-${category}`;
+        const { icon: Icon, accent } = SECTION_STYLE[category];
         return (
-          <section key={category} aria-labelledby={headingId} className="space-y-1">
-            <h2 id={headingId} className="text-lg font-semibold">
+          <section
+            key={category}
+            aria-labelledby={headingId}
+            className={cn("space-y-2 rounded-lg border-l-4 bg-white py-1 pl-4 dark:bg-card", accent)}
+          >
+            <h2 id={headingId} className="flex items-center gap-2 text-lg font-semibold">
+              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               {SECTION_TITLES[category]}
             </h2>
             {category === 3 && (
