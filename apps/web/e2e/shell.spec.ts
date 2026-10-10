@@ -3,13 +3,15 @@
 
 import { expect, test } from "./support/mock-api";
 
-test("shell: signed-out / redirects to /login?next=%2Fruns", async ({ page, mockApi }) => {
+test("shell: signed-out / shows the public landing page, not a redirect", async ({ page, mockApi }) => {
   await mockApi.signOut();
-  // "/" itself redirects to /runs (lib/me.ts safeNext's fallback), so proxy.ts's own `next`
-  // (lib/me.ts loginUrl: no `next` param when it would just equal the fallback) drops to plain
-  // `/login` for that one path; a deeper address keeps its `next` (covered by SCR-01-AC4 already).
+  // "/" is now a public marketing landing (app/page.tsx, lib/me.ts SIGNED_OUT_PREFIXES) — a
+  // signed-out visitor stays there and signs in via its own "Sign in" link, rather than being
+  // bounced straight to /login. A deeper address still redirects with its `next` (SCR-01-AC4).
   await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in", exact: true })).toBeVisible();
 
   await page.goto("/runs");
   await expect(page).toHaveURL(/\/login\?next=%2Fruns/);
