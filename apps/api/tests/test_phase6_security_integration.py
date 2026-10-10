@@ -7,15 +7,21 @@ record created here is tagged actor/path "integration-test" and storage objects 
 
 import time
 import uuid
-from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 import pytest
 from postgrest.exceptions import APIError
+from storage3.utils import StorageException
 
+from app.core import clock
 from app.core.storage import INPUTS_BUCKET, REPORTS_BUCKET, SupabaseBlobStore
 from app.core.supabase_repo import create_service_client
-from tests.support.supabase_project import create_anon_client, load_test_project
+from tests.support.supabase_project import (
+    SupabaseTestProject,
+    create_anon_client,
+    load_test_project,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -38,22 +44,22 @@ TABLES = (
 
 
 @pytest.fixture(scope="module")
-def supabase_project():
+def supabase_project() -> SupabaseTestProject:
     return load_test_project()
 
 
 @pytest.fixture(scope="module")
-def service_client(supabase_project):
+def service_client(supabase_project: SupabaseTestProject) -> Any:
     return create_service_client(supabase_project.settings)
 
 
 @pytest.fixture(scope="module")
-def anon_client(supabase_project):
+def anon_client(supabase_project: SupabaseTestProject) -> Any:
     return create_anon_client(supabase_project)
 
 
 @pytest.fixture
-def blobstore(service_client, supabase_project):
+def blobstore(service_client: Any, supabase_project: SupabaseTestProject) -> SupabaseBlobStore:
     return SupabaseBlobStore(supabase_project.settings, client=service_client)
 
 
@@ -62,7 +68,7 @@ def blobstore(service_client, supabase_project):
 # --------------------------------------------------------------------------------------------
 
 
-def test_FR003_schema_matches_target_shape(service_client):
+def test_FR003_schema_matches_target_shape(service_client: Any) -> None:
     report = service_client.rpc("ledgerline_schema_report", {}).execute().data
     assert report == {
         "table_count": 14,
@@ -79,12 +85,12 @@ def test_FR003_schema_matches_target_shape(service_client):
 # --------------------------------------------------------------------------------------------
 
 
-def _insert_audit_probe(service_client, action: str) -> int:
+def _insert_audit_probe(service_client: Any, action: str) -> int:
     row = (
         service_client.table("audit_log")
         .insert(
             {
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": clock.now().isoformat(),
                 "actor": "integration-test",
                 "action": action,
                 "entity": "integration-test",
@@ -95,23 +101,21 @@ def _insert_audit_probe(service_client, action: str) -> int:
         .execute()
         .data
     )
-    return row[0]["id"]
+    return int(row[0]["id"])
 
 
-def test_FR005_audit_log_update_denied(service_client):
+def test_FR005_audit_log_update_denied(service_client: Any) -> None:
     row_id = _insert_audit_probe(service_client, "FR005_UPDATE_PROBE")
 
     with pytest.raises(APIError) as exc_info:
-        service_client.table("audit_log").update({"action": "TAMPERED"}).eq(
-            "id", row_id
-        ).execute()
+        service_client.table("audit_log").update({"action": "TAMPERED"}).eq("id", row_id).execute()
     assert "append-only" in (exc_info.value.message or "")
 
     unchanged = service_client.table("audit_log").select("action").eq("id", row_id).execute()
     assert unchanged.data == [{"action": "FR005_UPDATE_PROBE"}]
 
 
-def test_FR005_audit_log_delete_denied(service_client):
+def test_FR005_audit_log_delete_denied(service_client: Any) -> None:
     row_id = _insert_audit_probe(service_client, "FR005_DELETE_PROBE")
 
     with pytest.raises(APIError) as exc_info:
@@ -128,14 +132,14 @@ def test_FR005_audit_log_delete_denied(service_client):
 
 
 @pytest.mark.parametrize("table", TABLES)
-def test_FR006_anon_select_denied(anon_client, table):
+def test_FR006_anon_select_denied(anon_client: Any, table: str) -> None:
     with pytest.raises(APIError) as exc_info:
         anon_client.table(table).select("*").execute()
     assert exc_info.value.code == "42501"
 
 
 @pytest.mark.parametrize("table", TABLES)
-def test_FR006_anon_insert_denied(anon_client, table):
+def test_FR006_anon_insert_denied(anon_client: Any, table: str) -> None:
     with pytest.raises(APIError) as exc_info:
         anon_client.table(table).insert({}).execute()
     assert exc_info.value.code == "42501"
@@ -147,7 +151,12 @@ def test_FR006_anon_insert_denied(anon_client, table):
 
 
 @pytest.mark.parametrize("bucket", [INPUTS_BUCKET, REPORTS_BUCKET])
-def test_FR004_storage_isolation(blobstore, anon_client, supabase_project, bucket):
+def test_FR004_storage_isolation(
+    blobstore: SupabaseBlobStore,
+    anon_client: Any,
+    supabase_project: SupabaseTestProject,
+    bucket: str,
+) -> None:
     path = f"integration-test/{uuid.uuid4()}.txt"
     data = b"FR-004 isolation probe"
     blobstore.put(bucket, path, data, "text/plain")
@@ -157,7 +166,7 @@ def test_FR004_storage_isolation(blobstore, anon_client, supabase_project, bucke
         )
         assert httpx.get(public_url, timeout=10).status_code in (400, 403, 404)
 
-        with pytest.raises(Exception):
+        with pytest.raises(StorageException):
             anon_client.storage.from_(bucket).download(path)
 
         # no policy grants anon any row in storage.objects, so RLS hides it (empty, not an error)
@@ -179,7 +188,7 @@ def test_FR004_storage_isolation(blobstore, anon_client, supabase_project, bucke
 # --------------------------------------------------------------------------------------------
 
 
-def test_FR007_signed_link_expires_after_ttl(blobstore):
+def test_FR007_signed_link_expires_after_ttl(blobstore: SupabaseBlobStore) -> None:
     path = f"integration-test/{uuid.uuid4()}.txt"
     blobstore.put(INPUTS_BUCKET, path, b"FR-007 expiry probe", "text/plain")
     try:
@@ -192,7 +201,7 @@ def test_FR007_signed_link_expires_after_ttl(blobstore):
 
 
 @pytest.mark.slow
-def test_FR007_EP16_default_link_lifetime_expires(blobstore):
+def test_FR007_EP16_default_link_lifetime_expires(blobstore: SupabaseBlobStore) -> None:
     """The real 300s EP-16 lifetime, allowing the spec's 30s clock-skew margin."""
     path = f"integration-test/{uuid.uuid4()}.txt"
     blobstore.put(INPUTS_BUCKET, path, b"FR-007 EP-16 lifetime probe", "text/plain")
