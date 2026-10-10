@@ -1,16 +1,20 @@
 "use client";
 
 // Branded sidebar shell for every signed-in screen (SCR-02 .. SCR-08). Hidden on sign-out pages
-// (/login, /forbidden, /__test__/*) so those keep their own plain layout. Deliberately does NOT
-// duplicate "New run" (components/RunsTable.tsx already renders it on /runs for `can.createRun`)
-// — a second link with that accessible name would collide under Playwright's substring role-name
-// matching (e.g. scr-01-login.spec.ts, scr-02-runs.spec.ts).
+// (/login, /forbidden, /__test__/*) so those keep their own plain layout.
+//
+// Two permanent top-level items so the product's two jobs are never just a small in-page button:
+// "Dashboard" (/runs, the reconciliation-runs overview) and "Start a run" (/runs/new, the actual
+// upload-and-reconcile flow) — named "Start a run" rather than "New run" so it never collides
+// with RunsTable.tsx's own "New run" button under Playwright's accessible-name matching (e.g.
+// scr-01-login.spec.ts, scr-02-runs.spec.ts, smoke.spec.ts all query getByRole("link", {name:
+// "New run"})). Gated by `can.createRun`, same as that button, since a REVIEWER can't use it.
 //
 // Dark teal base (Ledgerline 2026 redesign tokens, apps/web/app/globals.css :root) with primary
 // teal used only as a sparing accent (active state, avatar) — a single saturated colour
 // everywhere reads as dated, not premium.
 
-import { FileSearch, LayoutGrid, ListChecks, LogOut, ScrollText, ShieldCheck } from "lucide-react";
+import { FilePlus2, FileSearch, LayoutGrid, ListChecks, LogOut, ScrollText, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -43,7 +47,7 @@ const RUN_TABS = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
-  const { status, person } = useMe();
+  const { status, person, can } = useMe();
 
   // `children` (the page's <main>) must stay in the SAME tree position whether or not the
   // sidebar shows, or React treats it as a different subtree and remounts it — discarding all
@@ -58,12 +62,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const runsActive = pathname === "/runs";
+  const newRunActive = pathname.startsWith("/runs/new");
   const currentRunId = runIdFromPath(pathname);
 
   return (
     <div className="flex min-h-screen w-full flex-1">
       {showShell && person ? (
-        <aside className="hidden w-64 shrink-0 flex-col justify-between border-r border-sidebar-border bg-sidebar text-sidebar-foreground/70 lg:flex">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground/70 lg:flex">
           <div>
             <div className="flex items-center gap-2.5 px-5 py-6">
               <div className="flex h-7 w-7 shrink-0 flex-col items-center justify-center gap-[3px] rounded-[8px] bg-primary px-[7px]">
@@ -88,8 +93,21 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }`}
               >
                 <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-                Runs
+                Dashboard
               </Link>
+              {can.createRun ? (
+                <Link
+                  href="/runs/new"
+                  className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    newRunActive
+                      ? "bg-sidebar-accent text-white"
+                      : "text-sidebar-foreground/60 hover:bg-sidebar-accent/60 hover:text-white"
+                  }`}
+                >
+                  <FilePlus2 className="h-4 w-4" aria-hidden="true" />
+                  Start a run
+                </Link>
+              ) : null}
             </nav>
 
             {currentRunId ? (
