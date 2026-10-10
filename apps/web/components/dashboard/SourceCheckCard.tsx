@@ -36,6 +36,8 @@ function lineCountFor(run: RunView, source: Source): number {
 export function SourceCheckCard({ run }: SourceCheckCardProps) {
   const month = formatMonthLabel(run.month);
   const needsAttention = run.open_review_items;
+  const totalLines = SOURCES.reduce((sum, s) => sum + lineCountFor(run, s), 0);
+  const nothingReadYet = totalLines === 0;
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
@@ -63,17 +65,27 @@ export function SourceCheckCard({ run }: SourceCheckCardProps) {
         })}
         <div
           className={`rounded-xl p-3 text-sm font-medium ${
-            needsAttention > 0 ? "bg-warning-soft text-warning-ink" : "bg-success-soft text-success-ink"
+            nothingReadYet
+              ? "bg-muted text-muted-foreground"
+              : needsAttention > 0
+                ? "bg-warning-soft text-warning-ink"
+                : "bg-success-soft text-success-ink"
           }`}
         >
           <p className="flex items-center gap-1.5">
             <Flag className="h-4 w-4 shrink-0" aria-hidden="true" />
-            {needsAttention > 0
-              ? `${run.counts.MATCHED ?? 0} matched, ${needsAttention} to check`
-              : "All lines matched"}
+            {nothingReadYet
+              ? "Nothing checked yet"
+              : needsAttention > 0
+                ? `${run.counts.MATCHED ?? 0} matched, ${needsAttention} to check`
+                : "All lines matched"}
           </p>
           <p className="mt-0.5 text-xs opacity-80">
-            {needsAttention > 0 ? "Waiting on your decision" : "Nothing left to review"}
+            {nothingReadYet
+              ? "No lines have been read for this run"
+              : needsAttention > 0
+                ? "Waiting on your decision"
+                : "Nothing left to review"}
           </p>
         </div>
       </div>
