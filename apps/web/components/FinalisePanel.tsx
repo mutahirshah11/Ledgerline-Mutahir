@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner } from "@/components/Banner";
 import { errorStateText } from "@/components/states";
@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
 import type { components } from "@/lib/api-types";
+import { formatTime } from "@/lib/time";
 
 // contracts/components.md "FinalisePanel", data-model.md §3.3 (006-web T041; FR-019..FR-021,
 // SCR-04-AC5..AC7, AC9). The EP-17 state machine lives in `useFinalise` so the overview can show
@@ -37,8 +38,12 @@ export const PROOF_NOT_PASSED_REASON = "Proof has not passed";
 
 export type FinaliseState = {
   sending: boolean;
-  /** Summary FAILED on the run, or EP-17 answered 502: show the banner with "Resend". */
+  /** Summary PENDING or FAILED on the run, or EP-17 answered 502: show the banner with "Resend". */
   notDelivered: boolean;
+  /** Summary SENDING, and recently enough that it's still plausibly in flight. */
+  summarySending: boolean;
+  /** Summary SENDING, but not updated recently: likely stuck: say so instead of "being sent". */
+  summaryStale: boolean;
   /** EP-17 answered 409 PROOF_NOT_PASSED. */
   proofRefused: boolean;
   /** Any other EP-17 failure, shown in the panel. */
@@ -46,6 +51,12 @@ export type FinaliseState = {
   /** EP-17 `{confirm: true}`: finalise, or resend the summary of a finalised run. */
   send: () => Promise<void>;
 };
+
+/** No precedent elsewhere in the app for "how long is too long" on a stuck SENDING summary
+ * (lib/run-steps.ts's retry/timeout machinery is about EP-19 stage events, a different thing);
+ * 5 minutes is this component's own choice — long enough that an ordinary Telegram round trip
+ * never trips it, short enough to tell the controller something needs a look. */
+const STALE_SENDING_MS = 5 * 60 * 1000;
 
 export function useFinalise(run: RunView, onRun: (run: RunView) => void): FinaliseState {
   const [sending, setSending] = useState(false);
@@ -66,27 +77,43 @@ export function useFinalise(run: RunView, onRun: (run: RunView) => void): Finali
         err instanceof ApiError ? err : new ApiError({ status: 0, code: "NETWORK_ERROR", message: String(err) });
       if (e.code === "PROOF_NOT_PASSED") setProofRefused(true);
       else if (e.status === 502 && e.code === "UPSTREAM_FAILED") setUpstreamFailed(true);
-      else setError(e);
+      else {
+        setError(e);
+        // FR-020: a resend that fails for any other reason (e.g. 409 RUN_STATE_CONFLICT) still
+        // reflects whatever the API now has for this run, fetched fresh from the browser (not a
+        // server redirect) rather than trusting the stale `run` this hook was called with.
+        try {
+          onRun(await api.get("/runs/{id}", { path: { id: runId } }));
+        } catch {
+          // Best-effort: the error above already tells the controller something went wrong.
+        }
+      }
     } finally {
       setSending(false);
     }
   }, [runId, onRun]);
 
+  const summary = run.summary;
+  const summaryUpdated = summary?.status === "SENDING" ? Date.parse(summary.updated_at) : NaN;
+  const now = Date.parse(run.scenario_now);
+  const summaryStale =
+    summary?.status === "SENDING" && !Number.isNaN(summaryUpdated) && !Number.isNaN(now)
+      ? now - summaryUpdated > STALE_SENDING_MS
+      : false;
+
   return {
     sending,
-    notDelivered: upstreamFailed || run.summary?.status === "FAILED",
+    notDelivered: upstreamFailed || summary?.status === "FAILED" || summary?.status === "PENDING",
+    summarySending: summary?.status === "SENDING" && !summaryStale,
+    summaryStale,
     proofRefused,
     error,
     send,
   };
 }
 
-/** "08:31" from an ISO time such as "2026-10-15T08:31:30+05:00": the wall-clock time in the API's
- * own offset (the business time zone), the same on the server and in any browser. */
-export function hhmm(iso: string): string {
-  const m = iso.match(/T(\d{2}:\d{2})/);
-  return m ? m[1] : iso;
-}
+/** "08:31" (Asia/Karachi), regardless of the ISO instant's own offset. */
+export const hhmm = formatTime;
 
 export type SummaryNotDeliveredProps = {
   finalise: FinaliseState;
@@ -94,22 +121,33 @@ export type SummaryNotDeliveredProps = {
   canResend: boolean;
 };
 
-/** ui-copy.md §4 "Not delivered": amber banner + "Resend" (SCR-04-AC6, FM-11). */
+/** ui-copy.md §4 "Not delivered": amber banner + "Resend" (SCR-04-AC6, FM-11). Also covers the
+ * two other summary states FR-020 calls out, neither of which offers Resend: a fresh SENDING
+ * ("still in flight, don't pile on another attempt") and a stale one ("this may actually be
+ * stuck or have already gone through — look before resending"). */
 export function SummaryNotDelivered({ finalise, canResend }: SummaryNotDeliveredProps) {
-  if (!finalise.notDelivered) return null;
-  return (
-    <Banner
-      tone="warning"
-      title="Summary not delivered"
-      action={
-        canResend ? (
-          <Button className="mt-2" onClick={() => void finalise.send()} disabled={finalise.sending}>
-            Resend
-          </Button>
-        ) : undefined
-      }
-    />
-  );
+  if (finalise.notDelivered) {
+    return (
+      <Banner
+        tone="warning"
+        title="Summary not delivered"
+        action={
+          canResend ? (
+            <Button className="mt-2" onClick={() => void finalise.send()} disabled={finalise.sending}>
+              Resend
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
+  if (finalise.summaryStale) {
+    return <Banner tone="warning" title="Summary may have been delivered — check Telegram before resending" />;
+  }
+  if (finalise.summarySending) {
+    return <Banner tone="info" title="Summary is being sent" />;
+  }
+  return null;
 }
 
 export type FinalisePanelProps = {
@@ -125,6 +163,16 @@ type Download = "report" | "csv";
 
 export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: FinalisePanelProps) {
   const [open, setOpen] = useState(false);
+  // base-ui's alert dialog unmounts asynchronously (it waits a frame to check for a running CSS
+  // animation via `element.getAnimations()`, even with none declared), so `open` can already be
+  // false while the dialog's own "Finalise and send" button is still in the DOM — the same
+  // accessible name as the trigger below. `closing` covers that gap so the two are never shown
+  // at once (root cause of a strict-mode violation in FR-019's tests; see `onOpenChangeComplete`).
+  const [closing, setClosing] = useState(false);
+  const handleOpenChange = useCallback((next: boolean) => {
+    setOpen(next);
+    if (!next) setClosing(true);
+  }, []);
   const [downloading, setDownloading] = useState<Download | null>(null);
   const [downloadError, setDownloadError] = useState<ApiError | null>(null);
 
@@ -141,17 +189,25 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
     }
   }
 
+  const reportHeadingRef = useRef<HTMLHeadingElement>(null);
+  const wasFinalisedRef = useRef(run.status === "FINALISED");
+  useEffect(() => {
+    if (run.status === "FINALISED" && !wasFinalisedRef.current) reportHeadingRef.current?.focus();
+    wasFinalisedRef.current = run.status === "FINALISED";
+  }, [run.status]);
+
   if (run.status === "FINALISED") {
     const summary = run.summary;
     return (
       <section aria-labelledby="finalise-heading" className="space-y-3 rounded-lg border p-4">
-        <h2 id="finalise-heading" className="text-lg font-semibold">
+        <h2 id="finalise-heading" ref={reportHeadingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
           Report
         </h2>
         <p>This run is finalised and read-only.</p>
         {summary?.status === "SENT" && summary.sent_at && (
           <p role="status">Finalised. Summary sent to the controller at {hhmm(summary.sent_at)}</p>
         )}
+        {finalise.error && <p role="alert">{errorStateText(finalise.error)}</p>}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" disabled={downloading !== null} onClick={() => void download("report")}>
             Download report
@@ -180,21 +236,23 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
       <h2 id="finalise-heading" className="text-lg font-semibold">
         Finalise
       </h2>
-      <Button
-        disabled={blocked || finalise.sending}
-        aria-describedby={blocked ? "finalise-reason" : undefined}
-        onClick={() => setOpen(true)}
-        className="max-w-full"
-      >
-        Finalise and send
-      </Button>
+      {!open && !closing && (
+        <Button
+          disabled={blocked || finalise.sending}
+          aria-describedby={blocked ? "finalise-reason" : undefined}
+          onClick={() => setOpen(true)}
+          className="max-w-full"
+        >
+          Finalise and send
+        </Button>
+      )}
       {blocked && (
         <p id="finalise-reason" className="text-sm text-muted-foreground">
           {PROOF_NOT_PASSED_REASON}
         </p>
       )}
       {finalise.error && <p role="alert">{errorStateText(finalise.error)}</p>}
-      <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialog open={open} onOpenChange={handleOpenChange} onOpenChangeComplete={(next) => { if (!next) setClosing(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Finalise this run?</AlertDialogTitle>
@@ -204,7 +262,7 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                setOpen(false);
+                handleOpenChange(false);
                 void finalise.send();
               }}
             >
