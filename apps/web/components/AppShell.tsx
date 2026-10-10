@@ -29,10 +29,11 @@ function initials(label: string): string {
   return (label.slice(0, 2) || "?").toUpperCase();
 }
 
-/** `/runs/{id}/...` (not `/runs` or `/runs/new`) -> that run's id, for the contextual sub-nav. */
+/** `/runs/{id}/...` (not `/runs`, `/runs/new` or `/runs/logs`) -> that run's id, for the
+ * contextual sub-nav. */
 function runIdFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/runs\/([^/]+)/);
-  if (!m || m[1] === "new") return null;
+  if (!m || m[1] === "new" || m[1] === "logs") return null;
   return m[1]!;
 }
 
@@ -72,6 +73,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const runsActive = pathname === "/runs";
   const newRunActive = pathname.startsWith("/runs/new");
+  const logsActive = pathname.startsWith("/runs/logs");
   const currentRunId = runIdFromPath(pathname);
 
   return (
@@ -177,6 +179,20 @@ export function AppShell({ children }: { children: ReactNode }) {
               <LogOut className="h-4 w-4" aria-hidden="true" />
               Sign out
             </button>
+            {/* Every run ever attempted, including failed/old ones the dashboard itself now
+             * hides to stay uncluttered — nothing is ever deleted (apps/api audit_log is
+             * append-only), so this is where that full history lives instead. */}
+            <Link
+              href="/runs/logs"
+              className={`mt-1 flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                logsActive
+                  ? "bg-sidebar-accent text-white"
+                  : "text-sidebar-foreground/40 hover:bg-sidebar-accent/60 hover:text-white"
+              }`}
+            >
+              <ScrollText className="h-4 w-4" aria-hidden="true" />
+              Logs
+            </Link>
           </div>
         </aside>
       ) : null}

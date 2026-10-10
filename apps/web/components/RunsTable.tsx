@@ -2,15 +2,18 @@
 
 // 2026 redesign of SCR-02 (the Runs dashboard): hero health summary + "how this month was
 // checked" + clickable stat cards + the real "every month at a glance" table (MonthlyTable,
-// which owns every SCR-02 contract requirement — testids, aria-labels, row navigation) + this
-// run's activity. "New run" stays gated by `can.createRun` exactly as before.
+// which owns every SCR-02 contract requirement — testids, aria-labels, row navigation). "New
+// run" stays gated by `can.createRun` exactly as before.
+//
+// The dashboard table deliberately excludes FAILED runs (declutter request) — they aren't
+// deleted (apps/api audit_log is append-only, nothing in this app ever is), just moved out of
+// the way to the full history at /runs/logs, reachable from the sidebar.
 
 import { Plus } from "lucide-react";
 import Link from "next/link";
 
 import { useMe } from "@/app/providers";
 import { Button } from "@/components/ui/button";
-import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { MonthlyTable } from "@/components/dashboard/MonthlyTable";
 import { RunsEmptyState } from "@/components/dashboard/RunsEmptyState";
@@ -26,11 +29,10 @@ export type AuditEntryOut = components["schemas"]["AuditEntryOut"];
 
 export type RunsTableProps = {
   runs: RunSummary[];
-  /** The newest run's full detail, groups (for the waffle) and audit trail — best-effort: any of
-   * these can be null if that extra read failed, and the dashboard still renders without it. */
+  /** The newest run's full detail and groups (for the waffle) — best-effort: either can be null
+   * if that extra read failed, and the dashboard still renders without it. */
   latest: RunView | null;
   latestGroups: GroupView[] | null;
-  latestAudit: AuditEntryOut[] | null;
 };
 
 function waffleCells(run: RunView, groups: GroupView[] | null): WaffleCell[] {
@@ -42,8 +44,9 @@ function waffleCells(run: RunView, groups: GroupView[] | null): WaffleCell[] {
   });
 }
 
-export function RunsTable({ runs, latest, latestGroups, latestAudit }: RunsTableProps) {
+export function RunsTable({ runs, latest, latestGroups }: RunsTableProps) {
   const { can } = useMe();
+  const dashboardRuns = runs.filter((r) => r.status !== "FAILED");
 
   const newRunLink = can.createRun ? (
     <Button render={<Link href="/runs/new" />} className="gap-2 bg-primary hover:bg-primary-hover">
@@ -71,10 +74,19 @@ export function RunsTable({ runs, latest, latestGroups, latestAudit }: RunsTable
 
       <SummaryStats runs={runs} />
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
-        <MonthlyTable runs={runs} />
-        <ActivityFeed entries={latestAudit ?? []} />
-      </div>
+      {dashboardRuns.length > 0 ? (
+        <MonthlyTable runs={dashboardRuns} />
+      ) : (
+        <div className="rounded-2xl border border-dashed border-border bg-card px-6 py-10 text-center">
+          <p className="text-sm text-muted-foreground">
+            None of your runs so far have finished.{" "}
+            <Link href="/runs/logs" className="font-medium text-primary underline underline-offset-2">
+              See them in Logs
+            </Link>
+            .
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,7 +17,7 @@ export function SummaryStats({ runs }: SummaryStatsProps) {
   const total = runs.length;
   const allMatched = runs.filter(isMatched);
   const needsYou = runs.find((r) => r.status !== "FAILED" && r.status !== "FINALISED");
-  const didntFinish = runs.find((r) => r.status === "FAILED");
+  const didntFinish = runs.filter((r) => r.status === "FAILED");
 
   const months = runs.map((r) => r.month).sort();
   const span = months.length > 1 ? `${months[0]} to ${months[months.length - 1]}` : months[0];
@@ -55,10 +55,12 @@ export function SummaryStats({ runs }: SummaryStatsProps) {
     {
       icon: XCircle,
       tone: "bg-danger-soft text-danger-ink",
-      value: didntFinish ? 1 : 0,
+      value: didntFinish.length,
       label: "Didn't finish",
-      sub: didntFinish ? didntFinish.month : "None",
-      href: didntFinish ? `/runs/${didntFinish.id}` : undefined,
+      // Failed runs are hidden from the dashboard table (declutter request) but never deleted —
+      // this links to the full history at /runs/logs instead of a specific run.
+      sub: didntFinish.length > 0 ? "See in Logs" : "None",
+      href: didntFinish.length > 0 ? "/runs/logs" : undefined,
     },
   ];
 
