@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { Providers } from "./providers";
@@ -14,6 +14,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// A distinctive display serif for headlines (landing, login, run headline) — paired with Geist
+// Sans for everything else. Used deliberately as Ledgerline's own typographic signature, not a
+// generic sans-everywhere look.
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  axes: ["opsz", "SOFT", "WONK"],
+});
+
 export const metadata: Metadata = {
   title: "Ledgerline",
   description: "GRN reconciliation across register, ERP and store sheet",
@@ -25,7 +34,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {/* 006-web T020 (NFR-09): first tab stop jumps past navigation to the screen. */}

@@ -114,7 +114,7 @@ export function ReviewQueue({ runId }: { runId: string }) {
           Run overview
         </Link>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
+          <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight">Review queue</h1>
           {total > 0 ? (
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted" aria-hidden="true">
@@ -125,7 +125,7 @@ export function ReviewQueue({ runId }: { runId: string }) {
               </div>
               <p
                 data-testid="review-progress"
-                className="whitespace-nowrap rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
+                className="whitespace-nowrap rounded-full bg-muted px-3 py-1 text-sm font-semibold text-foreground"
               >
                 {left} of {total} left
               </p>
@@ -159,7 +159,7 @@ export function ReviewQueue({ runId }: { runId: string }) {
               ) : null}
             </>
           ) : (
-            <div className="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/50 p-6 dark:border-emerald-800/40 dark:bg-emerald-500/5">
+            <div className="flex flex-col items-start gap-3 rounded-2xl border border-l-4 border-l-emerald-500 bg-card p-6 shadow-sm">
               <div className="flex items-center gap-2">
                 <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-emerald-600" />
                 <p className="text-base font-semibold">Nothing left to review.</p>
@@ -172,7 +172,7 @@ export function ReviewQueue({ runId }: { runId: string }) {
               ) : null}
               <Link
                 href={`/runs/${runId}`}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-800"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground"
               >
                 Back to overview
               </Link>

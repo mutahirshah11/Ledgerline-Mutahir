@@ -37,7 +37,7 @@ const STATE_ICON: Record<StepState, ReactNode> = {
 
 const STATE_CLASS: Record<StepState, string> = {
   pending: "text-muted-foreground",
-  running: "text-emerald-700 dark:text-emerald-300",
+  running: "text-blue-700 dark:text-blue-300",
   done: "text-green-700 dark:text-green-400",
   failed: "text-red-700 dark:text-red-400",
 };
@@ -45,7 +45,7 @@ const STATE_CLASS: Record<StepState, string> = {
 /** The circular rail marker's own colours (background + border), independent of the text tone. */
 const MARKER_CLASS: Record<StepState, string> = {
   pending: "border-border bg-muted text-muted-foreground",
-  running: "border-emerald-300 bg-emerald-100 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
+  running: "border-blue-300 bg-blue-100 text-blue-700 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
   done: "border-green-300 bg-green-100 text-green-700 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300",
   failed: "border-red-300 bg-red-100 text-red-700 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300",
 };
@@ -86,7 +86,7 @@ export function StepTracker({ steps, onRetry, canRetry, extra }: StepTrackerProp
               className={cn(
                 "mb-4 min-w-0 flex-1 rounded-lg border p-3",
                 s.state === "failed" && "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40",
-                isCurrent && s.state !== "failed" && "border-emerald-300 bg-emerald-50/50 dark:border-emerald-700 dark:bg-emerald-950/20",
+                isCurrent && s.state !== "failed" && "border-blue-300 bg-blue-50/50 dark:border-blue-700 dark:bg-blue-950/20",
                 !isCurrent && s.state !== "failed" && "border-border",
               )}
             >

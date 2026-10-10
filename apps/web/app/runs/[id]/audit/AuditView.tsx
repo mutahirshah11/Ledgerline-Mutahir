@@ -72,7 +72,7 @@ export function AuditView({ entries, events }: AuditViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-3 py-6 sm:px-6">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Audit</h1>
+        <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight">Audit</h1>
         <p className="text-sm text-muted-foreground">
           Every decision and every run event, kept as a permanent record.
         </p>
@@ -81,7 +81,7 @@ export function AuditView({ entries, events }: AuditViewProps) {
       <section aria-labelledby="audit-log-heading" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h2 id="audit-log-heading" className="inline-flex items-center gap-2 text-base font-semibold">
-            <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
+            <ShieldCheck className="size-4 text-muted-foreground" aria-hidden="true" />
             Audit log
           </h2>
           <label className="flex items-center gap-2 text-sm">
@@ -158,7 +158,7 @@ export function AuditView({ entries, events }: AuditViewProps) {
 
       <section aria-labelledby="audit-events-heading" className="flex flex-col gap-3">
         <h2 id="audit-events-heading" className="inline-flex items-center gap-2 text-base font-semibold">
-          <History className="size-4 text-emerald-600" aria-hidden="true" />
+          <History className="size-4 text-muted-foreground" aria-hidden="true" />
           Run events
         </h2>
         {events.length === 0 ? (

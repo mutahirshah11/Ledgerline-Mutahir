@@ -40,11 +40,9 @@ test("WEB-AC2 sign in, start a run on the pack, review GRN 4419, finalise and se
   // Real OCR/reconciliation/proof calls, not a mocked instant response (quickstart.md step 6).
   test.setTimeout(10 * 60 * 1000);
 
-  // 1. Password sign-in (app/login/page.tsx "Use password (demo account)" toggle; no sign-up is
-  // ever offered, and the default form is a magic link, so the demo-account path must be opened
-  // first). A fresh sign-in lands on the FALLBACK_NEXT route, "/runs" (lib/me.ts).
+  // 1. Password sign-in (app/login/page.tsx; email+password only, no magic link, no sign-up). A
+  // fresh sign-in lands on the FALLBACK_NEXT route, "/runs" (lib/me.ts).
   await page.goto("/login");
-  await page.getByRole("button", { name: "Use password (demo account)" }).click();
   await page.getByLabel("Email", { exact: true }).fill(SMOKE_EMAIL!);
   await page.getByLabel("Password", { exact: true }).fill(SMOKE_PASSWORD!);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();

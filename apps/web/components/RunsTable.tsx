@@ -130,7 +130,7 @@ export function RunsTable({ runs }: RunsTableProps) {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Runs</h1>
+          <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">Runs</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             Reconciliation runs for Kestrel Industries, newest first.
           </p>
@@ -164,7 +164,7 @@ export function RunsTable({ runs }: RunsTableProps) {
                   data-testid={`run-row-${run.id}`}
                   tabIndex={0}
                   aria-label={`Open run ${run.month}`}
-                  className="cursor-pointer transition-colors hover:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-inset dark:hover:bg-emerald-950/20"
+                  className="cursor-pointer transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-inset"
                   onClick={open}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {

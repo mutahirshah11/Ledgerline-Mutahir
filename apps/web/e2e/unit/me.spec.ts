@@ -112,13 +112,14 @@ test("FR-001 safeNext keeps in-app paths and falls back to /runs for anything el
   }
 });
 
-test("FR-001 only the sign-in pages, the public landing and test pages are reachable signed out", () => {
+test("FR-001 only the sign-in page, the public landing and test pages are reachable signed out", () => {
   // "/" is the public marketing landing (app/page.tsx) — it redirects a signed-in visitor to
-  // /runs itself, so it's safe to let a signed-out visitor land there too.
-  for (const p of ["/", "/login", "/auth/callback", "/__test__/badges", "/__test__"]) {
+  // /runs itself, so it's safe to let a signed-out visitor land there too. There is no
+  // /auth/callback route (email+password only, no magic link).
+  for (const p of ["/", "/login", "/__test__/badges", "/__test__"]) {
     expect(isSignedOutPath(p), p).toBe(true);
   }
-  for (const p of ["/runs", "/runs/new", "/runs/r-1/review", "/forbidden", "/loginx", "/auth"]) {
+  for (const p of ["/runs", "/runs/new", "/runs/r-1/review", "/forbidden", "/loginx", "/auth", "/auth/callback"]) {
     expect(isSignedOutPath(p), p).toBe(false);
   }
 });

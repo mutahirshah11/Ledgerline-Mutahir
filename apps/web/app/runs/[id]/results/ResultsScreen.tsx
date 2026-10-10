@@ -158,7 +158,7 @@ export function ResultsScreen({ runId }: { runId: string }) {
           Run overview
         </Link>
         <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
+          <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight">Results</h1>
           {groupsQ.data && (
             <p className="text-sm text-muted-foreground">
               {visible.length} of {groupsQ.data.length} receipts
