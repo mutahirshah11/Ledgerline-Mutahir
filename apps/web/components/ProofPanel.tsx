@@ -114,7 +114,7 @@ function CheckCard({ pass, children }: { pass: boolean; children: ReactNode }) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm dark:bg-card",
+        "flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm",
         pass ? "border-l-4 border-l-emerald-500" : "border-l-4 border-l-red-500",
       )}
     >

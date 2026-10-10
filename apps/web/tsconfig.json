@@ -102,7 +102,17 @@
     ".next-shot/types/**/*.ts",
     ".next-shot/dev/types/**/*.ts",
     ".next-finalverify/types/**/*.ts",
-    ".next-finalverify/dev/types/**/*.ts"
+    ".next-finalverify/dev/types/**/*.ts",
+    ".next-designv2/types/**/*.ts",
+    ".next-designv2/dev/types/**/*.ts",
+    ".next-navfix/types/**/*.ts",
+    ".next-navfix/dev/types/**/*.ts",
+    ".next-rebalance/types/**/*.ts",
+    ".next-rebalance/dev/types/**/*.ts",
+    ".next-finaldesign/types/**/*.ts",
+    ".next-finaldesign/dev/types/**/*.ts",
+    ".next-flakecheck/types/**/*.ts",
+    ".next-flakecheck/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

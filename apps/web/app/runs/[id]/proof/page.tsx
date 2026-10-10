@@ -37,10 +37,10 @@ export default async function ProofPage({ params }: { params: Promise<{ id: stri
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-emerald-700/70 dark:text-emerald-400/70">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Audit report
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight text-[#0b3328] dark:text-emerald-50">
+          <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">
             Completeness proof
           </h1>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Receipt, ScrollText, ShieldCheck } from "lucide-react";
+import { Receipt } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -54,10 +54,8 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
     <div className="mx-auto w-full max-w-3xl min-w-0 space-y-6 px-4 py-6 [overflow-wrap:anywhere]">
       <header className="space-y-3">
         <div>
-          <p className="text-xs font-medium tracking-wide text-emerald-700/70 uppercase dark:text-emerald-400/70">
-            Run overview
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#0b3328] [overflow-wrap:anywhere] sm:text-3xl dark:text-emerald-50">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Run overview</p>
+          <h1 className="mt-1 font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-3xl">
             {run.headline}
           </h1>
         </div>
@@ -76,18 +74,12 @@ export function RunOverview({ initialRun, proof }: RunOverviewProps) {
             />
           )
         )}
+        {/* Proof and Audit live in the sidebar's contextual "This run" nav (components/AppShell.tsx)
+         * once inside a run — kept only here is the one link the sidebar doesn't cover. */}
         <nav aria-label="Run pages" className="flex flex-wrap gap-2 text-sm">
           <Button variant="outline" size="sm" render={<Link href={`/runs/${id}/results`} />}>
             <Receipt className="h-4 w-4" aria-hidden="true" />
             See all receipts
-          </Button>
-          <Button variant="outline" size="sm" render={<Link href={`/runs/${id}/proof`} />}>
-            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            Proof
-          </Button>
-          <Button variant="outline" size="sm" render={<Link href={`/runs/${id}/audit`} />}>
-            <ScrollText className="h-4 w-4" aria-hidden="true" />
-            Audit
           </Button>
         </nav>
       </header>

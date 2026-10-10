@@ -35,7 +35,6 @@ test("WEB-AC1 a 401 mid-review sends the person to sign-in and back, keeping the
   // Signed in again (the demo password form, SCR-01-AC2) and sent back to the queue: the unsent
   // note is still on the card.
   await mockApi.use({ "EP-15": "ep15-cannot-determine-4428" });
-  await page.getByRole("button", { name: "Use password (demo account)" }).click();
   await page.getByLabel("Email", { exact: true }).fill("reviewer@kestrel.example");
   await page.getByLabel("Password", { exact: true }).fill("demo-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();

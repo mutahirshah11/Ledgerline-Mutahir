@@ -73,13 +73,20 @@ test("SCR-04-AC3 sections in order with the API's lines verbatim and in order", 
     "href",
     `/runs/${MAIN}/results?grn=4421`,
   );
-  for (const [name, href] of [
-    ["See all receipts", `/runs/${MAIN}/results`],
-    ["Proof", `/runs/${MAIN}/proof`],
-    ["Audit", `/runs/${MAIN}/audit`],
-  ]) {
-    await expect(page.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
-  }
+  // Proof/Audit moved to the sidebar's contextual "This run" nav (components/AppShell.tsx);
+  // "See all receipts" is the one page-level link the sidebar doesn't cover.
+  await expect(page.getByRole("link", { name: "See all receipts", exact: true })).toHaveAttribute(
+    "href",
+    `/runs/${MAIN}/results`,
+  );
+  await expect(page.getByLabel("This run").getByRole("link", { name: "Proof", exact: true })).toHaveAttribute(
+    "href",
+    `/runs/${MAIN}/proof`,
+  );
+  await expect(page.getByLabel("This run").getByRole("link", { name: "Audit", exact: true })).toHaveAttribute(
+    "href",
+    `/runs/${MAIN}/audit`,
+  );
 });
 
 test("SCR-04-AC4 flags and statuses in plain language, never raw codes", async ({ page, mockApi }) => {

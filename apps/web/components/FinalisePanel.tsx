@@ -203,7 +203,7 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
     return (
       <section
         aria-labelledby="finalise-heading"
-        className="space-y-3 rounded-xl border border-l-4 border-l-emerald-500 bg-white p-5 shadow-sm dark:bg-card"
+        className="space-y-3 rounded-xl border border-l-4 border-l-emerald-500 bg-card p-5 shadow-sm"
       >
         <div className="flex items-center gap-2.5">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -254,7 +254,7 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
   return (
     <section
       aria-labelledby="finalise-heading"
-      className="space-y-3 rounded-xl border border-l-4 border-l-[#0b3328] bg-white p-5 shadow-sm dark:bg-card"
+      className="space-y-3 rounded-xl border border-l-4 border-l-[#0b3328] bg-card p-5 shadow-sm dark:border-l-emerald-500"
     >
       <div className="flex items-center gap-2.5">
         <ShieldCheck className="h-5 w-5 shrink-0 text-[#0b3328] dark:text-emerald-400" aria-hidden="true" />

@@ -415,7 +415,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
   if (resumeError) {
     return (
       <div className="mx-auto w-full max-w-3xl p-6">
-        <h1 className="mb-4 text-2xl font-semibold tracking-tight text-foreground">Start a run</h1>
+        <h1 className="mb-4 font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">Start a run</h1>
         <ErrorState error={resumeError} />
       </div>
     );
@@ -426,7 +426,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Start a run</h1>
+        <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">Start a run</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Add this month&apos;s register pages, ERP export and store sheet; Ledgerline reads, reconciles and proves them.
         </p>

@@ -93,7 +93,7 @@ export function ExceptionSections({ exceptions, runId, openReviewItems, readOnly
           <section
             key={category}
             aria-labelledby={headingId}
-            className={cn("space-y-2 rounded-lg border-l-4 bg-white py-1 pl-4 dark:bg-card", accent)}
+            className={cn("space-y-2 rounded-lg border-l-4 bg-card py-1 pl-4", accent)}
           >
             <h2 id={headingId} className="flex items-center gap-2 text-lg font-semibold">
               <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
