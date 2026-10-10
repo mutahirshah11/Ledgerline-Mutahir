@@ -11,7 +11,7 @@
 // "retrying (attempt n of 3)". Money and counts are shown exactly as the API sends them.
 
 import { useQuery } from "@tanstack/react-query";
-import { PlayCircle } from "lucide-react";
+import { CalendarDays, FilePlus2, PlayCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -415,7 +415,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
   if (resumeError) {
     return (
       <div className="mx-auto w-full max-w-3xl p-6">
-        <h1 className="mb-4 font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">Start a run</h1>
+        <h1 className="mb-4 font-heading text-2xl font-bold tracking-tight text-foreground">Start a run</h1>
         <ErrorState error={resumeError} />
       </div>
     );
@@ -425,37 +425,48 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-fraunces)] text-2xl font-medium tracking-tight text-foreground">Start a run</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Add this month&apos;s register pages, ERP export and store sheet; Ledgerline reads, reconciles and proves them.
-        </p>
+      <div className="flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+          <FilePlus2 className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">Start a run</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add this month&apos;s register pages, ERP export and store sheet; Ledgerline reads, reconciles and proves them.
+          </p>
+        </div>
       </div>
       {resumeState === "loading" ? <Loading /> : null}
 
       {showForm ? (
-        <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <label className="flex flex-col gap-1 text-sm font-medium sm:max-w-xs">
+        <div className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <label className="flex flex-col gap-1.5 text-sm font-semibold text-foreground sm:max-w-xs">
             Month
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              disabled={started || resumeState === "created"}
-              className="rounded-md border border-border px-2.5 py-1.5 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-            />
+            <div className="relative">
+              <CalendarDays
+                className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                disabled={started || resumeState === "created"}
+                className="w-full rounded-lg border border-border-strong bg-muted/40 py-2 pr-2.5 pl-9 text-sm font-normal focus-visible:border-primary focus-visible:bg-background focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-soft"
+              />
+            </div>
           </label>
           <div className="grid gap-3 md:grid-cols-3">
             {zone("REGISTER", "register", "image/jpeg,image/png,.jpg,.jpeg,.png", true)}
             {zone("ERP", "erp", ".csv,text/csv", false)}
             {zone("SHEET", "sheet", ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", false)}
           </div>
-          <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-3 border-t border-divider pt-4">
             <Button
               type="button"
               onClick={onRun}
               disabled={!canRun || busy}
-              className="bg-emerald-700 hover:bg-emerald-700/90"
+              className="bg-primary hover:bg-primary-hover"
             >
               <PlayCircle className="h-4 w-4" aria-hidden="true" />
               Run
@@ -470,7 +481,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
       <ReadCost estimate={estimate} actualUsd={actualUsd} />
 
       {shownSteps ? (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
           <StepTracker
             steps={shownSteps}
             canRetry={me.can.retry}
@@ -479,7 +490,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
             }}
             extra={{
               upload: duplicateOf ? (
-                <Link href={`/runs/${duplicateOf}`} className="mt-1 inline-block text-sm text-emerald-700 underline dark:text-emerald-400">
+                <Link href={`/runs/${duplicateOf}`} className="mt-1 inline-block text-sm text-primary underline">
                   {stepLines.openThatRun}
                 </Link>
               ) : null,
@@ -488,11 +499,11 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
                   {SOURCES.map((source) => {
                     const mine = checks.filter((p) => p.source === source);
                     return mine.length === 0 ? (
-                      <li key={source} className="text-green-800 dark:text-green-400">
+                      <li key={source} className="text-success-ink">
                         <span aria-hidden="true">✓</span> {ZONE_LABEL[source]}: OK
                       </li>
                     ) : (
-                      <li key={source} className="text-red-800 dark:text-red-300">
+                      <li key={source} className="text-danger-ink">
                         <span className="font-medium">
                           <span aria-hidden="true">✕</span> {ZONE_LABEL[source]}
                         </span>

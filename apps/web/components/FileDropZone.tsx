@@ -58,10 +58,8 @@ export function FileDropZone({
   return (
     <fieldset
       className={cn(
-        "min-w-0 rounded-xl border-2 border-dashed p-4 transition-colors",
-        over
-          ? "border-emerald-400 bg-emerald-50/70 dark:border-emerald-600 dark:bg-emerald-950/20"
-          : "border-border bg-muted/10",
+        "min-w-0 rounded-2xl border-2 border-dashed p-4 transition-colors",
+        over ? "border-primary bg-primary-soft" : "border-border-strong bg-muted/30",
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -71,8 +69,10 @@ export function FileDropZone({
       onDrop={onDrop}
       disabled={disabled}
     >
-      <legend className="flex items-center gap-1.5 px-1 text-sm font-semibold text-foreground">
-        <UploadCloud className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+      <legend className="flex items-center gap-2 px-1 text-sm font-semibold text-foreground">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+          <UploadCloud className="h-4 w-4" aria-hidden="true" />
+        </span>
         {label}
       </legend>
       <p className="mt-1 text-sm text-muted-foreground">
@@ -117,18 +117,18 @@ export function FileDropZone({
                 key={`${f.name}-${i}`}
                 className={cn(
                   "flex flex-wrap items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 text-sm",
-                  problem ? "border-red-200 dark:border-red-900" : "border-border",
+                  problem ? "border-danger-soft" : "border-border",
                 )}
               >
                 {numbered ? (
-                  <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 px-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                  <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary-soft px-1 text-xs font-semibold text-primary">
                     {i + 1}
                   </span>
                 ) : null}
                 {numbered ? <span className="font-medium">Page {i + 1}</span> : null}
                 <span className="min-w-0 break-all">{f.name}</span>
                 {problem ? (
-                  <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-400">
+                  <span className="inline-flex items-center gap-1 text-danger-ink">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     {fileProblemText(problem)}
                   </span>
@@ -169,7 +169,7 @@ export function FileDropZone({
         </ol>
       ) : null}
       {zoneProblem ? (
-        <p className="mt-2 flex items-center gap-1.5 text-sm text-red-700 dark:text-red-400">
+        <p className="mt-2 flex items-center gap-1.5 text-sm text-danger-ink">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {fileProblemText(zoneProblem)}
         </p>
