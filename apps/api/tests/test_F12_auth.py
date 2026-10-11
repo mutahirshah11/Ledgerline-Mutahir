@@ -450,6 +450,7 @@ STATIC_MATRIX: dict[tuple[str, str], tuple[frozenset[Role], bool]] = {
     ("POST", "/review-items/{id}/resolve"): (frozenset({CTRL, REV}), False),
     ("GET", "/runs/{id}/pages/{page_no}/image"): (ALL_ROLES, False),
     ("POST", "/runs/{id}/finalise"): (frozenset({CTRL}), False),
+    ("POST", "/runs/{id}/delete"): (frozenset({CTRL}), False),
     ("GET", "/runs/{id}/report"): (ALL_ROLES, False),
 }
 """(method, path under /api/v1) -> (roles allowed, OPS retry when FAILED); EP-01 has no token."""

@@ -198,6 +198,7 @@ const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   SUMMARY_SENT: "Summary sent",
   SUMMARY_FAILED: "Summary not delivered",
   ALERT_SENT: "Ops alert sent",
+  RUN_DELETED: "Run deleted",
 };
 
 export function auditActionLabel(action: AuditAction): string {

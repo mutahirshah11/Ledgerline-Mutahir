@@ -152,6 +152,7 @@ def test_enum_audit_action() -> None:
         "SUMMARY_SENT",
         "SUMMARY_FAILED",
         "ALERT_SENT",
+        "RUN_DELETED",
     ]
 
 

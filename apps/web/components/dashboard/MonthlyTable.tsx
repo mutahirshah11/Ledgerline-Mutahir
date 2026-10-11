@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DeleteRunButton } from "@/components/dashboard/DeleteRunButton";
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { RunStatusBadge } from "@/components/RunStatusBadge";
 import { formatMonthLabel, formatMonthShort, formatRelative } from "@/lib/time";
@@ -181,6 +182,7 @@ export function MonthlyTable({ runs }: MonthlyTableProps) {
                   <TableCell className="w-32 py-4 text-right">
                     <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
                       <time dateTime={run.created_at}>{formatRelative(run.created_at)}</time>
+                      <DeleteRunButton runId={run.id} monthLabel={formatMonthLabel(run.month)} />
                       <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                     </div>
                   </TableCell>

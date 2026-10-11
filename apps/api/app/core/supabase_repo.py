@@ -103,6 +103,18 @@ PAGE_ROWS = 1000
 """PostgREST's default `max-rows`; lists read pages of up to this size until an empty one."""
 REVIEW_CHUNK = 500
 """Review items per `upsert_review_items` RPC call (bounded request size)."""
+_RUN_CHILD_TABLES = (
+    "notifications",
+    "run_events",
+    "review_items",
+    "control_flags",
+    "normalisation_log",
+    "source_rows",
+    "groups",
+    "proofs",
+    "source_files",
+)
+"""Tables keyed by `run_id`, in a delete order the foreign keys allow (`delete_run`)."""
 
 _CONNECT_CODES = ("PGRST000", "PGRST001", "PGRST002", "PGRST003")
 _CONSTRAINT = re.compile(r'constraint "([^"]+)"|\(([a-z0-9_]+)\)\s*$')
@@ -486,6 +498,24 @@ class SupabaseRepo:
             ),
             Run,
         )
+
+    def delete_run(self, run_id: UUID) -> None:
+        """Children first (every foreign key is ON DELETE RESTRICT), then the run. The 0002
+        trigger lets source_files go only while the run is CREATED, so the run is reopened
+        first; that also frees its run_key. Several requests, not one transaction: each step
+        is idempotent, so a failed delete is finished by deleting again."""
+        self.get_run(run_id)  # NotFound
+        rid = str(run_id)
+        reopen = {"status": "CREATED", "failed_stage": None, "error_message": None, "run_key": None}
+        self._call(lambda: self._table("runs").update(reopen).eq("id", rid))
+        for table in _RUN_CHILD_TABLES:
+
+            def delete_children(t: str = table) -> Any:
+                return self._table(t).delete().eq("run_id", rid)
+
+            self._call(delete_children)
+        self._call(lambda: self._table("page_manifest").delete().eq("first_seen_run_id", rid))
+        self._call(lambda: self._table("runs").delete().eq("id", rid))
 
     # --- source files --------------------------------------------------------------------
 

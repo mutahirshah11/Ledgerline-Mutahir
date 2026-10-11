@@ -178,6 +178,7 @@ class AuditAction(StrEnum):
     SUMMARY_SENT = "SUMMARY_SENT"
     SUMMARY_FAILED = "SUMMARY_FAILED"
     ALERT_SENT = "ALERT_SENT"
+    RUN_DELETED = "RUN_DELETED"
 
 
 class ProblemCode(StrEnum):

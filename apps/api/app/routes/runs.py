@@ -20,12 +20,13 @@ from app.core.auth import require_role
 from app.core.config import get_settings
 from app.core.db import Repo, get_repo
 from app.core.deps import get_extract_sleep, get_model_client, get_notifier
-from app.core.errors import NotFound
+from app.core.errors import ApiError, NotFound
 from app.core.faults import Fault, active_fault
 from app.core.storage import BlobStore, get_blobstore
 from app.domain.enums import (
     AuditAction,
     AuditChannel,
+    ErrorCode,
     NormCode,
     Outcome,
     ProofStatus,
@@ -51,6 +52,7 @@ from app.pipeline.model_client import ModelClient
 from app.pipeline.validate import ValidationProblem
 from app.routes._common import READ_ERRORS, channel
 from app.services import finalise, stages
+from app.services.audit import audit
 from app.services.stages import ExtractPageResult, ReconcileResult, UploadFileIn, UploadSlot
 from app.services.telegram import Notifier, TelegramNotifier, check_stale_summary
 
@@ -387,3 +389,44 @@ def finalise_run(
     return finalise.finalise(
         repo, blobs, notifier, id, body or FinaliseRequest(), user, channel(request)
     )
+
+
+class DeleteRunRequest(BaseModel):
+    confirm: bool = False
+
+
+class DeleteRunResponse(BaseModel):
+    id: UUID
+    deleted: Literal[True] = True
+
+
+@router.post(
+    "/runs/{id}/delete",
+    response_model=DeleteRunResponse,
+    responses={**READ_ERRORS, 400: {"description": "CONFIRM_REQUIRED"}},
+)
+def delete_run(
+    id: UUID,
+    request: Request,
+    user: Controller,
+    repo: RepoDep,
+    body: DeleteRunRequest | None = None,
+) -> DeleteRunResponse:
+    """Delete a run and everything it produced, at any status (CONTROLLER only, `{"confirm":
+    true}` required). The audit log keeps every earlier entry plus a RUN_DELETED one; the
+    extraction cache is kept, so the same pages are not read again."""
+    if body is None or not body.confirm:
+        raise ApiError(ErrorCode.CONFIRM_REQUIRED, 400, "delete requires confirm: true")
+    run = repo.get_run(id)
+    repo.delete_run(id)
+    audit(
+        repo,
+        user.email,
+        AuditAction.RUN_DELETED,
+        "run",
+        str(id),
+        run_id=id,
+        before={"month": run.month, "status": run.status.value},
+        channel=channel(request),
+    )
+    return DeleteRunResponse(id=id)

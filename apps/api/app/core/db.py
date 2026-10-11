@@ -76,6 +76,10 @@ class Repo(Protocol):
         ...
 
     def find_finalised_run_by_key(self, run_key: str) -> Run | None: ...
+    def delete_run(self, run_id: UUID) -> None:
+        """NotFound. Removes the run and every row that hangs off it, at any status (the
+        delete-run action). The audit log and the extraction cache are kept."""
+        ...
 
     # source files (F-01)
     def add_source_file(self, file: SourceFile) -> SourceFile:

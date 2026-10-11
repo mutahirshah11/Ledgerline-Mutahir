@@ -125,6 +125,7 @@ const AUDIT_ACTIONS: AuditAction[] = [
   "SUMMARY_SENT",
   "SUMMARY_FAILED",
   "ALERT_SENT",
+  "RUN_DELETED",
 ];
 
 test("every Source has a non-empty string", () => {
@@ -258,6 +259,7 @@ test("every AuditAction has a non-empty string matching ui-copy.md §7", () => {
     SUMMARY_SENT: "Summary sent",
     SUMMARY_FAILED: "Summary not delivered",
     ALERT_SENT: "Ops alert sent",
+    RUN_DELETED: "Run deleted",
   };
   for (const a of AUDIT_ACTIONS) expect(auditActionLabel(a)).toBe(expected[a]);
 });

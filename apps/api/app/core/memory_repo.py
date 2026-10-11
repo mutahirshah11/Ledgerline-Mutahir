@@ -270,6 +270,24 @@ class MemoryRepo:
                 return _copy(run)
         return None
 
+    def delete_run(self, run_id: UUID) -> None:
+        self._run(run_id)  # NotFound
+        for fid in [f.id for f in self._files.values() if f.run_id == run_id]:
+            file = self._files.pop(fid)
+            self._file_keys.pop((file.run_id, file.sha256), None)
+        for sha in [s for s, p in self._pages.items() if p.first_seen_run_id == run_id]:
+            del self._pages[sha]
+        self._recon.pop(run_id, None)
+        self._proofs.pop(run_id, None)
+        for iid in [i.id for i in self._reviews.values() if i.run_id == run_id]:
+            item = self._reviews.pop(iid)
+            self._review_keys.pop((run_id, item.item_key), None)
+        for nid in [n.id for n in self._notifications.values() if n.run_id == run_id]:
+            n = self._notifications.pop(nid)
+            self._notification_keys.pop(n.idempotency_key, None)
+        self._events = [e for e in self._events if e.run_id != run_id]
+        del self._runs[run_id]
+
     # --- source files --------------------------------------------------------------------
 
     def add_source_file(self, file: SourceFile) -> SourceFile:
