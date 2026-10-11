@@ -129,11 +129,14 @@ const pagesWord = (n: number) => (n === 1 ? "page" : "pages");
 
 export const stepLines = {
   uploading: (files: number) => `Uploading ${files} files`,
-  uploaded: (fresh: number, known: number) => `${fresh} new ${pagesWord(fresh)}, ${known} already read`,
+  uploaded: (fresh: number, known: number) =>
+    known === 0
+      ? `${fresh} new ${pagesWord(fresh)} to read`
+      : `${fresh} new ${pagesWord(fresh)} to read · ${known} seen in an earlier run, reused (no AI call)`,
   reading: (n: number, total: number) => `Reading page ${n} of ${total}…`,
   readDone: (n: number, total: number, r: { cached: boolean; rows: number; review_cells: number }) =>
     r.cached
-      ? `Reading page ${n} of ${total}… done (from cache)`
+      ? `Page ${n} of ${total}: same photo as an earlier run, its AI read reused (${r.rows} rows, ${r.review_cells} cells need you)`
       : `Reading page ${n} of ${total}… done (new read, ${r.rows} rows, ${r.review_cells} cells need you)`,
   retrying: (attempt: number) => `retrying (attempt ${attempt} of 3)`,
   reconciled: "Reconciled",
@@ -146,7 +149,7 @@ export const stepLines = {
 // --- read cost (spec Clarifications 2026-10-07; data-model.md "Read cost") ----------------------
 
 export const READ_COST_UNAVAILABLE = "Read cost not available";
-export const READ_COST_NONE = "US$0 · pages already read — no cost";
+export const READ_COST_NONE = "US$0 · same photos as an earlier run, reads reused";
 
 /** A decimal string that is zero ("0", "0.000"). String test only, never parsed to a number. */
 function isZero(usd: string): boolean {
@@ -154,7 +157,7 @@ function isZero(usd: string): boolean {
 }
 
 /** Before reading: "{n} new pages · est. US${estimate}" (estimate from the API, as received);
- * "US$0 · pages already read — no cost" when the estimate is zero; nothing misleading when the
+ * "US$0 · same photos as an earlier run, reads reused" when the estimate is zero; nothing misleading when the
  * prices are unset (null). `newPages` 0 with a non-zero estimate (a page the manifest knows but
  * whose reads are not stored) shows the estimate alone. */
 export function readCostEstimateLine(newPages: number | null, estimateUsd: string | null): string {

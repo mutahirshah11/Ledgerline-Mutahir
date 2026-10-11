@@ -164,11 +164,11 @@ test("§3.1 FAILED at upload: upload failed, not retryable (create the run again
 
 test("ui-copy §3 step lines", () => {
   expect(stepLines.uploading(4)).toBe("Uploading 4 files");
-  expect(stepLines.uploaded(2, 0)).toBe("2 new pages, 0 already read");
-  expect(stepLines.uploaded(1, 1)).toBe("1 new page, 1 already read");
+  expect(stepLines.uploaded(2, 0)).toBe("2 new pages to read");
+  expect(stepLines.uploaded(1, 1)).toBe("1 new page to read · 1 seen in an earlier run, reused (no AI call)");
   expect(stepLines.reading(2, 2)).toBe("Reading page 2 of 2…");
   expect(stepLines.readDone(2, 2, { cached: true, rows: 14, review_cells: 0 })).toBe(
-    "Reading page 2 of 2… done (from cache)",
+    "Page 2 of 2: same photo as an earlier run, its AI read reused (14 rows, 0 cells need you)",
   );
   expect(stepLines.readDone(2, 2, { cached: false, rows: 14, review_cells: 2 })).toBe(
     "Reading page 2 of 2… done (new read, 14 rows, 2 cells need you)",
@@ -181,8 +181,8 @@ test("ui-copy §3 step lines", () => {
 test("read cost lines: estimate, all cached, actual, prices unset", () => {
   expect(readCostEstimateLine(2, "0.023")).toBe("2 new pages · est. US$0.023");
   expect(readCostEstimateLine(1, "0.012")).toBe("1 new page · est. US$0.012");
-  expect(readCostEstimateLine(0, "0.000")).toBe("US$0 · pages already read — no cost");
-  expect(readCostEstimateLine(2, "0.000")).toBe("US$0 · pages already read — no cost");
+  expect(readCostEstimateLine(0, "0.000")).toBe("US$0 · same photos as an earlier run, reads reused");
+  expect(readCostEstimateLine(2, "0.000")).toBe("US$0 · same photos as an earlier run, reads reused");
   expect(readCostEstimateLine(0, "0.012")).toBe("est. US$0.012");
   expect(readCostEstimateLine(2, null)).toBe("Read cost not available");
   expect(readCostActualLine("0.022")).toBe("Read cost US$0.022");
