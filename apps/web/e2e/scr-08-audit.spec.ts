@@ -25,17 +25,17 @@ test("SCR-08-AC2 the run-event timeline shows stage, status, time and duration, 
 
   // ep19-events-pre-review.json: first element is the newest (reconcile OK, duration 0 ms), last
   // is the oldest (upload STARTED, duration null -> "—").
-  const newest = page.getByTestId("event-row-00000000-0000-4000-8000-00000000003b");
+  const newest = page.locator("#main").getByTestId("event-row-00000000-0000-4000-8000-00000000003b");
   await expect(newest).toContainText("reconciling");
   await expect(newest).toContainText("OK");
   await expect(newest).toContainText("0 ms");
 
-  const oldest = page.getByTestId("event-row-00000000-0000-4000-8000-000000000046");
+  const oldest = page.locator("#main").getByTestId("event-row-00000000-0000-4000-8000-000000000046");
   await expect(oldest).toContainText("uploading files");
   await expect(oldest).toContainText("Started");
   await expect(oldest).toContainText("—");
 
-  const rows = page.getByTestId(/^event-row-/);
+  const rows = page.locator("#main").getByTestId(/^event-row-/);
   await expect(rows).toHaveCount(12);
   await expect(rows.first()).toHaveAttribute("data-testid", "event-row-00000000-0000-4000-8000-00000000003b");
   await expect(rows.last()).toHaveAttribute("data-testid", "event-row-00000000-0000-4000-8000-000000000046");

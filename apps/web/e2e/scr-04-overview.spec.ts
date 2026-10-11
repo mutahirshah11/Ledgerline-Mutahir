@@ -20,7 +20,7 @@ test("SCR-04-AC1 headline reads the run's counts and the read cost sits beside i
   await mockApi.signIn("CONTROLLER", "pre-review");
   await page.goto(`/runs/${MAIN}`);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("29 receipts: 21 match, 8 need attention");
-  await expect(page.getByText("Read cost US$0.011", { exact: true })).toBeVisible();
+  await expect(page.locator("#main").getByText("Read cost US$0.011", { exact: true })).toBeVisible();
 });
 
 test("SCR-04-AC2 proof badge shows rows placed once on PASS and the failed check on FAIL", async ({ page, mockApi }) => {
@@ -269,7 +269,7 @@ test("FR-022 in-progress run links back to its steps; a FAILED run offers Retry 
 }) => {
   await mockApi.signIn("CONTROLLER", "extracting");
   await page.goto(`/runs/${MAIN}`);
-  await expect(page.getByText("This run is still in progress")).toBeVisible();
+  await expect(page.locator("#main").getByText("This run is still in progress")).toBeVisible();
   await expect(page.getByRole("link", { name: "Continue this run" })).toHaveAttribute("href", `/runs/new?run=${MAIN}`);
 
   const id = RUN_IDS["failed-extract"];

@@ -48,8 +48,8 @@ test("SCR-07-AC2 C1 per-source table shows rows in, rows placed and rows by outc
   await expect(page.getByTestId("proof-c1-row-SHEET")).toHaveText(["Store sheet", "30", "30"].join(""));
 
   // EP-05 `counts` by outcome (pre-review fixture): MATCHED 21, MISMATCHED 4.
-  await expect(page.getByText("21 · All three agree", { exact: true })).toBeVisible();
-  await expect(page.getByText("4 · Sources disagree", { exact: true })).toBeVisible();
+  await expect(page.locator("#main").getByText("21 · All three agree", { exact: true })).toBeVisible();
+  await expect(page.locator("#main").getByText("4 · Sources disagree", { exact: true })).toBeVisible();
 });
 
 test("SCR-07-AC3 C4 per source|unit qty totals in vs placed, and qty-unknown rows listed by id, never as zero", async ({ page, mockApi }) => {

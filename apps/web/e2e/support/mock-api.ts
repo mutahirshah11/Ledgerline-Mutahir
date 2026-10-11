@@ -319,7 +319,7 @@ export const test = base.extend<{ mockApi: MockApi }, { mockServer: void }>({
           await route.fulfill({ response });
         } catch (err) {
           // A delayed reply still in flight when the test ends: the page is gone, nothing to answer.
-          if (page.isClosed() || /Test ended|Target .*closed|has been closed/i.test(String(err))) return;
+          if (page.isClosed() || /Test ended|Target .*closed|has been closed|has been disposed/i.test(String(err))) return;
           throw err;
         }
       });

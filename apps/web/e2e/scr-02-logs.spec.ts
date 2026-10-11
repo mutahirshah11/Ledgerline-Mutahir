@@ -37,6 +37,6 @@ test("Logs is reachable from the sidebar", async ({ page, mockApi }) => {
   await mockApi.signIn("CONTROLLER", "pre-review");
   await page.goto("/runs");
 
-  await page.getByRole("link", { name: "Logs" }).click();
+  await page.getByRole("link", { name: "Logs", exact: true }).click();
   await expect(page).toHaveURL(/\/runs\/logs$/);
 });
