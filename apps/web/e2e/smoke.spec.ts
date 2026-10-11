@@ -60,7 +60,7 @@ test("WEB-AC2 sign in, start a run on the pack, review GRN 4419, finalise and se
     .setInputFiles([packFile("t4_register_page1.jpg"), packFile("t4_register_page2.jpg")]);
   await page.locator('input[type="file"][name="erp"]').setInputFiles(packFile("t4_erp_grn.csv"));
   await page.locator('input[type="file"][name="sheet"]').setInputFiles(packFile("t4_store_sheet.xlsx"));
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: "Start reconciliation", exact: true }).click();
 
   // 3. The app drives upload -> validate -> extract -> reconcile itself and then navigates to the
   // overview; wait for that navigation, then for the headline (run.headline, RunOverview.tsx h1)

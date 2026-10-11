@@ -249,7 +249,7 @@ export function FinalisePanel({ run, proofStatus, canFinalise, finalise }: Final
   const question =
     n === 0
       ? "All review items are resolved. Finalise and send the summary now?"
-      : `${n} review items are still open. Finalise and send the summary now?`;
+      : `${n} review item${n === 1 ? " is" : "s are"} still open. Finalise and send the summary now?`;
 
   return (
     <section

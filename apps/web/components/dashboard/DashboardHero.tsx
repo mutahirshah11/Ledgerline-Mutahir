@@ -42,7 +42,7 @@ function heroCopy(run: RunView) {
     return {
       chip: `${month} · closed`,
       headline: "You're all caught up.",
-      body: `${month} is closed. Every receipt was checked three ways and accounted for.`,
+      body: `${month} is closed. Every receipt was reviewed and every row accounted for once.`,
       primaryLabel: `View ${month}`,
       primaryHref: `/runs/${run.id}`,
     };
@@ -50,9 +50,9 @@ function heroCopy(run: RunView) {
   if (n > 0) {
     return {
       chip: `${month} · your next step`,
-      headline: `${month} is almost done. ${n} receipt${n === 1 ? "" : "s"} need${n === 1 ? "s" : ""} you.`,
+      headline: `${month} is almost done. ${n} review item${n === 1 ? "" : "s"} need${n === 1 ? "s" : ""} you.`,
       body: run.headline,
-      primaryLabel: `Review ${n} receipt${n === 1 ? "" : "s"}`,
+      primaryLabel: `Review ${n} item${n === 1 ? "" : "s"}`,
       primaryHref: `/runs/${run.id}/review`,
     };
   }
@@ -103,9 +103,9 @@ export function DashboardHero({ run, cells }: DashboardHeroProps) {
               <span className="h-2 w-2 rounded-[2px] bg-success" /> Matched
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-[2px] bg-warning" /> Needs you
+              <span className="h-2 w-2 rounded-[2px] bg-warning" /> Needs attention
             </span>
-            <span>Each square is one delivery line</span>
+            <span>Each square is one receipt (GRN)</span>
           </div>
         </div>
       ) : null}

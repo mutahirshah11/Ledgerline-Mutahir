@@ -38,38 +38,46 @@ function nonZeroOutcomes(counts: RunSummary["counts"]): { outcome: Outcome; coun
     .map(([outcome, count]) => ({ outcome: outcome as Outcome, count }));
 }
 
-// A FINALISED run is closed regardless of how many lines actually MATCHED — it may well have had
-// real mismatches that the controller reviewed and resolved. Treating raw matched===total as the
-// only "settled" signal said "Needs you" on an already-closed run; `status` is the source of
-// truth for whether anything is still outstanding, not the outcome breakdown.
+// Counts are per receipt (GRN group), the same unit as the run overview's "29 receipts: 22 match,
+// 7 need attention". Duplicate and return rows are row-only outcomes, not receipts, so they are
+// left out. A FINALISED run is closed, but closed is not "all matched": it may carry exceptions
+// the controller reviewed, and the label and bar must say so.
+function receiptCounts(run: RunSummary): { receipts: number; matched: number; exceptions: number } {
+  const total = Object.values(run.counts).reduce((s, n) => s + n, 0);
+  const receipts = total - (run.counts.DUPLICATE ?? 0) - (run.counts.NON_RECEIPT ?? 0);
+  const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
+  return { receipts, matched, exceptions: receipts - matched };
+}
+
 function rowTone(run: RunSummary): { tile: string; label: string; text: string } {
   if (run.status === "FAILED") return { tile: "bg-danger-soft text-danger-ink", label: "Didn't finish", text: "text-danger-ink" };
+  const { receipts, exceptions } = receiptCounts(run);
   if (run.status === "FINALISED") {
-    return { tile: "bg-success-soft text-success-ink", label: "All matched", text: "text-success-ink" };
+    return exceptions > 0
+      ? { tile: "bg-muted text-foreground", label: "Finalised with exceptions", text: "text-muted-foreground" }
+      : { tile: "bg-success-soft text-success-ink", label: "All matched", text: "text-success-ink" };
   }
-  const total = Object.values(run.counts).reduce((s, n) => s + n, 0);
-  const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
-  if (total - matched > 0) return { tile: "bg-warning-soft text-warning-ink", label: "Needs you", text: "text-warning-ink" };
+  if (receipts > 0) return { tile: "bg-warning-soft text-warning-ink", label: "Needs you", text: "text-warning-ink" };
   return { tile: "bg-muted text-muted-foreground", label: "In progress", text: "text-muted-foreground" };
 }
 
 function outcomeSummary(run: RunSummary): string {
-  const total = Object.values(run.counts).reduce((s, n) => s + n, 0);
-  if (total === 0) return "No lines yet.";
-  const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
-  const outstanding = total - matched;
-  if (run.status === "FINALISED") return `${total} lines finalised`;
-  if (outstanding === 0) return `All ${total} lines reconciled`;
-  return `${matched} matched · ${outstanding} need${outstanding === 1 ? "s" : ""} a decision`;
+  const { receipts, matched, exceptions } = receiptCounts(run);
+  if (receipts === 0) return "No lines yet.";
+  const head = `${receipts} receipts · ${matched} matched`;
+  if (exceptions === 0) return `${head} · nothing to check`;
+  if (run.status === "FINALISED") return `${head} · ${exceptions} exception${exceptions === 1 ? "" : "s"}, closed`;
+  return `${head} · ${exceptions} need${exceptions === 1 ? "s" : ""} attention`;
 }
 
-function segments(run: RunSummary): { success: number; warning: number; danger: number } {
-  const total = Object.values(run.counts).reduce((s, n) => s + n, 0) || 1;
-  const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
-  if (run.status === "FAILED") return { success: 0, warning: 0, danger: 100 };
-  if (run.status === "FINALISED") return { success: 100, warning: 0, danger: 0 };
-  const outstanding = total - matched;
-  return { success: (matched / total) * 100, warning: (outstanding / total) * 100, danger: 0 };
+function segments(run: RunSummary): { success: number; warning: number; decided: number; danger: number } {
+  if (run.status === "FAILED") return { success: 0, warning: 0, decided: 0, danger: 100 };
+  const { receipts, matched, exceptions } = receiptCounts(run);
+  const total = receipts || 1;
+  const rest = (exceptions / total) * 100;
+  return run.status === "FINALISED"
+    ? { success: (matched / total) * 100, warning: 0, decided: rest, danger: 0 }
+    : { success: (matched / total) * 100, warning: rest, decided: 0, danger: 0 };
 }
 
 export type MonthlyTableProps = {
@@ -89,6 +97,9 @@ export function MonthlyTable({ runs }: MonthlyTableProps) {
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-[2px] bg-warning" /> Needs you
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-[2px] bg-muted-foreground/40" /> Decided
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-[2px] bg-danger" /> Couldn&apos;t read
@@ -160,6 +171,9 @@ export function MonthlyTable({ runs }: MonthlyTableProps) {
                       {bar.success > 0 && <div className="bg-success" style={{ width: `${bar.success}%` }} />}
                       {bar.warning > 0 && (
                         <div className="bg-warning" style={{ width: `${Math.max(bar.warning, 6)}%` }} />
+                      )}
+                      {bar.decided > 0 && (
+                        <div className="bg-muted-foreground/40" style={{ width: `${Math.max(bar.decided, 6)}%` }} />
                       )}
                       {bar.danger > 0 && <div className="bg-danger" style={{ width: `${bar.danger}%` }} />}
                     </div>

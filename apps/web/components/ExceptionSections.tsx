@@ -101,7 +101,9 @@ export function ExceptionSections({ exceptions, runId, openReviewItems, readOnly
             </h2>
             {category === 3 && (
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <span>{openReviewItems} items waiting</span>
+                <span>
+                  {openReviewItems} item{openReviewItems === 1 ? "" : "s"} waiting
+                </span>
                 {!readOnly && openReviewItems > 0 && (
                   <Link href={`/runs/${runId}/review`} className="font-medium text-primary underline underline-offset-4">
                     Review now

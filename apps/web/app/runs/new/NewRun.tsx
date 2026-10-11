@@ -415,7 +415,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
   if (resumeError) {
     return (
       <div className="mx-auto w-full max-w-3xl p-6">
-        <h1 className="mb-4 font-heading text-2xl font-bold tracking-tight text-foreground">Start a run</h1>
+        <h1 className="mb-4 font-heading text-2xl font-bold tracking-tight text-foreground">Reconcile a new month</h1>
         <ErrorState error={resumeError} />
       </div>
     );
@@ -430,7 +430,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
           <FilePlus2 className="h-5 w-5" aria-hidden="true" />
         </span>
         <div>
-          <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">Start a run</h1>
+          <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">Reconcile a new month</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Add this month&apos;s register pages, ERP export and store sheet; Ledgerline reads, reconciles and proves them.
           </p>
@@ -469,7 +469,7 @@ export function NewRun({ resumeId }: { resumeId: string | null }) {
               className="bg-primary hover:bg-primary-hover"
             >
               <PlayCircle className="h-4 w-4" aria-hidden="true" />
-              Run
+              Start reconciliation
             </Button>
             {me.status === "ready" && !me.can.createRun ? (
               <p className="text-sm text-muted-foreground">Your role cannot do this</p>

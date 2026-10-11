@@ -9,8 +9,8 @@ export type RunsEmptyStateProps = {
 
 const SOURCES = [
   { icon: BookOpen, title: "Receiving register", body: "Scan or photograph the handwritten pages." },
-  { icon: ClipboardList, title: "ERP goods-received notes", body: "Connect your ERP once. Notes import each month." },
-  { icon: FileSpreadsheet, title: "Storekeeper's sheet", body: "Upload the spreadsheet or a photo of it." },
+  { icon: ClipboardList, title: "ERP goods-received notes", body: "Upload the ERP's GRN export (CSV)." },
+  { icon: FileSpreadsheet, title: "Storekeeper's sheet", body: "Upload the storekeeper's .xlsx sheet." },
 ] as const;
 
 export function RunsEmptyState({ canCreateRun }: RunsEmptyStateProps) {

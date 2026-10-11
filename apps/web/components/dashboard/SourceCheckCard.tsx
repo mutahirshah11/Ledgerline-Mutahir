@@ -44,6 +44,13 @@ export function SourceCheckCard({ run }: SourceCheckCardProps) {
   const needsAttention = finalised ? 0 : run.open_review_items;
   const totalLines = SOURCES.reduce((sum, s) => sum + lineCountFor(run, s), 0);
   const nothingReadYet = totalLines === 0;
+  // Receipts (GRN groups) whose sources disagree or are missing: decided or not, they are not
+  // "matched", so the card never says "All lines matched" over them.
+  const exceptions =
+    (run.counts.MISMATCHED ?? 0) +
+    (run.counts.MISSING ?? 0) +
+    (run.counts.NEEDS_REVIEW ?? 0) +
+    (run.counts.UNMATCHED_NO_KEY ?? 0);
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
@@ -82,10 +89,10 @@ export function SourceCheckCard({ run }: SourceCheckCardProps) {
             <Flag className="h-4 w-4 shrink-0" aria-hidden="true" />
             {nothingReadYet
               ? "Nothing checked yet"
-              : finalised
-                ? `${totalLines} lines finalised`
-                : needsAttention > 0
-                  ? `${run.counts.MATCHED ?? 0} matched, ${needsAttention} to check`
+              : needsAttention > 0
+                ? `${run.counts.MATCHED ?? 0} matched, ${needsAttention} to check`
+                : exceptions > 0
+                  ? `${run.counts.MATCHED ?? 0} matched, ${exceptions} exception${exceptions === 1 ? "" : "s"}`
                   : "All lines matched"}
           </p>
           <p className="mt-0.5 text-xs opacity-80">
@@ -93,7 +100,11 @@ export function SourceCheckCard({ run }: SourceCheckCardProps) {
               ? "No lines have been read for this run"
               : needsAttention > 0
                 ? "Waiting on your decision"
-                : "Nothing left to review"}
+                : finalised
+                  ? `Finalised · ${totalLines} rows placed once`
+                  : exceptions > 0
+                    ? "Reviewed, ready to finalise"
+                    : "Nothing left to review"}
           </p>
         </div>
       </div>

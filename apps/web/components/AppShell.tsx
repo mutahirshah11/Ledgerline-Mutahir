@@ -104,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }`}
               >
                 <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-                Dashboard
+                All months
               </Link>
               {!personReady ? (
                 <div className="mx-3 my-1.5 h-[34px] animate-pulse rounded-md bg-sidebar-accent/40" />
@@ -118,7 +118,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   }`}
                 >
                   <FilePlus2 className="h-4 w-4" aria-hidden="true" />
-                  Start a run
+                  Reconcile a month
                 </Link>
               ) : null}
             </nav>

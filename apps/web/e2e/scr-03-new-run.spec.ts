@@ -29,7 +29,7 @@ async function openAndRun(page: Page) {
   await page.goto("/runs/new");
   await expect(page.getByLabel("Month")).toHaveValue("2026-09");
   await addPack(page);
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: "Start reconciliation", exact: true }).click();
 }
 
 // Some tests end while a delayed step request is still in flight (held on purpose so the screen
@@ -48,12 +48,12 @@ test("SCR-03-AC1 month picker defaults to the month before the scenario clock; t
 }) => {
   await mockApi.signIn("CONTROLLER", "new-run");
   await page.goto("/runs/new");
-  await expect(page.getByRole("heading", { name: "Start a run" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reconcile a new month" })).toBeVisible();
   await expect(page.getByLabel("Month")).toHaveValue("2026-09"); // EP-01 scenario_now 2026-10-15
   await expect(page.getByRole("group", { name: "Register pages" })).toBeVisible();
   await expect(page.getByRole("group", { name: "ERP" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Store sheet" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start reconciliation", exact: true })).toBeDisabled();
   expect(await mockApi.count("EP-01")).toBeGreaterThanOrEqual(1);
 });
 
@@ -63,7 +63,7 @@ test("SCR-03-AC2 a file breaking a rule shows its problem inline and Run stays d
 }) => {
   await mockApi.signIn("CONTROLLER", "new-run");
   await page.goto("/runs/new");
-  const run = page.getByRole("button", { name: "Run", exact: true });
+  const run = page.getByRole("button", { name: "Start reconciliation", exact: true });
   const register = page.getByRole("group", { name: "Register pages" });
   await addPack(page);
   await expect(run).toBeEnabled();
@@ -119,7 +119,7 @@ test("SCR-03-AC3 register pages are numbered in drop order and reorder by keyboa
   await page.getByRole("button", { name: "Move down page 1" }).press("Enter");
 
   // The number is a label only: EP-06 declares page_no from the list order.
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: "Start reconciliation", exact: true }).click();
   await expect.poll(() => mockApi.count("EP-06")).toBe(1);
   const [ep06] = await mockApi.calls({ endpoint: "EP-06" });
   const files = (ep06.body as { files: { filename: string; page_no: number | null }[] }).files;

@@ -36,14 +36,14 @@ const HOW_IT_WORKS: ReadonlyArray<{
     icon: UploadCloud,
     tint: "bg-primary-soft",
     title: "Add the month's records",
-    body: "Photograph the handwritten register, connect your ERP once, and upload the storekeeper's sheet.",
+    body: "Photograph the handwritten register, then upload the ERP's GRN export (CSV) and the storekeeper's sheet.",
   },
   {
     n: "02",
     icon: GitCompare,
     tint: "bg-success-soft",
     title: "Ledgerline lines them up",
-    body: "Every delivery is compared on item, quantity, and date. Lines that agree are cleared automatically.",
+    body: "Every receipt is compared on date, supplier, lot, quantity and unit. Lines that agree are cleared automatically.",
   },
   {
     n: "03",
@@ -109,7 +109,7 @@ export default async function Home() {
             <Button render={<Link href="/login" />} variant="secondary" className="border border-border-strong">
               Sign in
             </Button>
-            <Button render={<Link href="/login" />}>Book a demo</Button>
+            <Button render={<Link href="/login" />}>Open the app</Button>
           </div>
         </nav>
       </header>
@@ -147,9 +147,9 @@ export default async function Home() {
           <div className="rounded-[22px] bg-card p-6 shadow-[0_30px_60px_-30px_rgba(13,42,44,0.25)]">
             <div className="grid grid-cols-3 gap-3">
               {[
-                ["Receiving register", "415 lines"],
-                ["ERP goods-received notes", "415 lines"],
-                ["Storekeeper's sheet", "415 lines"],
+                ["Receiving register", "28 rows"],
+                ["ERP goods-received notes", "28 rows"],
+                ["Storekeeper's sheet", "30 rows"],
               ].map(([name, lines]) => (
                 <div key={name} className="rounded-xl bg-muted p-3">
                   <p className="text-xs font-semibold text-foreground">{name}</p>
@@ -161,7 +161,7 @@ export default async function Home() {
             <div className="mt-4 rounded-2xl bg-primary p-5 text-white">
               <p className="text-xs font-medium text-primary-tint-text uppercase">September result</p>
               <p className="mt-1 font-heading text-2xl font-bold">
-                412 match. <span className="text-success">3 need you.</span>
+                29 receipts: 22 match. <span className="text-success">7 need you.</span>
               </p>
               <div className="mt-3 flex items-center gap-3 text-xs text-primary-tint-text">
                 <span className="flex items-center gap-1.5">
