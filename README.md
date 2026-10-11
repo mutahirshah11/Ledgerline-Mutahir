@@ -88,15 +88,19 @@ Nothing partial or wrong is ever sent, and nothing fails silently:
   Resend" banner appears, ops is alerted.
 - Finalising twice or a crash mid-send never sends a second message.
 
-With `ALLOW_FAULTS=true`, add `?fault=` with `EXTRACT_TIMEOUT`, `EXTRACT_BAD_JSON`,
-`TELEGRAM_DOWN` or `PROOF_DROP_ROW` to show each path. Measured targets: `NFR_REPORT.md`.
+- Same month and files finalised twice: refused with a link to the earlier run.
+
+With `ALLOW_FAULTS=true`, an API call (not the web UI) with `?fault=` and `EXTRACT_TIMEOUT`,
+`EXTRACT_BAD_JSON`, `TELEGRAM_DOWN` or `PROOF_DROP_ROW` forces each path; the offline tests run all
+four. Measured targets: `NFR_REPORT.md`.
 
 ## How the data was handled
 
 Only Nocturnal's fictional pack. Only the register photos go to OpenAI; ERP and sheet data never
 leave Supabase. Every normalised value keeps its raw value and a log entry. Files sit in private
 buckets behind expiring signed links (10 min upload, 5 min download). The browser's anon key can
-read no table; only the API's service key can. The audit log cannot be edited or deleted. No
+read no table; only the API's service key can. A controller can delete a run (its files, results
+and report); the audit log keeps its history plus the delete, and cannot be edited or deleted. No
 secrets in the repo: every `.env` file is git-ignored and gitleaks runs in CI.
 
 ## What I'd do with another week
@@ -109,8 +113,7 @@ secrets in the repo: every `.env` file is git-ignored and gitleaks runs in CI.
 
 ## AI tools used and for what
 
-- **Claude / Claude Code:** blueprint, spec-driven specs, plans and tasks, tests-first
-  implementation, review.
-- **Google Antigravity / Gemini:** implementation, test runs and environment setup.
+- **Claude Code** (the only coding tool): blueprint and data review, spec-driven specs, plans and
+  tasks per phase, tests-first implementation, deployment, and the production QA pass.
 - **GPT-5.6 Luna** (inside the product): reads each register page twice; never sees ERP or sheet
   data.

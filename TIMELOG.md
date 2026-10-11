@@ -2,19 +2,31 @@
 
 **Candidate:** Mutahir Hussain Shah  
 **Project:** Task 4 · Register Reconciliation (Ledgerline)  
-**Total Time Spent:** ~7.0 Focused Hours (Budget: 6–8 hours)  
+**Total:** about 50 focused hours over 4 days (6–11 October 2026)  
+
+This is well over the 6–8 hour guide. I chose to build the full flow end to end (AI reads, a
+deterministic engine, review, proof, Telegram, a web app) and deploy it, rather than stop at a
+script. Hours are rounded and taken from the commit history; each phase was merged as its own
+branch (`001-foundation` to `007-ship`).
 
 ---
 
-## Breakdown by Part
+## Breakdown by part
 
-| Part / Phase | Description | Hours Spent |
-| :--- | :--- | :---: |
-| **1. Architecture & Specification** | Reviewing requirements, analyzing sample files (`data/kestrel-2026-09/`), drafting data contracts, and planning the 3-way reconciliation pipeline. | 1.0 hr |
-| **2. AI Extraction Pipeline** | Building the prompt and vision schema for reading handwritten register photos twice independently, handling struck-out values, and validating OCR responses. | 1.5 hrs |
-| **3. Deterministic Ingestion & Normalisation** | Parsing ERP CSV exports and Storekeeper Excel spreadsheets; standardizing dates, units (yards to metres conversion), and building match keys. | 1.0 hr |
-| **4. 3-Way Reconciliation & Completeness Proof** | Implementing core matching logic (matched, field-level mismatches, missing items) and writing the mathematical completeness verification engine (86/86 rows). | 1.5 hrs |
-| **5. Frontend UI & Review Workflow** | Building the Next.js review interface, exception tables, proof dashboard, and authentication screens. | 1.0 hr |
-| **6. Messaging & Telegram Dispatch** | Implementing executive summary builder, at-most-once delivery, retry with backoff, and Ops error alert dispatching. | 0.5 hr |
-| **7. Testing, Fault Injection & Documentation** | Running offline test suites, testing fault-injection modes (`?fault=`), drafting README, and recording demo walk-through. | 0.5 hr |
-| **Total** | | **7.0 hrs** |
+| Part | What it covered | When | Hours |
+| :--- | :--- | :--- | :---: |
+| **Architecture & specs** | Reading the brief and the pack, finding the data problems, blueprint, per-phase specs, plans and tasks | before and alongside each phase | ~4 |
+| **1. Foundation** (`001`) | Project setup, domain model and enums, scenario clock, CI, secrets scanning | 6 Oct | ~4 |
+| **2. Core engine** (`002`) | Parsing ERP and sheet, normalisation (dates, units, suppliers), three-way matching, control checks, completeness proof | 6–7 Oct | ~4 |
+| **3. AI extraction** (`003`) | Two independent reads per page, merge and doubt rules, struck-out and illegible cells, page cache | 7 Oct | ~5 |
+| **4. API & storage** (`004`) | FastAPI routes, Supabase schema and guards, private storage, signed links | 7 Oct | ~5 |
+| **5. Review & delivery** (`005`) | Review queue, finalise, report.html, Telegram summary with at-most-once send, ops alerts, fault injection | 7–9 Oct | ~8 |
+| **6. Web app** (`006`) | Next.js screens: runs, start a run, overview, results, review, proof, audit | 9–10 Oct | ~10 |
+| **7. Ship** (`007`) | Production deploy, security and isolation tests, NFR report, README, redesign, production QA and fixes | 10–11 Oct | ~10 |
+| **Total** | | | **~50** |
+
+## What I'd cut to fit 8 hours
+
+The core the brief asks for is parts 2, 3 and the summary in 5: the engine, the AI reads with the
+doubt rules, the proof and the Telegram message (~17 hours). The web app, deployment and redesign
+are what took it past the guide.
