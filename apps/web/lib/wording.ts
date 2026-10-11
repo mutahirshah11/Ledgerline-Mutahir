@@ -67,7 +67,7 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   MATCHED_AFTER_CONVERSION: "Agree after unit conversion",
   // MISMATCHED / MISSING are parameterised — see outcomeLabel() below. The bare strings here are
   // only the no-parameter fallback (outcomeLabel always calls through the branches instead).
-  MISMATCHED: "All three differ",
+  MISMATCHED: "Sources disagree",
   MISSING: "Missing from",
   NEEDS_REVIEW: "Needs review",
   UNMATCHED_NO_KEY: "No GRN to match on",
@@ -76,7 +76,7 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
 };
 
 export type OutcomeLabelOpts = {
-  /** MISMATCHED only: the differing source, or null/undefined for "All three differ". */
+  /** MISMATCHED only: the differing source, or null/undefined for "Sources disagree". */
   outlier?: Source | null;
   /** MISSING only: the sources the row is absent from. */
   missingFrom?: Source[];
@@ -85,7 +85,7 @@ export type OutcomeLabelOpts = {
 export function outcomeLabel(outcome: Outcome, opts?: OutcomeLabelOpts): string {
   if (outcome === "MISMATCHED") {
     const outlier = opts?.outlier;
-    return outlier ? `${sourceLabel(outlier)} is different` : "All three differ";
+    return outlier ? `${sourceLabel(outlier)} is different` : "Sources disagree";
   }
   if (outcome === "MISSING") {
     return `Missing from ${joinSources(opts?.missingFrom ?? [])}`;

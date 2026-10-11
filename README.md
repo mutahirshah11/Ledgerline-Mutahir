@@ -8,6 +8,8 @@ three days. Upload the four files once: an AI model reads the two register photo
 independently), then code — never the model — normalises, reconciles, runs control checks and
 proves completeness. Agreeing lines clear themselves; only doubtful items reach a person. On
 finalise the controller gets a short Telegram summary plus `report.html`, exceptions first.
+Each photo is fingerprinted (SHA-256), so a later run only sends new pages to the model; pages
+already read come from cache.
 
 On the pack: 86 rows (28 register, 28 ERP, 30 sheet), every one in exactly one outcome. Problems
 found and how they surface:
@@ -99,7 +101,7 @@ secrets in the repo: every `.env` file is git-ignored and gitleaks runs in CI.
 
 ## What I'd do with another week
 
-- Monthly runs that skip register pages already read (hash the photo, reuse its rows).
+- Instant review decisions: re-reconcile in the background instead of inside the request.
 - WhatsApp Cloud API, including photographing pages straight into a run.
 - Learn supplier and unit aliases from review decisions, each person-approved.
 - Cell crops over the photo in the review queue.

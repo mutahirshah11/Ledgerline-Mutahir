@@ -12,7 +12,7 @@
 // DD/MM, lot L####-###, GRN 3 to 6 digits); they stay strings. The note is kept in
 // sessionStorage per item id until the item is decided, so a 401 sign-in round trip keeps it.
 
-import { AlertTriangle, CheckCircle2, HelpCircle, PencilLine, ThumbsUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, PencilLine, ThumbsUp } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { PageImageBand } from "@/components/PageImageBand";
@@ -569,6 +569,13 @@ export function ReviewCard({ item, readOnly, readOnlyReason, onAction, onImageEr
               );
             })}
           </div>
+          {/* EP-15 re-reconciles the whole run before it answers, which takes several seconds. */}
+          {busy ? (
+            <p role="status" data-testid="review-saving" className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              Saving your decision and re-checking all three sources…
+            </p>
+          ) : null}
         </div>
       ) : null}
     </article>

@@ -154,9 +154,9 @@ test("MISMATCHED with outlier ERP reads 'ERP is different'", () => {
   expect(outcomeLabel("MISMATCHED", { outlier: "ERP" })).toBe("ERP is different");
 });
 
-test("MISMATCHED with no outlier reads 'All three differ'", () => {
-  expect(outcomeLabel("MISMATCHED", { outlier: null })).toBe("All three differ");
-  expect(outcomeLabel("MISMATCHED")).toBe("All three differ");
+test("MISMATCHED with no outlier reads 'Sources disagree'", () => {
+  expect(outcomeLabel("MISMATCHED", { outlier: null })).toBe("Sources disagree");
+  expect(outcomeLabel("MISMATCHED")).toBe("Sources disagree");
 });
 
 test("MISSING joins missingFrom with 'and'", () => {

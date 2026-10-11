@@ -21,7 +21,7 @@ export type ResultsExportRow = {
   outcome: string;
   item: string;
   supplier: string;
-  /** "" when nothing differs; otherwise e.g. "Store sheet is different" or "All three differ". */
+  /** "" when nothing differs; otherwise e.g. "Store sheet is different" or "Sources disagree". */
   outlier: string;
   /** "field: value; field: value" summary per source, for the compared fields that differ. */
   register: string;

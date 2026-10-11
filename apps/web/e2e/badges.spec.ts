@@ -12,7 +12,7 @@ const OUTCOME_CASES = [
   { testId: "outcome-0", text: "All three agree" },
   { testId: "outcome-1", text: "Agree after unit conversion" },
   { testId: "outcome-2", text: "ERP is different" },
-  { testId: "outcome-3", text: "All three differ" },
+  { testId: "outcome-3", text: "Sources disagree" },
   { testId: "outcome-4", text: "Missing from Register and Store sheet" },
   { testId: "outcome-5", text: "Needs review" },
   { testId: "outcome-6", text: "No GRN to match on" },

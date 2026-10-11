@@ -24,7 +24,7 @@ test("toResultsCsv writes the header row first, then one row per visible result,
   const rows: ResultsExportRow[] = [
     {
       grn: "4425",
-      outcome: "All three differ",
+      outcome: "Sources disagree",
       item: 'GREY FABRIC 63"',
       supplier: "S-107",
       outlier: "Store sheet is different",
@@ -37,7 +37,7 @@ test("toResultsCsv writes the header row first, then one row per visible result,
   const lines = csv.split("\r\n");
   expect(lines[0]).toBe(RESULTS_CSV_HEADERS.join(","));
   expect(lines[1]).toBe(
-    ['4425', 'All three differ', '"GREY FABRIC 63"""', 'S-107', 'Store sheet is different', 'qty: 1200 YD', 'qty: 1097.28 M', 'qty: 1200 M'].join(","),
+    ['4425', 'Sources disagree', '"GREY FABRIC 63"""', 'S-107', 'Store sheet is different', 'qty: 1200 YD', 'qty: 1097.28 M', 'qty: 1200 M'].join(","),
   );
   expect(lines[lines.length - 1]).toBe(""); // trailing CRLF
 });

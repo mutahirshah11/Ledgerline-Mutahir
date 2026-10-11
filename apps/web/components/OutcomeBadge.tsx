@@ -6,7 +6,7 @@ import { outcomeLabel, type Outcome, type Source } from "@/lib/wording";
 // (NFR-09): aria-label always equals the visible text.
 export type OutcomeBadgeProps = {
   outcome: Outcome;
-  /** MISMATCHED → "{Outlier} is different" (null/undefined → "All three differ"). */
+  /** MISMATCHED → "{Outlier} is different" (null/undefined → "Sources disagree"). */
   outlier?: Source | null;
   /** MISSING → "Missing from ERP and Store sheet". */
   missingFrom?: Source[];
