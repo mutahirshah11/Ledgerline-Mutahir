@@ -279,6 +279,18 @@ const REPORT_BODIES: Record<string, { type: string; body: string }> = {
 };
 
 export const test = base.extend<{ mockApi: MockApi }, { mockServer: void }>({
+  // Next.js 16 can keep a hidden copy of a page's tree in the DOM next to the shown one
+  // (streamed/preserved segments), which made page-wide getByTestId/getByText match twice
+  // (strict-mode violations, flaky in CI). getByRole already skips hidden elements; these two
+  // now do the same. A person only ever sees the visible copy.
+  page: async ({ page }, provide) => {
+    const byTestId = page.getByTestId.bind(page);
+    const byText = page.getByText.bind(page);
+    page.getByTestId = ((testId) => byTestId(testId).filter({ visible: true })) as typeof page.getByTestId;
+    page.getByText = ((text, options) => byText(text, options).filter({ visible: true })) as typeof page.getByText;
+    await provide(page);
+  },
+
   mockServer: [
     async ({}, use) => {
       await ensureMockServer();
