@@ -202,6 +202,45 @@ paths:
               schema: {$ref: '#/components/schemas/ErrorResponse'}
         '502': {$ref: '#/components/responses/UpstreamFailed'}
 
+  /runs/{id}/delete:
+    post:
+      operationId: delete_run
+      summary: Delete a run and everything it produced (007-ship QA request)
+      description: >
+        Role CONTROLLER only. Requires confirm true (400 CONFIRM_REQUIRED). Any status. Removes the
+        run's rows and frees its run_key; the audit log keeps its entries plus RUN_DELETED, and the
+        extraction cache is kept.
+      tags: [delivery]
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm: {type: boolean}
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, deleted]
+                properties:
+                  id: {type: string, format: uuid}
+                  deleted: {type: boolean, enum: [true]}
+        '400':
+          description: CONFIRM_REQUIRED
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '401': {$ref: '#/components/responses/Unauthenticated'}
+        '403': {$ref: '#/components/responses/NotAllowed'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
   /runs/{id}/report:
     get:
       operationId: ep18_report_links

@@ -61,6 +61,7 @@ REPO_METHODS = {
     "transition_run",
     "update_run_fields",
     "find_finalised_run_by_key",
+    "delete_run",
     "add_source_file",
     "list_source_files",
     "confirm_source_file",
