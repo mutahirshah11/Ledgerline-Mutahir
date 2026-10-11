@@ -1,6 +1,6 @@
 # Time Log · Nocturnal AI Take-Home Assessment
 
-**Candidate:** AI Automation Engineer Candidate  
+**Candidate:** Mutahir Hussain Shah  
 **Project:** Task 4 · Register Reconciliation (Ledgerline)  
 **Total Time Spent:** ~7.0 Focused Hours (Budget: 6–8 hours)  
 

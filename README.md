@@ -1,97 +1,114 @@
-# Ledgerline · Automated Three-Way Receiving Reconciliation
+# Ledgerline · Three-way receiving reconciliation (Task 4)
+[![CI](https://github.com/mutahirshah11/Ledgerline-Mutahir/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mutahirshah11/Ledgerline-Mutahir/actions/workflows/ci.yml)
 
-Automated month-end reconciliation engine built for Kestrel Industries. Compares handwritten receiving registers, ERP goods-received notes (GRN), and the storekeeper's spreadsheet to surface exceptions first and mathematically prove completeness with zero silent failures.
+## What it does
 
----
+Kestrel's handwritten register, ERP GRNs and storekeeper sheet never agree, and month-end takes
+three days. Upload the four files once: an AI model reads the two register photos (twice,
+independently), then code — never the model — normalises, reconciles, runs control checks and
+proves completeness. Agreeing lines clear themselves; only doubtful items reach a person. On
+finalise the controller gets a short Telegram summary plus `report.html`, exceptions first.
 
-## 1. What It Does & How to Run It
+On the pack: 86 rows (28 register, 28 ERP, 30 sheet), every one in exactly one outcome. Problems
+found and how they surface:
 
-### What It Does
-- **Automated 3-Way Reconciliation:** Ingests all four monthly files once (2 register page photos, 1 ERP CSV export, 1 storekeeper Excel sheet).
-- **AI-Powered OCR:** An AI model (`gpt-5.6-luna`) reads *only* the handwritten register pages twice independently for OCR verification; ERP exports and store sheets are parsed strictly deterministically without leaving the system.
-- **Exceptions First:** Lines that agree are cleared automatically. Discrepancies (mismatched quantities, dates, sequence gaps, or struck-out handwritten values) are surfaced side-by-side in a human review queue.
-- **Completeness Proof:** Mathematically verifies that every row across all three sources lands in exactly one outcome, tying totals back to input counts (86 of 86 rows accounted for).
-- **Director Messaging:** Once finalised, a concise executive summary and `report.html` are dispatched to Telegram (designed to port directly to WhatsApp Cloud API), alerting directors without requiring a dashboard login.
+| GRN | Problem | Outcome |
+| --- | --- | --- |
+| 4409 | Sheet keyed twice | Duplicate, not double-counted |
+| 4412 | ERP lot L2609-021 vs L2609-012 | Mismatch, ERP is the odd one out |
+| 4415 | ERP date 13 Sep vs 12 Sep (a Sunday) | Mismatch + flag |
+| 4417 | ERP qty 46 CTN vs 48 | Mismatch |
+| 4419 | Register 60 struck out, 66 written | Person confirms, then sheet mismatch |
+| 4421 | In register and sheet, not ERP | Missing from ERP |
+| 4425 | Register 1200 yds = 1097.28 m; sheet 1200 m | Converted; sheet mismatch |
+| 4428 | Register qty under an ink blot | Person enters it; never guessed |
+| 4429 | In no source | Sequence gap to acknowledge |
+| 4430 | ERP only, keyed 2 Oct by `admin2` | Missing + backdated + unusual user |
+| — | Sheet return row (Sunday, out of order) | Non-receipt |
 
----
+Not flagged: "H202" (OCR of H2O2), text-date and Excel-serial dates, supplier and unit aliases.
 
-### How to Run
+## How to run
 
-#### Hosted Version
-1. Open the deployed application URL.
-2. Sign in with:
-   - **Email:** `demo@gmail.com`
-   - **Password:** *(Provided in the submission email)*
-3. Navigate to **Start a New Run** (`/runs/new`), upload the four sample files from `data/kestrel-2026-09/`, and start reconciliation.
-4. Review exceptions under **Review**, inspect the mathematical proof under **Proof**, and click **Finalise**.
+**Hosted:** https://ledgerline-mutahir.vercel.app — demo credentials are in the submission
+email. Start a run, upload the four files from `data/kestrel-2026-09/`, resolve the review items,
+check Proof, then Finalise.
 
-#### Local Setup (Windows / macOS / Linux)
-1. **Prerequisites:** Python 3.12, [`uv`](https://docs.astral.sh/uv/), Node 20+, and `pnpm`.
-2. **Backend Setup:**
-   ```bash
-   cd apps/api
-   uv sync
-   uv run uvicorn app.main:app --reload --port 8000
-   ```
-3. **Frontend Setup:**
-   ```bash
-   cd apps/web
-   pnpm install
-   pnpm dev
-   ```
-4. **Access Web App:** Open `http://localhost:3000` in your browser.
-5. **Offline Test Suite:** Run the offline verification test suite (under 30 seconds, no external keys needed):
-   ```bash
-   cd apps/api && uv run pytest -m "not integration and not live"
-   ```
+**Local** (Windows: Git Bash): Python 3.12, `uv`, Node 20+, `pnpm`, Supabase CLI.
 
----
+1. `make setup`; create a Supabase project, `supabase link`, `supabase db push`.
+2. Copy `apps/api/.env.example` to `apps/api/.env`, `apps/web/.env.example` to
+   `apps/web/.env.local`, fill in the table below.
+3. `make seed BUILDER_EMAIL=you@example.com` makes you `CONTROLLER`; set a password in Supabase.
+4. `make dev`, open `http://localhost:3000`. `make test` runs the offline suite (no keys).
 
-## 2. Assumptions Made
+| Variable | App | Purpose |
+| --- | --- | --- |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (secret) | api | Database and private storage |
+| `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | web | Login only; RLS denies tables |
+| `OPENAI_API_KEY` (secret), `EXTRACT_MODEL`, `PROMPT_VERSION` | api | Register reads |
+| `EXTRACT_PRICE_INPUT_PER_MTOK`, `EXTRACT_PRICE_OUTPUT_PER_MTOK`, `EXTRACT_EST_INPUT_TOKENS_PER_PAGE`, `EXTRACT_EST_OUTPUT_TOKENS_PER_PAGE` | api | Read-cost estimate |
+| `TELEGRAM_BOT_TOKEN` (secret), `TELEGRAM_CONTROLLER_CHAT_ID`, `TELEGRAM_OPS_CHAT_ID` | api | Summary chat and ops-alert chat |
+| `LEDGERLINE_NOW`, `LEDGERLINE_CLOCK_MODE`, `LEDGERLINE_NOW_ANCHOR` | api | Scenario clock (below) |
+| `ALLOW_FAULTS` | api | `true` only for the fault demo |
+| `APP_BASE_URL`, `API_BASE_URL`, `CORS_ORIGINS` | both | URLs |
+| `BUILDER_EMAIL` | `make seed` | Your login |
+| `OPENAI_TIMEOUT_S`, `EXTRACT_ATTEMPTS`, `EXTRACT_BACKOFF_S`, `TELEGRAM_ATTEMPTS`, `TELEGRAM_BACKOFF_S`, `TELEGRAM_TIMEOUT_S`, `UPLOAD_WINDOW_S`, `DOWNLOAD_URL_S`, `JWKS_CACHE_S`, `JWKS_MIN_REFETCH_S`, `REPO_BACKEND` | api | Tuning; defaults are right |
 
-- **Match Key:** The GRN number serves as the primary match key across all three sources.
-- **Physical Truth vs System Truth:** While the handwritten register reflects physical receipt, no single source is treated as infallible truth. When sources disagree, the outlier is highlighted and presented to a person for decision.
-- **Unit Conversions:** Exact unit conversions (e.g., yards to metres for fabric/textile goods) count as matches and are logged in normalisation audit trails.
-- **Returns & Voided Items:** Supplier returns are categorized as non-receipts rather than reconciled against debit notes. Missing GRN numbers are reported as sequence gaps for audit acknowledgment.
-- **Struck-Out Handwritten Entries:** Struck-out numbers with replacement annotations in the physical register require human confirmation rather than automated guesswork.
-- **Control Checks:** ERP entries posted after month-end or keyed by unauthorized personnel are flagged as control exceptions.
+**Scenario clock:** `LEDGERLINE_NOW=2026-10-15T08:30:00+05:00` replays the brief's "now";
+`LEDGERLINE_CLOCK_MODE=frozen` holds it, `offset` (with `LEDGERLINE_NOW_ANCHOR`) lets it tick.
+All code reads time through `app/core/clock.py`.
 
----
+**Telegram → WhatsApp:** the sender is one small class (`app/services/telegram.py`). Moving to
+the WhatsApp Cloud API means a pre-approved template for the summary (business-initiated),
+`report.html` as a document message, and phone numbers instead of chat IDs; retries and
+at-most-once logic stay as they are.
 
-## 3. How It Fails and How Someone Would Know
+## Assumptions
 
-Ledgerline is designed to fail safely, fail loudly, and never produce silent corruption or partial results:
+- The GRN number is the match key; no source is treated as truth — the odd one out is named and a
+  person decides.
+- An exact unit conversion (yards to metres) counts as a match, logged.
+- Returns are non-receipts, not reconciled against debit notes.
+- A GRN in no source is a sequence gap; no void log was supplied.
+- Struck-out or illegible register values always go to a person.
+- An ERP entry keyed after month end, or by an unusual user, is a control exception.
 
-- **Malformed or Corrupted Files:** If any uploaded file has invalid headers, empty rows, or corrupted images, validation fails before any AI model call is made, returning a detailed list of syntax and structural errors.
-- **AI Extraction Downtime / Timeout:** 3 retries with exponential backoff. If extraction fails, the step is marked failed, and an incident alert is dispatched to the engineering ops channel. Cached pages are preserved so re-running only processes failed pages.
-- **Failing Completeness Proof:** If any single row cannot be accounted for, the system halts finalisation, withholds the summary, and alerts ops with exact row discrepancies.
-- **Telegram / Messaging Failure:** If Telegram is unreachable, the run is still safely finalised and locked, the notification status is flagged as `FAILED`, and a prominent *"Summary not delivered — Resend"* banner is displayed in the UI.
-- **Duplicate Send Prevention (At-Most-Once):** Finalising twice or experiencing a network drop mid-send never sends a duplicate message to the director.
-- **Demonstrating Failures On-Demand:** With `ALLOW_FAULTS=true` enabled, append `?fault=` with `EXTRACT_TIMEOUT`, `EXTRACT_BAD_JSON`, `TELEGRAM_DOWN`, or `PROOF_DROP_ROW` to demonstrate each failure recovery mode live.
+## How it fails and how someone would know
 
----
+Nothing partial or wrong is ever sent, and nothing fails silently:
 
-## 4. How the Data Was Handled
+- Bad input file: every problem listed, no model call made.
+- OpenAI slow or down: 3 retries with backoff, then the step fails and ops is alerted; retry
+  re-reads only the failed page.
+- Proof fails: no report, no summary, ops alerted with the numbers.
+- Telegram down: the run still finalises, the summary is marked failed, a "Summary not delivered —
+  Resend" banner appears, ops is alerted.
+- Finalising twice or a crash mid-send never sends a second message.
 
-- **Data Privacy & Minimal Exposure:** Only the handwritten register photos are processed by OpenAI for extraction. ERP exports and storekeeper sheets remain strictly within local/private storage and never leave the system.
-- **Audit Trails & Lineage:** Every normalized value preserves its raw original string alongside it in an immutable normalisation log.
-- **Signed URL Access:** Images and generated reports reside in private storage buckets, accessible only via temporary signed URLs with strict expiry (10-minute upload, 5-minute download).
-- **Data Integrity:** The audit log cannot be modified or deleted through the application interface or API.
+With `ALLOW_FAULTS=true`, add `?fault=` with `EXTRACT_TIMEOUT`, `EXTRACT_BAD_JSON`,
+`TELEGRAM_DOWN` or `PROOF_DROP_ROW` to show each path. Measured targets: `NFR_REPORT.md`.
 
----
+## How the data was handled
 
-## 5. What I'd Do With Another Week
+Only Nocturnal's fictional pack. Only the register photos go to OpenAI; ERP and sheet data never
+leave Supabase. Every normalised value keeps its raw value and a log entry. Files sit in private
+buckets behind expiring signed links (10 min upload, 5 min download). The browser's anon key can
+read no table; only the API's service key can. The audit log cannot be edited or deleted. No
+secrets in the repo: every `.env` file is git-ignored and gitleaks runs in CI.
 
-- **WhatsApp Cloud API Integration:** Implement direct inbound webhook support for WhatsApp Cloud API so warehouse staff can photo-message register pages directly to a WhatsApp business number to trigger runs automatically.
-- **Bounding-Box Visual Verification:** Display interactive cell-level crops directly over the physical photograph in the review queue to speed up human confirmation.
-- **Self-Learning Aliases:** Enable the engine to learn verified supplier abbreviations and item unit aliases from human reviewer choices over time.
-- **Direct ERP Write-Back:** Build automated write-back connectors to update approved corrections back into the host ERP system upon finalisation.
-- **Multi-Tenant Retention Policies:** Add automated retention windows and cryptographic data purging per company policy.
+## What I'd do with another week
 
----
+- Monthly runs that skip register pages already read (hash the photo, reuse its rows).
+- WhatsApp Cloud API, including photographing pages straight into a run.
+- Learn supplier and unit aliases from review decisions, each person-approved.
+- Cell crops over the photo in the review queue.
+- Write approved corrections back to the ERP; a background queue instead of one request per page.
 
-## 6. AI Tools Used and for What
+## AI tools used and for what
 
-- **Claude / Spec-Driven Development:** Architecture design, specification drafting, and test-first scaffold planning.
-- **Google Antigravity / Gemini 3.8:** End-to-end fullstack implementation, test execution, environment configuration, and verification.
-- **GPT-5.6 Luna (Embedded Product AI):** Embedded directly inside the product pipeline to read handwritten register pages twice independently for OCR extraction.
+- **Claude / Claude Code:** blueprint, spec-driven specs, plans and tasks, tests-first
+  implementation, review.
+- **Google Antigravity / Gemini:** implementation, test runs and environment setup.
+- **GPT-5.6 Luna** (inside the product): reads each register page twice; never sees ERP or sheet
+  data.
