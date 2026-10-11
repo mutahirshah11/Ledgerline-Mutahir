@@ -38,13 +38,17 @@ function nonZeroOutcomes(counts: RunSummary["counts"]): { outcome: Outcome; coun
     .map(([outcome, count]) => ({ outcome: outcome as Outcome, count }));
 }
 
+// A FINALISED run is closed regardless of how many lines actually MATCHED — it may well have had
+// real mismatches that the controller reviewed and resolved. Treating raw matched===total as the
+// only "settled" signal said "Needs you" on an already-closed run; `status` is the source of
+// truth for whether anything is still outstanding, not the outcome breakdown.
 function rowTone(run: RunSummary): { tile: string; label: string; text: string } {
   if (run.status === "FAILED") return { tile: "bg-danger-soft text-danger-ink", label: "Didn't finish", text: "text-danger-ink" };
-  const total = Object.values(run.counts).reduce((s, n) => s + n, 0);
-  const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
-  if (run.status === "FINALISED" && total > 0 && matched === total) {
+  if (run.status === "FINALISED") {
     return { tile: "bg-success-soft text-success-ink", label: "All matched", text: "text-success-ink" };
   }
+  const total = Object.values(run.counts).reduce((s, n) => s + n, 0);
+  const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
   if (total - matched > 0) return { tile: "bg-warning-soft text-warning-ink", label: "Needs you", text: "text-warning-ink" };
   return { tile: "bg-muted text-muted-foreground", label: "In progress", text: "text-muted-foreground" };
 }
@@ -54,6 +58,7 @@ function outcomeSummary(run: RunSummary): string {
   if (total === 0) return "No lines yet.";
   const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
   const outstanding = total - matched;
+  if (run.status === "FINALISED") return `${total} lines finalised`;
   if (outstanding === 0) return `All ${total} lines reconciled`;
   return `${matched} matched · ${outstanding} need${outstanding === 1 ? "s" : ""} a decision`;
 }
@@ -62,6 +67,7 @@ function segments(run: RunSummary): { success: number; warning: number; danger: 
   const total = Object.values(run.counts).reduce((s, n) => s + n, 0) || 1;
   const matched = (run.counts.MATCHED ?? 0) + (run.counts.MATCHED_AFTER_CONVERSION ?? 0);
   if (run.status === "FAILED") return { success: 0, warning: 0, danger: 100 };
+  if (run.status === "FINALISED") return { success: 100, warning: 0, danger: 0 };
   const outstanding = total - matched;
   return { success: (matched / total) * 100, warning: (outstanding / total) * 100, danger: 0 };
 }

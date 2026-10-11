@@ -35,7 +35,13 @@ function lineCountFor(run: RunView, source: Source): number {
 
 export function SourceCheckCard({ run }: SourceCheckCardProps) {
   const month = formatMonthLabel(run.month);
-  const needsAttention = run.open_review_items;
+  // A FINALISED run is closed regardless of what `open_review_items` still reads (e.g. items
+  // that didn't need a decision, like duplicates) — trust the finalised state over that count so
+  // this card never contradicts the hero's "You're all caught up." / "closed" copy. It gets its
+  // own branch below rather than folding into "All lines matched", since a finalised run may well
+  // have had — and resolved — real mismatches; "matched" would misstate that.
+  const finalised = run.status === "FINALISED";
+  const needsAttention = finalised ? 0 : run.open_review_items;
   const totalLines = SOURCES.reduce((sum, s) => sum + lineCountFor(run, s), 0);
   const nothingReadYet = totalLines === 0;
 
@@ -76,9 +82,11 @@ export function SourceCheckCard({ run }: SourceCheckCardProps) {
             <Flag className="h-4 w-4 shrink-0" aria-hidden="true" />
             {nothingReadYet
               ? "Nothing checked yet"
-              : needsAttention > 0
-                ? `${run.counts.MATCHED ?? 0} matched, ${needsAttention} to check`
-                : "All lines matched"}
+              : finalised
+                ? `${totalLines} lines finalised`
+                : needsAttention > 0
+                  ? `${run.counts.MATCHED ?? 0} matched, ${needsAttention} to check`
+                  : "All lines matched"}
           </p>
           <p className="mt-0.5 text-xs opacity-80">
             {nothingReadYet
