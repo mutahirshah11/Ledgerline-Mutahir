@@ -44,12 +44,6 @@ const MONTH_LONG = new Intl.DateTimeFormat("en-GB", {
   month: "long",
   year: "numeric",
 });
-const MONTH_SHORT_DATE = new Intl.DateTimeFormat("en-GB", {
-  timeZone: BUSINESS_TIME_ZONE,
-  day: "numeric",
-  month: "short",
-});
-
 /** "YYYY-MM" -> "September 2026". Unparseable input is returned as received. */
 export function formatMonthLabel(month: string): string {
   const d = new Date(`${month}-01T00:00:00Z`);
@@ -62,24 +56,4 @@ export function formatMonthShort(month: string): string {
   const d = new Date(`${month}-01T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return month;
   return d.toLocaleString("en-GB", { month: "short", timeZone: BUSINESS_TIME_ZONE }).toUpperCase();
-}
-
-/**
- * Relative time for recent instants ("Just now", "Yesterday", "3 days ago"), falling back to a
- * short date ("Sep 6") beyond a week — display only (UI copy), never used for business logic.
- */
-export function formatRelative(iso: string, now: Date = new Date()): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.round(diffMs / 60_000);
-  if (diffMin < 1) return "Just now";
-  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
-  const diffHour = Math.round(diffMin / 60);
-  if (diffHour < 24) return `${diffHour} hour${diffHour === 1 ? "" : "s"} ago`;
-  const diffDay = Math.round(diffHour / 24);
-  if (diffDay === 1) return "Yesterday";
-  if (diffDay < 7) return `${diffDay} days ago`;
-  const p = parts(MONTH_SHORT_DATE, iso);
-  return p ? `${p.month} ${p.day}` : iso;
 }
