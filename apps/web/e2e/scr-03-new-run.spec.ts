@@ -16,13 +16,17 @@ const PACK_HASHES = JSON.parse(
   readFileSync(resolve(__dirname, "..", "..", "api", "tests", "pack_hashes.json"), "utf8"),
 ) as Record<string, string>;
 
+// Next.js 16 can briefly keep a hidden copy of the page's tree in the DOM (see the `page` fixture
+// override in support/mock-api.ts); raw CSS locators aren't patched there, so filter here too.
+const fileInput = (page: Page, name: string) => page.locator(`input[type="file"][name="${name}"]`).filter({ visible: true });
+
 async function addPack(page: Page) {
-  await page.locator('input[type="file"][name="register"]').setInputFiles([
+  await fileInput(page, "register").setInputFiles([
     packFile("t4_register_page1.jpg"),
     packFile("t4_register_page2.jpg"),
   ]);
-  await page.locator('input[type="file"][name="erp"]').setInputFiles(packFile("t4_erp_grn.csv"));
-  await page.locator('input[type="file"][name="sheet"]').setInputFiles(packFile("t4_store_sheet.xlsx"));
+  await fileInput(page, "erp").setInputFiles(packFile("t4_erp_grn.csv"));
+  await fileInput(page, "sheet").setInputFiles(packFile("t4_store_sheet.xlsx"));
 }
 
 async function openAndRun(page: Page) {
@@ -68,7 +72,7 @@ test("SCR-03-AC2 a file breaking a rule shows its problem inline and Run stays d
   await addPack(page);
   await expect(run).toBeEnabled();
 
-  await page.locator('input[type="file"][name="register"]').setInputFiles([
+  await fileInput(page, "register").setInputFiles([
     { name: "receipt.gif", mimeType: "image/gif", buffer: Buffer.alloc(40 * 1024) },
     { name: "tiny.jpg", mimeType: "image/jpeg", buffer: Buffer.alloc(1024) },
   ]);
@@ -80,7 +84,7 @@ test("SCR-03-AC2 a file breaking a rule shows its problem inline and Run stays d
   );
   await expect(run).toBeDisabled();
 
-  await page.locator('input[type="file"][name="erp"]').setInputFiles({
+  await fileInput(page, "erp").setInputFiles({
     name: "second.csv",
     mimeType: "text/csv",
     buffer: Buffer.from("a,b\n"),
