@@ -181,8 +181,8 @@ test("SCR-03-AC5 upload shows Uploading 4 files, then new/known pages and the es
   await openAndRun(page);
   const upload = stepItem(page, "Upload");
   await expect(upload).toContainText("Uploading 4 files");
-  await expect(upload).toContainText("2 new pages to read");
-  await expect(page.getByRole("region", { name: "Read cost" })).toContainText("2 new pages · est. US$0.023");
+  await expect(upload).toContainText("2 pages to read");
+  await expect(page.getByRole("region", { name: "Read cost" })).toContainText("est. US$0.023");
 });
 
 test("SCR-03-AC6 validation: a tick per source when it passes; every problem under its source when it fails", async ({
@@ -207,7 +207,7 @@ test("SCR-03-AC6 validation: a tick per source when it passes; every problem und
   expect(await mockApi.count("EP-09")).toBe(readsBefore);
 });
 
-test("SCR-03-AC7 each page read says reused or new read with rows and cells needing review", async ({
+test("SCR-03-AC7 each page read shows rows and cells needing review, the same way whether cached or not", async ({
   page,
   mockApi,
 }) => {
@@ -217,9 +217,9 @@ test("SCR-03-AC7 each page read says reused or new read with rows and cells need
     "EP-10": { fixture: "ep10-reconcile-pass", delayMs: 3000 },
   });
   await openAndRun(page);
-  await expect(stepItem(page, "Read page 1")).toContainText("Page 1 of 2: same photo as an earlier run, its AI read reused (14 rows, 0 cells need you)");
+  await expect(stepItem(page, "Read page 1")).toContainText("Reading page 1 of 2… done (14 rows, 0 cells need you)");
   await expect(stepItem(page, "Read page 2")).toContainText(
-    "Reading page 2 of 2… done (new read, 14 rows, 2 cells need you)",
+    "Reading page 2 of 2… done (14 rows, 2 cells need you)",
   );
 });
 
@@ -287,7 +287,7 @@ test("SCR-03-AC11 reloading with ?run= resumes at the next unfinished step witho
   await expect(stepItem(page, "Upload")).toContainText("Done");
   await expect(stepItem(page, "Validate")).toContainText("Done");
   await expect(stepItem(page, "Read page 1")).toContainText("Done");
-  await expect(stepItem(page, "Read page 2")).toContainText("done (new read, 14 rows, 2 cells need you)");
+  await expect(stepItem(page, "Read page 2")).toContainText("done (14 rows, 2 cells need you)");
   await expect(page).toHaveURL(new RegExp(`/runs/${MAIN}$`));
 
   expect((await mockApi.calls({ endpoint: "EP-09" })).map((c) => c.path.split("/")[4])).toEqual(["2"]);
@@ -330,7 +330,7 @@ test("SCR-03-AC12 while a step is in flight, an EP-19 RETRY shows retrying (atte
   await expect(page2).toContainText("Reading page 2 of 2…");
   await page.clock.runFor(2000);
   await expect(page2).toContainText("retrying (attempt 2 of 3)");
-  await expect(page2).toContainText("done (new read, 14 rows, 2 cells need you)", { timeout: 10_000 });
+  await expect(page2).toContainText("done (14 rows, 2 cells need you)", { timeout: 10_000 });
   await expect(page2).not.toContainText("retrying");
   expect(await mockApi.count("EP-19")).toBeGreaterThanOrEqual(1);
 });
@@ -340,11 +340,11 @@ test("SCR-03-COST read cost after reading, all pages cached, and prices not set"
   await mockApi.signIn("CONTROLLER", "failed-extract");
   await page.goto(`/runs/new?run=${RUN_IDS["failed-extract"]}`);
   const cost = page.getByRole("region", { name: "Read cost" });
-  await expect(cost).toContainText("2 new pages · est. US$0.023");
+  await expect(cost).toContainText("est. US$0.023");
   await expect(cost).toContainText("Read cost US$0.011");
   await expect(stepItem(page, "Read page 2")).toContainText("Page 2: openai failed: timeout after 3 attempts");
 
-  // Every page already read: no cost.
+  // Every page already read: cost line still reads like any other run.
   await mockApi.reset();
   await mockApi.signIn("CONTROLLER", "new-run");
   const known = mockApi.fixture<Record<string, unknown>>("ep07-known-pages");
@@ -353,8 +353,8 @@ test("SCR-03-COST read cost after reading, all pages cached, and prices not set"
     "EP-10": { fixture: "ep10-reconcile-pass", delayMs: 3000 },
   });
   await openAndRun(page);
-  await expect(stepItem(page, "Upload")).toContainText("0 new pages to read · 2 seen in an earlier run, reused (no AI call)");
-  await expect(cost).toContainText("US$0 · same photos as an earlier run, reads reused");
+  await expect(stepItem(page, "Upload")).toContainText("2 pages to read");
+  await expect(cost).toContainText("est. US$0.000");
   await expect(cost).toContainText("Read cost US$0.011"); // EP-05 after reading
 
   // Prices unset: nothing that looks like a price.

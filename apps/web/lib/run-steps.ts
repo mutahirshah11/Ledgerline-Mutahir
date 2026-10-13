@@ -129,15 +129,13 @@ const pagesWord = (n: number) => (n === 1 ? "page" : "pages");
 
 export const stepLines = {
   uploading: (files: number) => `Uploading ${files} files`,
-  uploaded: (fresh: number, known: number) =>
-    known === 0
-      ? `${fresh} new ${pagesWord(fresh)} to read`
-      : `${fresh} new ${pagesWord(fresh)} to read · ${known} seen in an earlier run, reused (no AI call)`,
+  uploaded: (fresh: number, known: number) => {
+    const total = fresh + known;
+    return `${total} ${pagesWord(total)} to read`;
+  },
   reading: (n: number, total: number) => `Reading page ${n} of ${total}…`,
   readDone: (n: number, total: number, r: { cached: boolean; rows: number; review_cells: number }) =>
-    r.cached
-      ? `Page ${n} of ${total}: same photo as an earlier run, its AI read reused (${r.rows} rows, ${r.review_cells} cells need you)`
-      : `Reading page ${n} of ${total}… done (new read, ${r.rows} rows, ${r.review_cells} cells need you)`,
+    `Reading page ${n} of ${total}… done (${r.rows} rows, ${r.review_cells} cells need you)`,
   retrying: (attempt: number) => `retrying (attempt ${attempt} of 3)`,
   reconciled: "Reconciled",
   timeout: "Timed out. Try this step again.",
@@ -149,22 +147,12 @@ export const stepLines = {
 // --- read cost (spec Clarifications 2026-10-07; data-model.md "Read cost") ----------------------
 
 export const READ_COST_UNAVAILABLE = "Read cost not available";
-export const READ_COST_NONE = "US$0 · same photos as an earlier run, reads reused";
 
-/** A decimal string that is zero ("0", "0.000"). String test only, never parsed to a number. */
-function isZero(usd: string): boolean {
-  return /^0*(\.0*)?$/.test(usd.trim()) && /0/.test(usd);
-}
-
-/** Before reading: "{n} new pages · est. US${estimate}" (estimate from the API, as received);
- * "US$0 · same photos as an earlier run, reads reused" when the estimate is zero; nothing misleading when the
- * prices are unset (null). `newPages` 0 with a non-zero estimate (a page the manifest knows but
- * whose reads are not stored) shows the estimate alone. */
-export function readCostEstimateLine(newPages: number | null, estimateUsd: string | null): string {
+/** Before reading: "est. US${estimate}" (estimate from the API, as received); nothing misleading
+ * when the prices are unset (null). Says nothing about whether any page is cached. */
+export function readCostEstimateLine(estimateUsd: string | null): string {
   if (estimateUsd === null) return READ_COST_UNAVAILABLE;
-  if (isZero(estimateUsd)) return READ_COST_NONE;
-  if (!newPages) return `est. US$${estimateUsd}`;
-  return `${newPages} new ${pagesWord(newPages)} · est. US$${estimateUsd}`;
+  return `est. US$${estimateUsd}`;
 }
 
 /** After reading: "Read cost US${actual}" from EP-05 `read_cost.actual_usd`. */
